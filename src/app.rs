@@ -1,16 +1,16 @@
-use std::fmt::Display;
-
 use color_eyre::Result;
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
 use ratatui::{
-    DefaultTerminal, Frame,
-    prelude::*,
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders}, DefaultTerminal, Frame, prelude::*,
 };
 
-const APP_NAME: &str = r"
+use crate::widgets::{
+    connection::Connection, top_bar_view::TopBarView,
+};
+
+pub const APP_NAME: &str = r"
 _________________        
 \______ \______  \______ 
  |    |  \  /    /  ___/ 
@@ -18,150 +18,6 @@ _________________
 /_______  /____//____  > 
         \/           \/  
 ";
-
-struct Hotkey<'a> {
-    keycode: KeyCode,
-    description: &'a str,
-}
-
-impl<'a> Display for Hotkey<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.keycode)
-    }
-}
-
-const CONNECTION_HOTKEYS: [Hotkey; 5] = [
-    Hotkey {
-        keycode: KeyCode::Char('n'),
-        description: "New Connection",
-    },
-    Hotkey {
-        keycode: KeyCode::Char('e'),
-        description: "Edit Connection",
-    },
-    Hotkey {
-        keycode: KeyCode::Char('d'),
-        description: "Delete Connection",
-    },
-    Hotkey {
-        keycode: KeyCode::Char('o'),
-        description: "Open Connection",
-    },
-    Hotkey {
-        keycode: KeyCode::Char('t'),
-        description: "Test Connection",
-    },
-];
-
-struct HotkeyView<'a> {
-    hotkeys: &'a [Hotkey<'a>],
-}
-
-impl<'a> Widget for HotkeyView<'a> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let mut y = area.y;
-        let mut x = area.x;
-        let max_y = area.y + area.height;
-        let column_width = 30; // Width for each column
-
-        for hotkey in self.hotkeys {
-            // Check if we need to start a new column
-            if y >= max_y {
-                x += column_width;
-                y = area.y;
-            }
-
-            // Create a rectangle for this hotkey row
-            let hotkey_area = Rect::new(x, y, column_width, 1);
-
-            // Split the area horizontally for key and description
-            let row = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Length(
-                        (hotkey.keycode.to_string().len()
-                            + hotkey.description.len())
-                            as u16
-                            + 3,
-                    ), // Space for the key
-                    Constraint::Fill(1), // Rest for description
-                ])
-                .split(hotkey_area);
-
-            Paragraph::new(format!("<{}> {}", hotkey, hotkey.description))
-                .render(row[0], buf);
-            // Paragraph::new(format!("{}", hotkey.description))
-            //     .render(row[1], buf);
-
-            y += 1;
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-struct Connection {
-    name: String,
-    host: String,
-    port: u16,
-    user: String,
-    database: String,
-    schema: String,
-    table: String,
-}
-
-impl Display for Connection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            " Name: {}\n Host: {}\n Port: {}\n User: {}\n Database: {}\n Schema: {}\n Table: {}",
-            self.name,
-            self.host,
-            if self.port == 0 {
-                "".to_string()
-            } else {
-                self.port.to_string()
-            },
-            self.user,
-            self.database,
-            self.schema,
-            self.table
-        )
-    }
-}
-
-struct TopBarView {
-    current_connection: Connection,
-}
-
-impl Widget for TopBarView {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let col_constraints = [
-            Constraint::Percentage(30),
-            Constraint::Percentage(40),
-            Constraint::Percentage(30),
-        ];
-        let row_constraints = [Constraint::Fill(1)];
-
-        let horizontal = Layout::horizontal(col_constraints).spacing(1);
-        let vertical = Layout::vertical(row_constraints).spacing(1);
-
-        let rows = vertical.split(area);
-        let cells = rows
-            .iter()
-            .flat_map(|&row| horizontal.split(row).to_vec())
-            .collect::<Vec<_>>();
-
-        Paragraph::new(format!("{}", self.current_connection))
-            .render(cells[0], buf);
-        HotkeyView {
-            hotkeys: &CONNECTION_HOTKEYS,
-        }
-        .render(cells[1], buf);
-        Paragraph::new(APP_NAME.trim_start())
-            .alignment(Alignment::Right)
-            .render(cells[2], buf);
-    }
-}
 
 /// The main application which holds the state and logic of the application.
 #[derive(Debug, Default)]
