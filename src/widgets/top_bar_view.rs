@@ -5,26 +5,26 @@ use ratatui::{
 };
 
 use super::{connection::Connection, hotkey_view::HotkeyView};
-use crate::app::APP_NAME;
+use crate::{app::APP_NAME, widgets::hotkey::Hotkey};
 
-const CONNECTION_HOTKEYS: [crate::widgets::hotkey::Hotkey; 5] = [
-    crate::widgets::hotkey::Hotkey {
+const CONNECTION_HOTKEYS: [Hotkey; 5] = [
+    Hotkey {
         keycode: KeyCode::Char('n'),
         description: "New Connection",
     },
-    crate::widgets::hotkey::Hotkey {
+    Hotkey {
         keycode: KeyCode::Char('e'),
         description: "Edit Connection",
     },
-    crate::widgets::hotkey::Hotkey {
+    Hotkey {
         keycode: KeyCode::Char('d'),
         description: "Delete Connection",
     },
-    crate::widgets::hotkey::Hotkey {
+    Hotkey {
         keycode: KeyCode::Char('o'),
         description: "Open Connection",
     },
-    crate::widgets::hotkey::Hotkey {
+    Hotkey {
         keycode: KeyCode::Char('t'),
         description: "Test Connection",
     },

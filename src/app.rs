@@ -3,11 +3,13 @@ use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
 use ratatui::{
-    widgets::{Block, Borders}, DefaultTerminal, Frame, prelude::*,
+    DefaultTerminal, Frame,
+    prelude::*,
+    widgets::{Block, Borders},
 };
 
 use crate::widgets::{
-    connection::Connection, top_bar_view::TopBarView,
+    connection::Connection, table::TableView, top_bar_view::TopBarView,
 };
 
 pub const APP_NAME: &str = r"
@@ -59,13 +61,24 @@ impl App {
 
         let current_connection = Connection::default();
         frame.render_widget(TopBarView { current_connection }, layout[0]);
-        frame.render_widget(
-            Block::new()
-                .borders(Borders::ALL)
-                .title(" Connections ")
-                .title_alignment(Alignment::Center),
-            layout[1],
-        );
+
+        // Create the inner block
+        let block = Block::new()
+            .borders(Borders::ALL)
+            .title(" Connections ")
+            .title_alignment(Alignment::Center);
+
+        // Get the inner area of the block (content area)
+        let inner_area = block.inner(layout[1]);
+
+        // Render the block itself (borders and title)
+        frame.render_widget(block, layout[1]);
+
+        // Render content inside the block
+        // For demonstration, we'll render a centered paragraph.
+        // Replace this with your actual content widget.
+        let mut content = TableView::new();
+        content.draw(frame, inner_area);
     }
 
     /// Reads the crossterm events and updates the state of [`App`].
