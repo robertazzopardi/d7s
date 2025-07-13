@@ -1,10 +1,12 @@
 use std::fmt::Display;
 
-#[derive(Debug, Default)]
+use crate::widgets::table::TableData;
+
+#[derive(Debug, Default, Clone)]
 pub struct Connection {
     pub name: String,
     pub host: String,
-    pub port: u16,
+    pub port: String,
     pub user: String,
     pub database: String,
     pub schema: String,
@@ -18,15 +20,35 @@ impl Display for Connection {
             " Name: {}\n Host: {}\n Port: {}\n User: {}\n Database: {}\n Schema: {}\n Table: {}",
             self.name,
             self.host,
-            if self.port == 0 {
-                "".to_string()
-            } else {
-                self.port.to_string()
-            },
+            self.port,
             self.user,
             self.database,
             self.schema,
             self.table
         )
+    }
+}
+
+impl TableData for Connection {
+    fn ref_array(&self) -> Vec<&String> {
+        vec![
+            &self.name,
+            &self.host,
+            &self.port,
+            &self.user,
+            &self.database,
+            &self.schema,
+            &self.table,
+        ]
+    }
+
+    fn num_columns(&self) -> usize {
+        self.ref_array().len()
+    }
+
+    fn cols() -> Vec<&'static str> {
+        vec![
+            "Name", "Host", "Port", "User", "Database", "Schema", "Table",
+        ]
     }
 }
