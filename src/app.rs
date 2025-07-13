@@ -3,13 +3,17 @@ use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
 use ratatui::{
-    DefaultTerminal, Frame,
     prelude::*,
     widgets::{Block, Borders},
+    DefaultTerminal, Frame,
 };
 
 use crate::widgets::{
-    connection::Connection, table::TableView, top_bar_view::TopBarView,
+    connection::Connection,
+    connection_modal::ConnectionModal,
+    hotkey::Hotkey,
+    table::TableView,
+    top_bar_view::{CONNECTION_HOTKEYS, TopBarView},
 };
 
 pub const APP_NAME: &str = r"
@@ -22,13 +26,27 @@ _________________
 ";
 
 /// The main application which holds the state and logic of the application.
-#[derive(Debug, Default)]
-pub struct App {
+#[derive(Debug)]
+pub struct App<'a> {
     /// Is the application running?
     running: bool,
+    show_popup: bool,
+    connection_modal: ConnectionModal,
+    hotkeys: Vec<Hotkey<'a>>,
 }
 
-impl App {
+impl<'a> Default for App<'a> {
+    fn default() -> Self {
+        Self {
+            running: false,
+            show_popup: false,
+            connection_modal: ConnectionModal::new(),
+            hotkeys: CONNECTION_HOTKEYS.to_vec(),
+        }
+    }
+}
+
+impl<'a> App<'a> {
     /// Construct a new instance of [`App`].
     pub fn new() -> Self {
         Self::default()
@@ -77,8 +95,13 @@ impl App {
         // Render content inside the block
         // For demonstration, we'll render a centered paragraph.
         // Replace this with your actual content widget.
-        let mut content = TableView::new();
+        let mut content = TableView::<Connection>::new();
         content.draw(frame, inner_area);
+
+        // Render connection modal if open
+        if self.connection_modal.is_open {
+            frame.render_widget(self.connection_modal.clone(), frame.area());
+        }
     }
 
     /// Reads the crossterm events and updates the state of [`App`].
@@ -100,13 +123,100 @@ impl App {
 
     /// Handles the key events and updates the state of [`App`].
     fn on_key_event(&mut self, key: KeyEvent) {
+        // Handle connection modal events first
+        if self.connection_modal.is_open {
+            self.handle_connection_modal_events(key);
+            return;
+        }
+
+        // if let Some(hotkey) =
+        //     self.hotkeys.iter().find(|h| h.keycode == key.code)
+        // {
+        //     println!("Hotkey pressed: {}", hotkey.description);
+        //     return;
+        // }
+
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc | KeyCode::Char('q'))
-            | (
+            (_, KeyCode::Char('q'))
+            |
+            (
                 KeyModifiers::CONTROL,
                 KeyCode::Char('c') | KeyCode::Char('C'),
             ) => self.quit(),
+            (_, KeyCode::Char('n')) => {
+                if !self.connection_modal.is_open {
+                    self.connection_modal.open();
+                }
+            }
+            (_, KeyCode::Char('p')) => self.toggle_popup(),
+            (_, KeyCode::Esc) => {
+                if self.show_popup {
+                    self.toggle_popup();
+                }
+            }
             // Add other key handlers here.
+            _ => {}
+        }
+    }
+
+    fn toggle_popup(&mut self) {
+        self.show_popup = !self.show_popup;
+    }
+
+    fn handle_connection_modal_events(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                self.connection_modal.close();
+            }
+            // Try multiple ways to detect Shift+Tab
+            (KeyModifiers::SHIFT, KeyCode::Tab) => {
+                self.connection_modal.prev_field();
+            }
+            // Some terminals might send this as a different key code
+            (KeyModifiers::SHIFT, KeyCode::Char('\t')) => {
+                self.connection_modal.prev_field();
+            }
+            (_, KeyCode::Tab) => {
+                self.connection_modal.next_field();
+            }
+            (_, KeyCode::Enter) => {
+                if self.connection_modal.selected_button == 0 && self.connection_modal.is_valid() {
+                    if let Some(connection) =
+                        self.connection_modal.get_connection()
+                    {
+                        println!("New connection created: {:?}", connection);
+                        // TODO: Add connection to the list
+                        self.connection_modal.close();
+                    }
+                } else if self.connection_modal.selected_button == 1 {
+                    self.connection_modal.close();
+                }
+            }
+            (_, KeyCode::Char(c)) => {
+                self.connection_modal.add_char(c);
+            }
+            (_, KeyCode::Backspace) => {
+                self.connection_modal.remove_char();
+            }
+            (_, KeyCode::Up) => {
+                self.connection_modal.prev_field();
+            }
+            (_, KeyCode::Down) => {
+                self.connection_modal.next_field();
+            }
+            (_, KeyCode::Left) => {
+                self.connection_modal.selected_button = (self.connection_modal.selected_button + 1) % 2;
+            }
+            (_, KeyCode::Right) => {
+                self.connection_modal.selected_button = (self.connection_modal.selected_button + 1) % 2;
+            }
+            // Alternative navigation keys
+            (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+                self.connection_modal.prev_field();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
+                self.connection_modal.next_field();
+            }
             _ => {}
         }
     }

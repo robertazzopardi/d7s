@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use crossterm::event::KeyCode;
 
+#[derive(Debug, Clone)]
 pub struct Hotkey<'a> {
     pub keycode: KeyCode,
     pub description: &'a str,
