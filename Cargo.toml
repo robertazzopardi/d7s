@@ -10,5 +10,5 @@ edition = "2024"
 crossterm = "0.28.1"
 ratatui = "0.29.0"
 color-eyre = "0.6.3"
-sqlx = "0.8.6"
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls"] }
 unicode-width = "0.2"
