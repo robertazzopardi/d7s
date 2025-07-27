@@ -1,3 +1,4 @@
+use d7s_db::TableData;
 use ratatui::{
     Frame,
     layout::{Constraint, Rect},
@@ -8,17 +9,6 @@ use ratatui::{
     },
 };
 use unicode_width::UnicodeWidthStr;
-
-pub trait TableData {
-    fn title() -> &'static str;
-    fn ref_array(&self) -> Vec<&String>;
-    fn num_columns(&self) -> usize;
-    fn cols() -> Vec<&'static str>;
-
-    fn col(&self, column: usize) -> &str {
-        self.ref_array()[column]
-    }
-}
 
 /// A ratatui widget for displaying tabular data with selection and styling
 pub struct DataTable<T: TableData> {

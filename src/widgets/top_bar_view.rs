@@ -1,10 +1,11 @@
 use crossterm::event::KeyCode;
+use d7s_db::connection::Connection;
 use ratatui::{
     prelude::{Alignment, Buffer, Constraint, Layout, Rect, Widget},
     widgets::Paragraph,
 };
 
-use super::{connection::Connection, hotkey_view::HotkeyView};
+use super::hotkey_view::HotkeyView;
 use crate::{app::APP_NAME, widgets::hotkey::Hotkey};
 
 pub const CONNECTION_HOTKEYS: [Hotkey; 4] = [
