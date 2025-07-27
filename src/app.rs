@@ -2,6 +2,7 @@ use color_eyre::Result;
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
+use d7s_db::connection::Connection;
 use ratatui::{
     DefaultTerminal, Frame,
     prelude::*,
@@ -9,10 +10,9 @@ use ratatui::{
 };
 
 use crate::widgets::{
-    connection::Connection,
     hotkey::Hotkey,
     modal::{Modal, Mode},
-    table::{TableData, TableView},
+    table::TableView,
     top_bar_view::{CONNECTION_HOTKEYS, TopBarView},
 };
 

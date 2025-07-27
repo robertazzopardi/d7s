@@ -1,3 +1,6 @@
+[workspace]
+members = ["crates/d7s_db"]
+
 [package]
 name = "d7s"
 version = "0.1.0"
@@ -7,8 +10,8 @@ license = "MIT"
 edition = "2024"
 
 [dependencies]
+d7s_db = { path = "crates/d7s_db" }
 crossterm = "0.28.1"
 ratatui = "0.29.0"
 color-eyre = "0.6.3"
-sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls"] }
 unicode-width = "0.2"

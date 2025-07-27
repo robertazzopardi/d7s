@@ -1,13 +1,12 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use d7s_db::{TableData, connection::Connection};
 use ratatui::{
     prelude::{Alignment, Buffer, Constraint, Direction, Layout, Rect, Widget},
     style::{Color, Style},
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
-use crate::widgets::{
-    buttons::Buttons, connection::Connection, table::TableData,
-};
+use crate::widgets::buttons::Buttons;
 
 #[derive(Clone, Debug, Default)]
 pub enum Mode {
