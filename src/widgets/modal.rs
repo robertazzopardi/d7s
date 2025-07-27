@@ -1,19 +1,29 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     prelude::{Alignment, Buffer, Constraint, Direction, Layout, Rect, Widget},
     style::{Color, Style},
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
-use crate::widgets::{buttons::Buttons, connection::Connection};
+use crate::widgets::{
+    buttons::Buttons, connection::Connection, table::TableData,
+};
+
+#[derive(Clone, Debug, Default)]
+pub enum Mode {
+    #[default]
+    New,
+    Edit,
+}
 
 #[derive(Debug, Clone)]
-pub struct ConnectionField {
+pub struct ModalField {
     pub label: &'static str,
     pub value: String,
     pub is_focused: bool,
 }
 
-impl ConnectionField {
+impl ModalField {
     pub fn new(label: &'static str) -> Self {
         Self {
             label,
@@ -40,31 +50,27 @@ impl ConnectionField {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ConnectionModal {
-    pub fields: Vec<ConnectionField>,
+#[derive(Default, Debug, Clone)]
+pub struct Modal<T: TableData> {
+    pub fields: Vec<ModalField>,
     pub current_field: usize,
     pub is_open: bool,
     pub selected_button: usize,
+    pub data: T,
+    pub mode: Mode,
 }
 
-impl ConnectionModal {
-    pub fn new() -> Self {
-        let fields = vec![
-            ConnectionField::new("Name"),
-            ConnectionField::new("Host"),
-            ConnectionField::new("Port"),
-            ConnectionField::new("User"),
-            ConnectionField::new("Database"),
-            ConnectionField::new("Schema"),
-            ConnectionField::new("Table"),
-        ];
+impl<T: TableData> Modal<T> {
+    pub fn new(data: T, mode: Mode) -> Self {
+        let fields = T::cols().iter().map(|c| ModalField::new(c)).collect();
 
         let mut modal = Self {
             fields,
             current_field: 0,
             is_open: false,
             selected_button: 0,
+            data,
+            mode,
         };
 
         // Set focus on first field
@@ -142,7 +148,7 @@ impl ConnectionModal {
     }
 }
 
-impl Widget for ConnectionModal {
+impl<T: TableData> Widget for Modal<T> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         if !self.is_open {
             return;
@@ -156,7 +162,7 @@ impl Widget for ConnectionModal {
         let modal_area = Rect::new(x, y, modal_width, modal_height);
 
         let block = Block::default()
-            .title("New Connection")
+            .title(T::title())
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Blue))
@@ -175,12 +181,6 @@ impl Widget for ConnectionModal {
             .margin(1)
             .split(modal_area);
 
-        // Title: Postgres Connection
-        let title = Paragraph::new("Postgres Connection")
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::LightRed));
-        title.render(inner_layout[0], buf);
-
         // Render form fields inside the modal
         self.render_fields(inner_layout[1], buf);
 
@@ -189,7 +189,7 @@ impl Widget for ConnectionModal {
     }
 }
 
-impl ConnectionModal {
+impl<T: TableData> Modal<T> {
     fn render_fields(&self, area: Rect, buf: &mut Buffer) {
         // Each field is a row: label left, value right after colon
         let field_layout = Layout::default()
@@ -228,5 +228,61 @@ impl ConnectionModal {
             selected: self.selected_button,
         };
         buttons.render(area, buf);
+    }
+
+    pub fn handle_key_events(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                self.close();
+            }
+            // Try multiple ways to detect Shift+Tab
+            (KeyModifiers::SHIFT, KeyCode::Tab) => {
+                self.prev_field();
+            }
+            // Some terminals might send this as a different key code
+            (KeyModifiers::SHIFT, KeyCode::Char('\t')) => {
+                self.prev_field();
+            }
+            (_, KeyCode::Tab) => {
+                self.next_field();
+            }
+            (_, KeyCode::Enter) => {
+                if self.selected_button == 0 && self.is_valid() {
+                    if let Some(connection) = self.get_connection() {
+                        println!("New connection created: {:?}", connection);
+                        // TODO: Add connection to the list
+                        self.close();
+                    }
+                } else if self.selected_button == 1 {
+                    self.close();
+                }
+            }
+            (_, KeyCode::Char(c)) => {
+                self.add_char(c);
+            }
+            (_, KeyCode::Backspace) => {
+                self.remove_char();
+            }
+            (_, KeyCode::Up) => {
+                self.prev_field();
+            }
+            (_, KeyCode::Down) => {
+                self.next_field();
+            }
+            (_, KeyCode::Left) => {
+                self.selected_button = (self.selected_button + 1) % 2;
+            }
+            (_, KeyCode::Right) => {
+                self.selected_button = (self.selected_button + 1) % 2;
+            }
+            // Alternative navigation keys
+            (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+                self.prev_field();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
+                self.next_field();
+            }
+            _ => {}
+        }
     }
 }

@@ -1,5 +1,5 @@
 pub mod connection;
-pub mod connection_modal;
+pub mod modal;
 pub mod hotkey;
 pub mod hotkey_view;
 pub mod table;

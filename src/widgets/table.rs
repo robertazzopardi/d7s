@@ -10,6 +10,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 pub trait TableData {
+    fn title() -> &'static str;
     fn ref_array(&self) -> Vec<&String>;
     fn num_columns(&self) -> usize;
     fn cols() -> Vec<&'static str>;
@@ -35,7 +36,7 @@ impl<T: TableData> DataTable<T> {
     }
 }
 
-impl<T: TableData> StatefulWidget for DataTable<T> {
+impl<T: TableData + std::fmt::Debug> StatefulWidget for DataTable<T> {
     type State = TableState;
 
     fn render(
@@ -163,7 +164,7 @@ impl<T: TableData + Clone> TableView<T> {
     }
 }
 
-impl<T: TableData + Clone> TableView<T> {
+impl<T: TableData + Clone + std::fmt::Debug> TableView<T> {
     pub fn next_row(&mut self) {
         self.state.next_row(self.items.len());
     }
