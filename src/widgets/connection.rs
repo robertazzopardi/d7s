@@ -30,6 +30,10 @@ impl Display for Connection {
 }
 
 impl TableData for Connection {
+    fn title() -> &'static str {
+        "Connection"
+    }
+
     fn ref_array(&self) -> Vec<&String> {
         vec![
             &self.name,
