@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::widgets::table::TableData;
+use crate::TableData;
 
 #[derive(Debug, Default, Clone)]
 pub struct Connection {
