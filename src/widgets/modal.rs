@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use d7s_db::{TableData, connection::Connection};
+use d7s_db::{Database, TableData, connection::Connection};
 use ratatui::{
     prelude::{Alignment, Buffer, Constraint, Direction, Layout, Rect, Widget},
     style::{Color, Style},
@@ -13,6 +13,15 @@ pub enum Mode {
     #[default]
     New,
     Edit,
+}
+
+#[derive(Clone, Debug, Default)]
+pub enum TestResult {
+    #[default]
+    NotTested,
+    Testing,
+    Success,
+    Failed(String),
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +66,7 @@ pub struct Modal<T: TableData> {
     pub selected_button: usize,
     pub data: T,
     pub mode: Mode,
+    pub test_result: TestResult,
 }
 
 impl<T: TableData> Modal<T> {
@@ -70,6 +80,7 @@ impl<T: TableData> Modal<T> {
             selected_button: 0,
             data,
             mode,
+            test_result: TestResult::NotTested,
         };
 
         // Set focus on first field
@@ -137,8 +148,9 @@ impl<T: TableData> Modal<T> {
             port: self.fields[2].value.clone(),
             user: self.fields[3].value.clone(),
             database: self.fields[4].value.clone(),
-            schema: self.fields[5].value.clone(),
-            table: self.fields[6].value.clone(),
+            password: self.fields[5].value.clone(),
+            schema: None,
+            table: None,
         })
     }
 
@@ -153,9 +165,9 @@ impl<T: TableData> Widget for Modal<T> {
             return;
         }
 
-        // Center a fixed-size modal (e.g., 60x18)
+        // Center a fixed-size modal
         let modal_width = 40;
-        let modal_height = 12;
+        let modal_height = 14;
         let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
         let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
         let modal_area = Rect::new(x, y, modal_width, modal_height);
@@ -174,7 +186,8 @@ impl<T: TableData> Widget for Modal<T> {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1), // Title
-                Constraint::Min(7),    // Fields
+                Constraint::Min(8),    // Fields (6 fields + some padding)
+                Constraint::Length(1), // Test result
                 Constraint::Length(1), // Buttons
             ])
             .margin(1)
@@ -183,8 +196,11 @@ impl<T: TableData> Widget for Modal<T> {
         // Render form fields inside the modal
         self.render_fields(inner_layout[1], buf);
 
+        // Render test result
+        self.render_test_result(inner_layout[2], buf);
+
         // Render buttons at the bottom
-        self.render_buttons(inner_layout[2], buf);
+        self.render_buttons(inner_layout[3], buf);
     }
 }
 
@@ -210,9 +226,9 @@ impl<T: TableData> Modal<T> {
             };
             let text = format!("{:<12} {}", label, value);
             let style = if field.is_focused {
-                Style::default().bg(Color::Blue).fg(Color::White)
+                Style::default().fg(Color::White)
             } else {
-                Style::default().bg(Color::Black).fg(Color::White)
+                Style::default().fg(Color::White)
             };
             Paragraph::new(text)
                 .style(style)
@@ -223,13 +239,33 @@ impl<T: TableData> Modal<T> {
 
     fn render_buttons(&self, area: Rect, buf: &mut Buffer) {
         let buttons = Buttons {
-            buttons: vec!["OK", "Cancel"],
+            buttons: vec!["OK", "Test", "Cancel"],
             selected: self.selected_button,
         };
         buttons.render(area, buf);
     }
 
-    pub fn handle_key_events(&mut self, key: KeyEvent) {
+    fn render_test_result(&self, area: Rect, buf: &mut Buffer) {
+        let (text, style) = match &self.test_result {
+            TestResult::NotTested => ("", Style::default()),
+            TestResult::Testing => {
+                ("Testing connection...", Style::default().fg(Color::Yellow))
+            }
+            TestResult::Success => {
+                ("✓ Connection successful", Style::default().fg(Color::Green))
+            }
+            TestResult::Failed(msg) => {
+                (msg.as_str(), Style::default().fg(Color::Red))
+            }
+        };
+
+        Paragraph::new(text)
+            .style(style)
+            .alignment(Alignment::Center)
+            .render(area, buf);
+    }
+
+    pub async fn handle_key_events(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 self.close();
@@ -253,6 +289,24 @@ impl<T: TableData> Modal<T> {
                         self.close();
                     }
                 } else if self.selected_button == 1 {
+                    // Test button - handle test in a blocking way
+                    if let Some(connection) = self.get_connection() {
+                        let postgres = connection.to_postgres();
+                        self.test_result = TestResult::Testing;
+
+                        // Use block_on to run the async test in a blocking context
+                        let result = postgres.test().await;
+                        self.test_result = if result {
+                            TestResult::Success
+                        } else {
+                            TestResult::Failed("Connection failed".to_string())
+                        };
+                    } else {
+                        self.test_result = TestResult::Failed(
+                            "Please fill in all fields".to_string(),
+                        );
+                    }
+                } else if self.selected_button == 2 {
                     self.close();
                 }
             }
@@ -269,10 +323,10 @@ impl<T: TableData> Modal<T> {
                 self.next_field();
             }
             (_, KeyCode::Left) => {
-                self.selected_button = (self.selected_button + 1) % 2;
+                self.selected_button = (self.selected_button + 2) % 3;
             }
             (_, KeyCode::Right) => {
-                self.selected_button = (self.selected_button + 1) % 2;
+                self.selected_button = (self.selected_button + 1) % 3;
             }
             // Alternative navigation keys
             (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
