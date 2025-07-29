@@ -11,7 +11,7 @@ edition = "2024"
 
 [dependencies]
 d7s_db = { path = "crates/d7s_db" }
-crossterm = "0.28.1"
+crossterm = "0.29.0"
 ratatui = "0.29.0"
 color-eyre = "0.6.3"
 unicode-width = "0.2"
