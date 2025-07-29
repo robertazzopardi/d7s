@@ -196,14 +196,18 @@ fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<u16> {
 
     let num_columns = items[0].num_columns();
 
-    (0..num_columns)
-        .map(|col_idx| {
-            items
-                .iter()
-                .flat_map(|data| data.col(col_idx).lines())
-                .map(UnicodeWidthStr::width)
-                .max()
-                .unwrap_or(0) as u16
-        })
-        .collect()
+    let mut result = Vec::with_capacity(num_columns);
+    for col_idx in 0..num_columns {
+        let mut max_width = 0;
+        for data in items.iter() {
+            for line in data.col(col_idx).lines() {
+                let width = UnicodeWidthStr::width(line);
+                if width > max_width {
+                    max_width = width;
+                }
+            }
+        }
+        result.push(max_width as u16);
+    }
+    result
 }

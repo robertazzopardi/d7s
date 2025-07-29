@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::TableData;
+use crate::{TableData, postgres::Postgres};
 
 #[derive(Debug, Default, Clone)]
 pub struct Connection {
@@ -9,8 +9,9 @@ pub struct Connection {
     pub port: String,
     pub user: String,
     pub database: String,
-    pub schema: String,
-    pub table: String,
+    pub schema: Option<String>,
+    pub table: Option<String>,
+    pub password: String,
 }
 
 impl Display for Connection {
@@ -23,8 +24,8 @@ impl Display for Connection {
             self.port,
             self.user,
             self.database,
-            self.schema,
-            self.table
+            self.schema.as_ref().unwrap_or(&"".to_string()),
+            self.table.as_ref().unwrap_or(&"".to_string()),
         )
     }
 }
@@ -34,15 +35,14 @@ impl TableData for Connection {
         "Connection"
     }
 
-    fn ref_array(&self) -> Vec<&String> {
+    fn ref_array(&self) -> Vec<String> {
         vec![
-            &self.name,
-            &self.host,
-            &self.port,
-            &self.user,
-            &self.database,
-            &self.schema,
-            &self.table,
+            self.name.clone(),
+            self.host.clone(),
+            self.port.clone(),
+            self.user.clone(),
+            self.database.clone(),
+            self.password.clone(),
         ]
     }
 
@@ -51,8 +51,20 @@ impl TableData for Connection {
     }
 
     fn cols() -> Vec<&'static str> {
-        vec![
-            "Name", "Host", "Port", "User", "Database", "Schema", "Table",
-        ]
+        vec!["Name", "Host", "Port", "User", "Database", "Password"]
+    }
+}
+
+impl Connection {
+    /// Convert this connection to a Postgres instance for testing
+    pub fn to_postgres(&self) -> Postgres {
+        Postgres {
+            name: self.name.clone(),
+            host: Some(self.host.clone()),
+            port: Some(self.port.clone()),
+            user: self.user.clone(),
+            database: self.database.clone(),
+            password: self.password.clone(),
+        }
     }
 }
