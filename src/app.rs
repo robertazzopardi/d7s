@@ -52,11 +52,11 @@ impl<'a> App<'a> {
     }
 
     /// Run the application's main loop.
-    pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
+    pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
         while self.running {
             terminal.draw(|frame| self.render(frame))?;
-            self.handle_crossterm_events()?;
+            self.handle_crossterm_events().await?;
         }
         Ok(())
     }
@@ -109,11 +109,11 @@ impl<'a> App<'a> {
     ///
     /// If your application needs to perform work in between handling events, you can use the
     /// [`event::poll`] function to check if there are any events available with a timeout.
-    fn handle_crossterm_events(&mut self) -> Result<()> {
+    async fn handle_crossterm_events(&mut self) -> Result<()> {
         match event::read()? {
             // it's important to check KeyEventKind::Press to avoid handling key release events
             Event::Key(key) if key.kind == KeyEventKind::Press => {
-                self.on_key_event(key)
+                self.on_key_event(key).await;
             }
             Event::Mouse(_) => {}
             Event::Resize(_, _) => {}
@@ -123,11 +123,11 @@ impl<'a> App<'a> {
     }
 
     /// Handles the key events and updates the state of [`App`].
-    fn on_key_event(&mut self, key: KeyEvent) {
+    async fn on_key_event(&mut self, key: KeyEvent) {
         // Handle connection modal events first
         if let Some(modal) = &mut self.modal {
             if modal.is_open {
-                modal.handle_key_events(key);
+                modal.handle_key_events(key).await;
                 return;
             }
         }
