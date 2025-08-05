@@ -1,3 +1,4 @@
+use color_eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use d7s_db::{Database, TableData, connection::Connection};
 use ratatui::{
@@ -265,7 +266,7 @@ impl<T: TableData> Modal<T> {
             .render(area, buf);
     }
 
-    pub async fn handle_key_events(&mut self, key: KeyEvent) {
+    pub async fn handle_key_events(&mut self, key: KeyEvent) -> Result<()> {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 self.close();
@@ -285,7 +286,13 @@ impl<T: TableData> Modal<T> {
                 if self.selected_button == 0 && self.is_valid() {
                     if let Some(connection) = self.get_connection() {
                         println!("New connection created: {:?}", connection);
-                        // TODO: Add connection to the list
+                        let entry =
+                            keyring::Entry::new("d7s", &connection.user)?;
+                        entry.set_password(&connection.password)?;
+
+                        // TODO dont save password and user to database
+                        d7s_db::sqlite::save_connection(&connection).unwrap();
+
                         self.close();
                     }
                 } else if self.selected_button == 1 {
@@ -337,5 +344,7 @@ impl<T: TableData> Modal<T> {
             }
             _ => {}
         }
+
+        Ok(())
     }
 }
