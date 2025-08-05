@@ -48,6 +48,8 @@ impl<'a> Default for App<'a> {
 impl<'a> App<'a> {
     /// Construct a new instance of [`App`].
     pub fn new() -> Self {
+        d7s_db::sqlite::init_db().unwrap();
+
         Self::default()
     }
 
@@ -123,12 +125,12 @@ impl<'a> App<'a> {
     }
 
     /// Handles the key events and updates the state of [`App`].
-    async fn on_key_event(&mut self, key: KeyEvent) {
+    async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Handle connection modal events first
         if let Some(modal) = &mut self.modal {
             if modal.is_open {
                 modal.handle_key_events(key).await;
-                return;
+                return Ok(());
             }
         }
 
@@ -163,6 +165,8 @@ impl<'a> App<'a> {
             // Add other key handlers here.
             _ => {}
         }
+
+        Ok(())
     }
 
     fn toggle_popup(&mut self) {

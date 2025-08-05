@@ -1,5 +1,11 @@
 pub mod connection;
 pub mod postgres;
+pub mod sqlite;
+
+use std::path::PathBuf;
+
+use color_eyre::Result;
+use dirs;
 
 pub trait TableData {
     fn title() -> &'static str;
@@ -14,4 +20,22 @@ pub trait TableData {
 
 pub trait Database {
     async fn test(&self) -> bool;
+}
+
+pub(crate) fn get_app_data_dir() -> Result<PathBuf> {
+    let mut path =
+        dirs::data_dir().expect("Could not determine data directory");
+
+    path.push("d7s");
+
+    // Create directory if it doesn't exist
+    std::fs::create_dir_all(&path)?;
+
+    Ok(path)
+}
+
+pub(crate) fn get_db_path() -> Result<PathBuf> {
+    let mut path = get_app_data_dir()?;
+    path.push("d7s.db");
+    Ok(path)
 }
