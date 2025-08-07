@@ -1,19 +1,19 @@
 use d7s_db::TableData;
 use ratatui::{
-    Frame,
     layout::{Constraint, Rect},
     style::{Modifier, Style},
     text::Text,
-    widgets::{
-        Cell, HighlightSpacing, Row, StatefulWidget, Table, TableState, Widget,
-    },
+    widgets::{Cell, HighlightSpacing, Row, StatefulWidget, Table, TableState},
 };
-use unicode_width::UnicodeWidthStr;
+
+use crate::widgets::constraint_len_calculator;
 
 /// A ratatui widget for displaying tabular data with selection and styling
+#[derive(Clone, Debug, Default)]
 pub struct DataTable<T: TableData> {
-    items: Vec<T>,
-    longest_item_lens: Vec<u16>, // order is (name, address, email)
+    pub items: Vec<T>,
+    pub longest_item_lens: Vec<u16>, // order is (name, address, email)
+    pub table_state: TableState,
 }
 
 impl<T: TableData> DataTable<T> {
@@ -22,6 +22,7 @@ impl<T: TableData> DataTable<T> {
         Self {
             items,
             longest_item_lens,
+            table_state: TableState::default().with_selected(0),
         }
     }
 }
@@ -35,18 +36,20 @@ impl<T: TableData + std::fmt::Debug> StatefulWidget for DataTable<T> {
         buf: &mut ratatui::buffer::Buffer,
         state: &mut Self::State,
     ) {
-        let header_style = Style::default();
-        let selected_row_style =
-            Style::default().add_modifier(Modifier::REVERSED);
-        let selected_col_style = Style::default();
-        let selected_cell_style =
-            Style::default().add_modifier(Modifier::REVERSED);
+        let selected_row_style = Style::default()
+            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+            .fg(ratatui::style::Color::Black)
+            .bg(ratatui::style::Color::Yellow);
+        let selected_col_style =
+            Style::default().fg(ratatui::style::Color::Cyan);
+        let selected_cell_style = Style::default()
+            .add_modifier(Modifier::REVERSED)
+            .fg(ratatui::style::Color::Magenta);
 
         let header = T::cols()
             .into_iter()
             .map(Cell::from)
             .collect::<Row>()
-            .style(header_style)
             .height(1);
 
         let rows = self.items.iter().enumerate().map(|(i, data)| {
@@ -62,7 +65,7 @@ impl<T: TableData + std::fmt::Debug> StatefulWidget for DataTable<T> {
         let constraints = self
             .longest_item_lens
             .into_iter()
-            .map(|len| Constraint::Fill(len));
+            .map(|len| Constraint::Min(len + 1)); // Add 1 for padding
         let t = Table::new(rows, constraints)
             .header(header)
             .row_highlight_style(selected_row_style)
@@ -76,138 +79,6 @@ impl<T: TableData + std::fmt::Debug> StatefulWidget for DataTable<T> {
             ]))
             .highlight_spacing(HighlightSpacing::Always);
 
-        Widget::render(t, area, buf);
+        StatefulWidget::render(t, area, buf, state);
     }
-}
-
-/// State management for the table widget
-pub struct TableWidgetState {
-    pub state: TableState,
-}
-
-impl TableWidgetState {
-    pub fn new(items_len: usize) -> Self {
-        Self {
-            state: TableState::default().with_selected(0),
-        }
-    }
-
-    pub fn next_row(&mut self, items_len: usize) {
-        let i = match self.state.selected() {
-            Some(i) => {
-                if i >= items_len - 1 {
-                    0
-                } else {
-                    i + 1
-                }
-            }
-            None => 0,
-        };
-        self.state.select(Some(i));
-    }
-
-    pub fn previous_row(&mut self, items_len: usize) {
-        let i = match self.state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    items_len - 1
-                } else {
-                    i - 1
-                }
-            }
-            None => 0,
-        };
-        self.state.select(Some(i));
-    }
-
-    pub fn next_column(&mut self) {
-        self.state.select_next_column();
-    }
-
-    pub fn previous_column(&mut self) {
-        self.state.select_previous_column();
-    }
-}
-
-/// A complete table view that combines the table widget with state management
-pub struct TableView<T: TableData + Clone> {
-    state: TableWidgetState,
-    items: Vec<T>,
-}
-
-impl<T: TableData + Clone> TableView<T> {
-    pub fn new() -> Self
-    where
-        T: Default,
-    {
-        Self {
-            state: TableWidgetState::new(0),
-            items: Vec::new(),
-        }
-    }
-
-    pub fn with_items(items: Vec<T>) -> Self {
-        Self {
-            state: TableWidgetState::new(items.len()),
-            items,
-        }
-    }
-}
-
-impl<T: TableData + Clone + std::fmt::Debug> TableView<T> {
-    pub fn next_row(&mut self) {
-        self.state.next_row(self.items.len());
-    }
-
-    pub fn previous_row(&mut self) {
-        self.state.previous_row(self.items.len());
-    }
-
-    pub fn next_column(&mut self) {
-        self.state.next_column();
-    }
-
-    pub fn previous_column(&mut self) {
-        self.state.previous_column();
-    }
-
-    pub fn state(&mut self) -> &mut TableWidgetState {
-        &mut self.state
-    }
-
-    pub fn items(&self) -> &[T] {
-        &self.items
-    }
-
-    pub fn items_mut(&mut self) -> &mut Vec<T> {
-        &mut self.items
-    }
-
-    pub fn draw(&mut self, frame: &mut Frame, area: Rect) {
-        let table_widget = DataTable::new(self.items.clone());
-        frame.render_stateful_widget(table_widget, area, &mut self.state.state);
-    }
-}
-
-fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<u16> {
-    if items.is_empty() {
-        return Vec::new();
-    }
-
-    let num_columns = items[0].num_columns();
-
-    let mut result = Vec::with_capacity(num_columns);
-    for col_idx in 0..num_columns {
-        let mut max_width = 0;
-        for data in items.iter() {
-            for line in data.col(col_idx).lines() {
-                let width = UnicodeWidthStr::width(line);
-                if width > max_width {
-                    max_width = width;
-                }
-            }
-        }
-        result.push(max_width as u16);
-    }
-    result
 }

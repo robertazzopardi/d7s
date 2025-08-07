@@ -27,8 +27,6 @@ pub fn init_db() -> Result<()> {
             name TEXT NOT NULL,
             host TEXT,
             port TEXT,
-            user TEXT,
-            password TEXT,
             database TEXT
         );
         ",
@@ -44,9 +42,33 @@ pub fn save_connection(
     let conn = SqliteConnection::open(db_path)?;
 
     conn.execute(
-        "INSERT INTO connections (name, host, port, user, password, database) VALUES (?, ?, ?, ?, ?, ?)",
-        params![connection.name, connection.host, connection.port, connection.user, connection.password, connection.database],
+        "INSERT INTO connections (name, host, port, database) VALUES (?, ?, ?, ?)",
+        params![connection.name, connection.host, connection.port, connection.database],
     )?;
 
     Ok(())
+}
+
+pub fn get_connections() -> Result<Vec<Connection>> {
+    let db_path = get_db_path()?;
+    let conn = SqliteConnection::open(db_path)?;
+
+    let mut stmt = conn.prepare("SELECT * FROM connections")?;
+    let connections = stmt
+        .query_map([], |row| {
+            Ok(Connection {
+                name: row.get(1)?,
+                host: row.get(2)?,
+                port: row.get(3)?,
+                database: row.get(4)?,
+                user: "".to_string(),
+                schema: None,
+                table: None,
+                password: "".to_string(),
+            })
+        })?
+        .map(|r| r.unwrap())
+        .collect();
+
+    Ok(connections)
 }

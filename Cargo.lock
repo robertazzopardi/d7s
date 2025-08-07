@@ -219,6 +219,7 @@ version = "0.1.0"
 dependencies = [
  "color-eyre",
  "dirs",
+ "keyring",
  "rusqlite",
  "tokio-postgres",
 ]
