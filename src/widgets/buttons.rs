@@ -9,18 +9,18 @@ pub struct Buttons<'a> {
     pub selected: usize,
 }
 
-impl<'a> Widget for Buttons<'a> {
+impl Widget for Buttons<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let mut button_spans = vec![];
         for (i, button) in self.buttons.iter().enumerate() {
             if i == self.selected {
                 button_spans.push(Span::styled(
-                    format!(" {} ", button),
+                    format!(" {button} "),
                     Style::default().fg(Color::White).bg(Color::Blue),
                 ));
             } else {
                 button_spans.push(Span::styled(
-                    format!(" {} ", button),
+                    format!(" {button} "),
                     Style::default().fg(Color::White).bg(Color::DarkGray),
                 ));
             }

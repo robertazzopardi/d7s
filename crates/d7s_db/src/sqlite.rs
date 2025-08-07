@@ -14,12 +14,15 @@ impl Database for Sqlite {
     }
 }
 
-// For d7s storage
+/// Initialize the database
+///
+/// # Errors
+///
+/// This function will return an error if the database cannot be opened or if the query fails.
 pub fn init_db() -> Result<()> {
     let db_path = get_db_path()?;
     let conn = SqliteConnection::open(db_path)?;
 
-    // Example: create a table for storing connection info for d7s
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS connections (
@@ -27,7 +30,8 @@ pub fn init_db() -> Result<()> {
             name TEXT NOT NULL,
             host TEXT,
             port TEXT,
-            database TEXT
+            database TEXT,
+            user TEXT
         );
         ",
     )?;
@@ -35,6 +39,11 @@ pub fn init_db() -> Result<()> {
     Ok(())
 }
 
+/// Save a connection to the database
+///
+/// # Errors
+///
+/// This function will return an error if the database cannot be opened or if the query fails.
 pub fn save_connection(
     connection: &Connection,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -42,13 +51,18 @@ pub fn save_connection(
     let conn = SqliteConnection::open(db_path)?;
 
     conn.execute(
-        "INSERT INTO connections (name, host, port, database) VALUES (?, ?, ?, ?)",
-        params![connection.name, connection.host, connection.port, connection.database],
+        "INSERT INTO connections (name, host, port, database, user) VALUES (?, ?, ?, ?, ?)",
+        params![connection.name, connection.host, connection.port, connection.database, connection.user],
     )?;
 
     Ok(())
 }
 
+/// Get all connections from the database
+///
+/// # Errors
+///
+/// This function will return an error if the database cannot be opened or if the query fails.
 pub fn get_connections() -> Result<Vec<Connection>> {
     let db_path = get_db_path()?;
     let conn = SqliteConnection::open(db_path)?;
@@ -56,19 +70,66 @@ pub fn get_connections() -> Result<Vec<Connection>> {
     let mut stmt = conn.prepare("SELECT * FROM connections")?;
     let connections = stmt
         .query_map([], |row| {
+            let user: String = row.get(5)?;
+            let password = {
+                if let Ok(entry) = keyring::Entry::new("d7s", &user) {
+                    entry.get_password().ok()
+                } else {
+                    None
+                }
+            };
+
             Ok(Connection {
                 name: row.get(1)?,
                 host: row.get(2)?,
                 port: row.get(3)?,
                 database: row.get(4)?,
-                user: "".to_string(),
+                user,
                 schema: None,
                 table: None,
-                password: "".to_string(),
+                password,
             })
         })?
-        .map(|r| r.unwrap())
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(connections)
+}
+
+/// Update a connection in the database
+///
+/// # Errors
+///
+/// This function will return an error if the database cannot be opened or if the query fails.
+pub fn update_connection(
+    old_name: &str,
+    connection: &Connection,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let db_path = get_db_path()?;
+    let conn = SqliteConnection::open(db_path)?;
+
+    conn.execute(
+        "UPDATE connections SET name = ?, host = ?, port = ?, database = ?, user = ? WHERE name = ?",
+        params![connection.name, connection.host, connection.port, connection.database, connection.user, old_name],
+    )?;
+
+    Ok(())
+}
+
+/// Delete a connection from the database
+///
+/// # Errors
+///
+/// This function will return an error if the database cannot be opened or if the query fails.
+pub fn delete_connection(
+    connection_name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let db_path = get_db_path()?;
+    let conn = SqliteConnection::open(db_path)?;
+
+    conn.execute(
+        "DELETE FROM connections WHERE name = ?",
+        params![connection_name],
+    )?;
+
+    Ok(())
 }

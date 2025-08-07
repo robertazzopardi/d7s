@@ -8,7 +8,7 @@ pub mod top_bar_view;
 use d7s_db::TableData;
 use unicode_width::UnicodeWidthStr;
 
-pub(crate) fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<u16> {
+pub fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<u16> {
     if items.is_empty() {
         return Vec::new();
     }
@@ -18,7 +18,7 @@ pub(crate) fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<u16> {
     let mut result = Vec::with_capacity(num_columns);
     for col_idx in 0..num_columns {
         let mut max_width = 0;
-        for data in items.iter() {
+        for data in items {
             for line in data.col(col_idx).lines() {
                 let width = UnicodeWidthStr::width(line);
                 if width > max_width {
@@ -26,7 +26,7 @@ pub(crate) fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<u16> {
                 }
             }
         }
-        result.push(max_width as u16);
+        result.push(u16::try_from(max_width).unwrap_or(1));
     }
     result
 }

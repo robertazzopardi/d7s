@@ -17,6 +17,13 @@ pub enum Mode {
 }
 
 #[derive(Clone, Debug, Default)]
+pub enum ModalType {
+    #[default]
+    Connection,
+    Confirmation,
+}
+
+#[derive(Clone, Debug, Default)]
 pub enum TestResult {
     #[default]
     NotTested,
@@ -33,7 +40,7 @@ pub struct ModalField {
 }
 
 impl ModalField {
-    pub fn new(label: &'static str) -> Self {
+    pub const fn new(label: &'static str) -> Self {
         Self {
             label,
             value: String::new(),
@@ -46,7 +53,7 @@ impl ModalField {
         self
     }
 
-    pub fn set_focus(&mut self, focused: bool) {
+    pub const fn set_focus(&mut self, focused: bool) {
         self.is_focused = focused;
     }
 
@@ -68,6 +75,15 @@ pub struct Modal<T: TableData> {
     pub data: T,
     pub mode: Mode,
     pub test_result: TestResult,
+    pub original_name: Option<String>,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct ConfirmationModal {
+    pub is_open: bool,
+    pub selected_button: usize,
+    pub message: String,
+    pub connection: Option<Connection>,
 }
 
 impl<T: TableData> Modal<T> {
@@ -82,6 +98,7 @@ impl<T: TableData> Modal<T> {
             data,
             mode,
             test_result: TestResult::NotTested,
+            original_name: None,
         };
 
         // Set focus on first field
@@ -106,7 +123,28 @@ impl<T: TableData> Modal<T> {
         }
     }
 
-    pub fn close(&mut self) {
+    pub fn open_for_edit(&mut self, connection: &Connection) {
+        self.is_open = true;
+        self.current_field = 0;
+        self.mode = Mode::Edit;
+        self.original_name = Some(connection.name.clone());
+
+        // Populate fields with existing data
+        let connection_data = connection.ref_array();
+        for (i, field) in self.fields.iter_mut().enumerate() {
+            if i < connection_data.len() {
+                field.value = connection_data[i].clone();
+            }
+            field.set_focus(false);
+        }
+
+        // Set focus on first field
+        if !self.fields.is_empty() {
+            self.fields[0].set_focus(true);
+        }
+    }
+
+    pub const fn close(&mut self) {
         self.is_open = false;
     }
 
@@ -149,7 +187,7 @@ impl<T: TableData> Modal<T> {
             port: self.fields[2].value.clone(),
             user: self.fields[3].value.clone(),
             database: self.fields[4].value.clone(),
-            password: self.fields[5].value.clone(),
+            password: Some(self.fields[5].value.clone()),
             schema: None,
             table: None,
         })
@@ -173,8 +211,13 @@ impl<T: TableData> Widget for Modal<T> {
         let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
         let modal_area = Rect::new(x, y, modal_width, modal_height);
 
+        let title = match self.mode {
+            Mode::New => format!("New {}", T::title()),
+            Mode::Edit => format!("Edit {}", T::title()),
+        };
+
         let block = Block::default()
-            .title(T::title())
+            .title(title)
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Blue))
@@ -210,12 +253,7 @@ impl<T: TableData> Modal<T> {
         // Each field is a row: label left, value right after colon
         let field_layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(
-                self.fields
-                    .iter()
-                    .map(|_| Constraint::Length(1))
-                    .collect::<Vec<_>>(),
-            )
+            .constraints(self.fields.iter().map(|_| Constraint::Length(1)))
             .split(area);
 
         for (i, field) in self.fields.iter().enumerate() {
@@ -223,14 +261,22 @@ impl<T: TableData> Modal<T> {
             let value = if field.value.is_empty() {
                 " ".repeat(18)
             } else {
-                field.value.clone()
+                // Check if this is a password field (last field)
+                if i == self.fields.len() - 1 {
+                    "•".repeat(field.value.len())
+                } else {
+                    field.value.clone()
+                }
             };
-            let text = format!("{:<12} {}", label, value);
+            let text = format!("{label:<12} {value}");
+
+            // Apply different styling based on focus state
             let style = if field.is_focused {
-                Style::default().fg(Color::White)
+                Style::default().fg(Color::Yellow).bg(Color::DarkGray)
             } else {
                 Style::default().fg(Color::White)
             };
+
             Paragraph::new(text)
                 .style(style)
                 .alignment(Alignment::Left)
@@ -271,27 +317,49 @@ impl<T: TableData> Modal<T> {
             (_, KeyCode::Esc) => {
                 self.close();
             }
-            // Try multiple ways to detect Shift+Tab
-            (KeyModifiers::SHIFT, KeyCode::Tab) => {
+            (KeyModifiers::SHIFT, KeyCode::Tab) | (_, KeyCode::Up) => {
                 self.prev_field();
             }
-            // Some terminals might send this as a different key code
-            (KeyModifiers::SHIFT, KeyCode::Char('\t')) => {
-                self.prev_field();
-            }
-            (_, KeyCode::Tab) => {
+            (_, KeyCode::Tab) | (_, KeyCode::Down) => {
                 self.next_field();
             }
             (_, KeyCode::Enter) => {
                 if self.selected_button == 0 && self.is_valid() {
                     if let Some(connection) = self.get_connection() {
-                        println!("New connection created: {:?}", connection);
-                        let entry =
-                            keyring::Entry::new("d7s", &connection.user)?;
-                        entry.set_password(&connection.password)?;
+                        match self.mode {
+                            Mode::New => {
+                                let entry = keyring::Entry::new(
+                                    "d7s",
+                                    &connection.user,
+                                )?;
+                                if let Some(password) = &connection.password {
+                                    entry.set_password(password)?;
+                                }
 
-                        // TODO dont save password and user to database
-                        d7s_db::sqlite::save_connection(&connection).unwrap();
+                                // TODO dont save password and user to database
+                                d7s_db::sqlite::save_connection(&connection)
+                                    .unwrap();
+                            }
+                            Mode::Edit => {
+                                let entry = keyring::Entry::new(
+                                    "d7s",
+                                    &connection.user,
+                                )?;
+                                if let Some(password) = &connection.password {
+                                    entry.set_password(password)?;
+                                }
+
+                                // Use the stored original name for updating
+                                if let Some(original_name) = &self.original_name
+                                {
+                                    d7s_db::sqlite::update_connection(
+                                        original_name,
+                                        &connection,
+                                    )
+                                    .unwrap();
+                                }
+                            }
+                        }
 
                         self.close();
                     }
@@ -323,28 +391,110 @@ impl<T: TableData> Modal<T> {
             (_, KeyCode::Backspace) => {
                 self.remove_char();
             }
-            (_, KeyCode::Up) => {
-                self.prev_field();
-            }
-            (_, KeyCode::Down) => {
-                self.next_field();
-            }
+
             (_, KeyCode::Left) => {
                 self.selected_button = (self.selected_button + 2) % 3;
             }
             (_, KeyCode::Right) => {
                 self.selected_button = (self.selected_button + 1) % 3;
             }
-            // Alternative navigation keys
-            (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
-                self.prev_field();
+            _ => {}
+        }
+
+        Ok(())
+    }
+}
+
+impl ConfirmationModal {
+    pub fn new(message: String, connection: Connection) -> Self {
+        Self {
+            is_open: true,
+            selected_button: 0,
+            message,
+            connection: Some(connection),
+        }
+    }
+
+    pub fn close(&mut self) {
+        self.is_open = false;
+    }
+
+    pub fn next_button(&mut self) {
+        self.selected_button = (self.selected_button + 1) % 2;
+    }
+
+    pub fn prev_button(&mut self) {
+        self.selected_button = (self.selected_button + 1) % 2;
+    }
+
+    pub fn confirm(&self) -> bool {
+        self.selected_button == 0
+    }
+
+    pub async fn handle_key_events(&mut self, key: KeyEvent) -> Result<()> {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                self.close();
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
-                self.next_field();
+            (_, KeyCode::Left) => {
+                self.prev_button();
+            }
+            (_, KeyCode::Right) => {
+                self.next_button();
+            }
+            (_, KeyCode::Enter) => {
+                self.close();
             }
             _ => {}
         }
 
         Ok(())
+    }
+}
+
+impl Widget for ConfirmationModal {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if !self.is_open {
+            return;
+        }
+
+        // Center a fixed-size modal
+        let modal_width = 50;
+        let modal_height = 8;
+        let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
+        let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
+        let modal_area = Rect::new(x, y, modal_width, modal_height);
+
+        let block = Block::default()
+            .title("Confirm Delete")
+            .title_alignment(Alignment::Center)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Red))
+            .style(Style::default().bg(Color::Black));
+        Clear.render(modal_area, buf);
+        block.render(modal_area, buf);
+
+        // Layout inside the modal: Message, Buttons
+        let inner_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Message
+                Constraint::Length(1), // Buttons
+            ])
+            .margin(1)
+            .split(modal_area);
+
+        // Render message
+        Paragraph::new(self.message)
+            .style(Style::default().fg(Color::White))
+            .alignment(Alignment::Center)
+            .render(inner_layout[0], buf);
+
+        // Render buttons
+        let buttons = Buttons {
+            buttons: vec!["Yes", "No"],
+            selected: self.selected_button,
+        };
+        buttons.render(inner_layout[1], buf);
     }
 }

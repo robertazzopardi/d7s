@@ -9,7 +9,7 @@ pub struct HotkeyView<'a> {
     pub hotkeys: &'a [Hotkey<'a>],
 }
 
-impl<'a> Widget for HotkeyView<'a> {
+impl Widget for HotkeyView<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let mut y = area.y;
         let mut x = area.x;
@@ -31,9 +31,10 @@ impl<'a> Widget for HotkeyView<'a> {
                 .direction(Direction::Horizontal)
                 .constraints([
                     Constraint::Length(
-                        (hotkey.keycode.to_string().len()
-                            + hotkey.description.len())
-                            as u16
+                        u16::try_from(hotkey.keycode.to_string().len())
+                            .unwrap_or(1)
+                            + u16::try_from(hotkey.description.len())
+                                .unwrap_or(1)
                             + 3,
                     ), // Space for the key
                     Constraint::Fill(1), // Rest for description

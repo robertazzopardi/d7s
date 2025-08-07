@@ -11,7 +11,7 @@ pub struct Connection {
     pub database: String,
     pub schema: Option<String>,
     pub table: Option<String>,
-    pub password: String,
+    pub password: Option<String>,
 }
 
 impl Display for Connection {
@@ -24,8 +24,8 @@ impl Display for Connection {
             self.port,
             self.user,
             self.database,
-            self.schema.as_ref().unwrap_or(&"".to_string()),
-            self.table.as_ref().unwrap_or(&"".to_string()),
+            self.schema.clone().unwrap_or_default(),
+            self.table.clone().unwrap_or_default(),
         )
     }
 }
@@ -42,7 +42,12 @@ impl TableData for Connection {
             self.port.clone(),
             self.user.clone(),
             self.database.clone(),
-            self.password.clone(),
+            // Mask password field with dots
+            if let Some(password) = &self.password {
+                "•".repeat(password.len())
+            } else {
+                String::new()
+            },
         ]
     }
 
@@ -57,6 +62,7 @@ impl TableData for Connection {
 
 impl Connection {
     /// Convert this connection to a Postgres instance for testing
+    #[must_use]
     pub fn to_postgres(&self) -> Postgres {
         Postgres {
             name: self.name.clone(),
@@ -64,7 +70,7 @@ impl Connection {
             port: Some(self.port.clone()),
             user: self.user.clone(),
             database: self.database.clone(),
-            password: self.password.clone(),
+            password: self.password.clone().unwrap_or_default(),
         }
     }
 }

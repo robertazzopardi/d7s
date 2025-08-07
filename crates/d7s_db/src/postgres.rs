@@ -17,8 +17,8 @@ impl Database for Postgres {
     async fn test(&self) -> bool {
         let config = format!(
             "host={} port={} user={} password={} dbname={}",
-            self.host.as_ref().unwrap_or(&"localhost".to_string()),
-            self.port.as_ref().unwrap_or(&"5432".to_string()),
+            self.host.clone().unwrap_or_else(|| "localhost".to_string()),
+            self.port.clone().unwrap_or_else(|| "5432".to_string()),
             self.user,
             self.password,
             self.database
@@ -40,8 +40,8 @@ impl TableData for Postgres {
     fn ref_array(&self) -> Vec<String> {
         vec![
             self.name.clone(),
-            self.host.clone().unwrap_or("".to_string()),
-            self.port.clone().unwrap_or("".to_string()),
+            self.host.clone().unwrap_or_default(),
+            self.port.clone().unwrap_or_default(),
             self.user.clone(),
             self.password.clone(),
         ]

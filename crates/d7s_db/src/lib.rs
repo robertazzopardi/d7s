@@ -5,7 +5,6 @@ pub mod sqlite;
 use std::path::PathBuf;
 
 use color_eyre::Result;
-use dirs;
 
 pub trait TableData {
     fn title() -> &'static str;
@@ -18,6 +17,7 @@ pub trait TableData {
     }
 }
 
+#[allow(async_fn_in_trait)]
 pub trait Database {
     async fn test(&self) -> bool;
 }
