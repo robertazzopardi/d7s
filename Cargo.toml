@@ -9,6 +9,9 @@ authors = ["Rob <robertazzopardi@icloud.com>"]
 license = "MIT"
 edition = "2024"
 
+[workspace.dependencies]
+keyring = "3.6.3"
+
 [dependencies]
 d7s_db = { path = "crates/d7s_db" }
 crossterm = "0.28.1"
@@ -16,4 +19,4 @@ ratatui = "0.29.0"
 color-eyre = "0.6.3"
 unicode-width = "0.2"
 tokio = { version = "1.47.0", features = ["full"] }
-keyring = "3.6.3"
+keyring.workspace = true
