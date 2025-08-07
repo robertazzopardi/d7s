@@ -6,12 +6,12 @@ use d7s_db::{TableData, connection::Connection};
 use ratatui::{
     DefaultTerminal, Frame,
     prelude::*,
-    widgets::{Block, Borders, TableState},
+    widgets::{Block, Borders},
 };
 
 use crate::widgets::{
     hotkey::Hotkey,
-    modal::{Modal, Mode},
+    modal::{ConfirmationModal, Modal, Mode},
     table::DataTable,
     top_bar_view::{CONNECTION_HOTKEYS, TopBarView},
 };
@@ -31,29 +31,31 @@ pub struct App<'a> {
     running: bool,
     show_popup: bool,
     modal: Option<Modal<Connection>>,
+    confirmation_modal: Option<ConfirmationModal>,
     hotkeys: Vec<Hotkey<'a>>,
     table_widget: DataTable<Connection>,
 }
 
-impl<'a> Default for App<'a> {
+impl Default for App<'_> {
     fn default() -> Self {
         d7s_db::sqlite::init_db().unwrap();
 
         let items = d7s_db::sqlite::get_connections().unwrap_or_default();
 
-        let table_widget = DataTable::new(items.clone());
+        let table_widget = DataTable::new(items);
 
         Self {
             running: false,
             show_popup: false,
             modal: None,
+            confirmation_modal: None,
             hotkeys: CONNECTION_HOTKEYS.to_vec(),
             table_widget,
         }
     }
 }
 
-impl<'a> App<'a> {
+impl App<'_> {
     /// Run the application's main loop.
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
@@ -108,6 +110,13 @@ impl<'a> App<'a> {
         {
             frame.render_widget(modal.clone(), frame.area());
         }
+
+        // Render confirmation modal if open
+        if let Some(confirmation_modal) = &self.confirmation_modal
+            && confirmation_modal.is_open
+        {
+            frame.render_widget(confirmation_modal.clone(), frame.area());
+        }
     }
 
     /// Reads the crossterm events and updates the state of [`App`].
@@ -120,8 +129,6 @@ impl<'a> App<'a> {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
                 self.on_key_event(key).await?;
             }
-            Event::Mouse(_) => {}
-            Event::Resize(_, _) => {}
             _ => {}
         }
 
@@ -130,20 +137,54 @@ impl<'a> App<'a> {
 
     /// Handles the key events and updates the state of [`App`].
     async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
-        // Handle connection modal events first
-        if let Some(modal) = &mut self.modal
-            && modal.is_open
+        // Handle confirmation modal events first
+        if let Some(confirmation_modal) = &mut self.confirmation_modal
+            && confirmation_modal.is_open
         {
-            modal.handle_key_events(key).await?;
+            let was_open = confirmation_modal.is_open;
+            confirmation_modal.handle_key_events(key).await?;
+
+            // If confirmation modal was closed and confirmed, delete the connection
+            if was_open && !confirmation_modal.is_open {
+                if confirmation_modal.confirm() {
+                    if let Some(connection) = &confirmation_modal.connection {
+                        // Delete the keyring credential using the user
+                        let entry =
+                            keyring::Entry::new("d7s", &connection.user)?;
+                        entry.delete_credential()?;
+
+                        // Delete from database
+                        if let Err(e) =
+                            d7s_db::sqlite::delete_connection(&connection.name)
+                        {
+                            eprintln!("Failed to delete connection: {}", e);
+                        } else {
+                            self.refresh_connections();
+                        }
+                    }
+                }
+            }
+
             return Ok(());
         }
 
+        // Handle connection modal events
+        if let Some(modal) = &mut self.modal
+            && modal.is_open
+        {
+            let was_open = modal.is_open;
+            modal.handle_key_events(key).await?;
+
+            // If modal was closed, refresh the table data
+            if was_open && !modal.is_open {
+                self.refresh_connections();
+            }
+
+            return Ok(());
+        }
         match (key.modifiers, key.code) {
             (_, KeyCode::Char('q'))
-            | (
-                KeyModifiers::CONTROL,
-                KeyCode::Char('c') | KeyCode::Char('C'),
-            ) => self.quit(),
+            | (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
             (_, KeyCode::Char('n')) => {
                 if self.modal.is_none() {
                     self.modal =
@@ -153,12 +194,74 @@ impl<'a> App<'a> {
                     }
                 }
             }
-            // Vim search navigation (conflicts with 'n' for new, so using different keys)
-            (_, KeyCode::Char('*')) => {
-                // TODO: Implement search for word under cursor
+            (_, KeyCode::Char('d')) => {
+                // Only handle 'd' key if no modals are open
+                if (self.modal.is_none()
+                    || !self.modal.as_ref().unwrap().is_open)
+                    && (self.confirmation_modal.is_none()
+                        || !self.confirmation_modal.as_ref().unwrap().is_open)
+                {
+                    // Get the selected connection from the table
+                    if let Some(selected_index) =
+                        self.table_widget.table_state.selected()
+                    {
+                        // Account for header row - selected_index 0 is header, 1+ are data rows
+                        let data_index = selected_index.saturating_sub(1);
+                        if data_index < self.table_widget.items.len() {
+                            if let Some(connection) =
+                                self.table_widget.items.get(data_index)
+                            {
+                                let message = format!(
+                                    "Are you sure you want to delete\nthe connection '{}'?\n\nThis action cannot be undone.",
+                                    connection.name
+                                );
+                                self.confirmation_modal =
+                                    Some(ConfirmationModal::new(
+                                        message,
+                                        connection.clone(),
+                                    ));
+                                return Ok(()); // Return early to prevent key propagation
+                            }
+                        }
+                    }
+                }
             }
-            (_, KeyCode::Char('#')) => {
-                // TODO: Implement search for word under cursor backward
+            (_, KeyCode::Char('e')) => {
+                // Only handle 'e' key if no modal is open
+                if self.modal.is_none() || !self.modal.as_ref().unwrap().is_open
+                {
+                    // Get the selected connection from the table
+                    if let Some(selected_index) =
+                        self.table_widget.table_state.selected()
+                    {
+                        // Account for header row - selected_index 0 is header, 1+ are data rows
+                        let data_index = selected_index.saturating_sub(1);
+                        if data_index < self.table_widget.items.len() {
+                            if let Some(connection) =
+                                self.table_widget.items.get_mut(data_index)
+                            {
+                                let entry = keyring::Entry::new(
+                                    "d7s",
+                                    &connection.user,
+                                )?;
+
+                                let password = entry.get_password()?;
+                                connection.password = Some(password);
+
+                                self.modal = Some(Modal::new(
+                                    connection.clone(),
+                                    Mode::Edit,
+                                ));
+
+                                if let Some(modal) = &mut self.modal {
+                                    modal.open_for_edit(connection);
+                                }
+
+                                return Ok(()); // Return early to prevent key propagation
+                            }
+                        }
+                    }
+                }
             }
             (_, KeyCode::Char('p')) => self.toggle_popup(),
             (_, KeyCode::Esc) => {
@@ -173,18 +276,15 @@ impl<'a> App<'a> {
             (_, KeyCode::Char('k')) | (_, KeyCode::Up) => {
                 self.table_widget.table_state.select_previous();
             }
-            (_, KeyCode::Char('h')) | (_, KeyCode::Left) => {
+            (_, KeyCode::Char('h'))
+            | (_, KeyCode::Left)
+            | (_, KeyCode::Char('b')) => {
                 self.table_widget.table_state.select_previous_column();
             }
-            (_, KeyCode::Char('l')) | (_, KeyCode::Right) => {
+            (_, KeyCode::Char('l'))
+            | (_, KeyCode::Right)
+            | (_, KeyCode::Char('w')) => {
                 self.table_widget.table_state.select_next_column();
-            }
-            // Word movement
-            (_, KeyCode::Char('w')) => {
-                self.table_widget.table_state.select_next_column();
-            }
-            (_, KeyCode::Char('b')) => {
-                self.table_widget.table_state.select_previous_column();
             }
             // Jump to edges
             (_, KeyCode::Char('0')) => {
@@ -195,7 +295,7 @@ impl<'a> App<'a> {
                     .table_widget
                     .items
                     .first()
-                    .map(|item| item.num_columns())
+                    .map(d7s_db::TableData::num_columns)
                 {
                     self.table_widget
                         .table_state
@@ -219,12 +319,19 @@ impl<'a> App<'a> {
         Ok(())
     }
 
-    fn toggle_popup(&mut self) {
+    const fn toggle_popup(&mut self) {
         self.show_popup = !self.show_popup;
     }
 
+    /// Refresh the table data from the database
+    fn refresh_connections(&mut self) {
+        if let Ok(connections) = d7s_db::sqlite::get_connections() {
+            self.table_widget.items = connections;
+        }
+    }
+
     /// Set running to false to quit the application.
-    fn quit(&mut self) {
+    const fn quit(&mut self) {
         self.running = false;
     }
 }

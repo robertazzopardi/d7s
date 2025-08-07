@@ -10,7 +10,7 @@ license = "MIT"
 edition = "2024"
 
 [workspace.dependencies]
-keyring = "3.6.3"
+keyring = { version = "3.6.3", features = ["apple-native"] }
 
 [dependencies]
 d7s_db = { path = "crates/d7s_db" }

@@ -8,7 +8,7 @@ pub struct Hotkey<'a> {
     pub description: &'a str,
 }
 
-impl<'a> Display for Hotkey<'a> {
+impl Display for Hotkey<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.keycode)
     }

@@ -55,7 +55,7 @@ impl<T: TableData + std::fmt::Debug> StatefulWidget for DataTable<T> {
         let rows = self.items.iter().enumerate().map(|(i, data)| {
             let item = data.ref_array();
             item.into_iter()
-                .map(|content| Cell::from(content.to_string()))
+                .map(Cell::from)
                 .collect::<Row>()
                 .style(Style::new())
                 .height(1)
