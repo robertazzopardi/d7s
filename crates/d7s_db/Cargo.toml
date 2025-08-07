@@ -8,3 +8,4 @@ color-eyre = "0.6.5"
 dirs = "6.0.0"
 rusqlite = "0.37.0"
 tokio-postgres = "0.7.13"
+keyring.workspace = true

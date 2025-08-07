@@ -2,17 +2,17 @@ use color_eyre::Result;
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
-use d7s_db::connection::Connection;
+use d7s_db::{TableData, connection::Connection};
 use ratatui::{
     DefaultTerminal, Frame,
     prelude::*,
-    widgets::{Block, Borders},
+    widgets::{Block, Borders, TableState},
 };
 
 use crate::widgets::{
     hotkey::Hotkey,
     modal::{Modal, Mode},
-    table::TableView,
+    table::DataTable,
     top_bar_view::{CONNECTION_HOTKEYS, TopBarView},
 };
 
@@ -32,27 +32,28 @@ pub struct App<'a> {
     show_popup: bool,
     modal: Option<Modal<Connection>>,
     hotkeys: Vec<Hotkey<'a>>,
+    table_widget: DataTable<Connection>,
 }
 
 impl<'a> Default for App<'a> {
     fn default() -> Self {
+        d7s_db::sqlite::init_db().unwrap();
+
+        let items = d7s_db::sqlite::get_connections().unwrap_or_default();
+
+        let table_widget = DataTable::new(items.clone());
+
         Self {
             running: false,
             show_popup: false,
             modal: None,
             hotkeys: CONNECTION_HOTKEYS.to_vec(),
+            table_widget,
         }
     }
 }
 
 impl<'a> App<'a> {
-    /// Construct a new instance of [`App`].
-    pub fn new() -> Self {
-        d7s_db::sqlite::init_db().unwrap();
-
-        Self::default()
-    }
-
     /// Run the application's main loop.
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
@@ -94,16 +95,18 @@ impl<'a> App<'a> {
         frame.render_widget(block, layout[1]);
 
         // Render content inside the block
-        // For demonstration, we'll render a centered paragraph.
-        // Replace this with your actual content widget.
-        let mut content = TableView::<Connection>::new();
-        content.draw(frame, inner_area);
+        // Use the data table directly
+        frame.render_stateful_widget(
+            self.table_widget.clone(),
+            inner_area,
+            &mut self.table_widget.table_state,
+        );
 
         // Render connection modal if open
-        if let Some(modal) = &self.modal {
-            if modal.is_open {
-                frame.render_widget(modal.clone(), frame.area());
-            }
+        if let Some(modal) = &self.modal
+            && modal.is_open
+        {
+            frame.render_widget(modal.clone(), frame.area());
         }
     }
 
@@ -115,31 +118,25 @@ impl<'a> App<'a> {
         match event::read()? {
             // it's important to check KeyEventKind::Press to avoid handling key release events
             Event::Key(key) if key.kind == KeyEventKind::Press => {
-                self.on_key_event(key).await;
+                self.on_key_event(key).await?;
             }
             Event::Mouse(_) => {}
             Event::Resize(_, _) => {}
             _ => {}
         }
+
         Ok(())
     }
 
     /// Handles the key events and updates the state of [`App`].
     async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Handle connection modal events first
-        if let Some(modal) = &mut self.modal {
-            if modal.is_open {
-                modal.handle_key_events(key).await;
-                return Ok(());
-            }
+        if let Some(modal) = &mut self.modal
+            && modal.is_open
+        {
+            modal.handle_key_events(key).await?;
+            return Ok(());
         }
-
-        // if let Some(hotkey) =
-        //     self.hotkeys.iter().find(|h| h.keycode == key.code)
-        // {
-        //     println!("Hotkey pressed: {}", hotkey.description);
-        //     return;
-        // }
 
         match (key.modifiers, key.code) {
             (_, KeyCode::Char('q'))
@@ -156,10 +153,63 @@ impl<'a> App<'a> {
                     }
                 }
             }
+            // Vim search navigation (conflicts with 'n' for new, so using different keys)
+            (_, KeyCode::Char('*')) => {
+                // TODO: Implement search for word under cursor
+            }
+            (_, KeyCode::Char('#')) => {
+                // TODO: Implement search for word under cursor backward
+            }
             (_, KeyCode::Char('p')) => self.toggle_popup(),
             (_, KeyCode::Esc) => {
                 if self.show_popup {
                     self.toggle_popup();
+                }
+            }
+            // Vim keybindings for table navigation
+            (_, KeyCode::Char('j')) | (_, KeyCode::Down) => {
+                self.table_widget.table_state.select_next();
+            }
+            (_, KeyCode::Char('k')) | (_, KeyCode::Up) => {
+                self.table_widget.table_state.select_previous();
+            }
+            (_, KeyCode::Char('h')) | (_, KeyCode::Left) => {
+                self.table_widget.table_state.select_previous_column();
+            }
+            (_, KeyCode::Char('l')) | (_, KeyCode::Right) => {
+                self.table_widget.table_state.select_next_column();
+            }
+            // Word movement
+            (_, KeyCode::Char('w')) => {
+                self.table_widget.table_state.select_next_column();
+            }
+            (_, KeyCode::Char('b')) => {
+                self.table_widget.table_state.select_previous_column();
+            }
+            // Jump to edges
+            (_, KeyCode::Char('0')) => {
+                self.table_widget.table_state.select_column(Some(0));
+            }
+            (_, KeyCode::Char('$')) => {
+                if let Some(num_cols) = self
+                    .table_widget
+                    .items
+                    .first()
+                    .map(|item| item.num_columns())
+                {
+                    self.table_widget
+                        .table_state
+                        .select_column(Some(num_cols.saturating_sub(1)));
+                }
+            }
+            (_, KeyCode::Char('g')) => {
+                self.table_widget.table_state.select(Some(1)); // First data row
+            }
+            (_, KeyCode::Char('G')) => {
+                if !self.table_widget.items.is_empty() {
+                    self.table_widget
+                        .table_state
+                        .select(Some(self.table_widget.items.len()));
                 }
             }
             // Add other key handlers here.
