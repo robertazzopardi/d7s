@@ -11,7 +11,7 @@ use ratatui::{
 
 use crate::widgets::{
     hotkey::Hotkey,
-    modal::{ConfirmationModal, Modal, Mode},
+    modal::{ConfirmationModal, Modal, ModalManager, Mode},
     table::DataTable,
     top_bar_view::{CONNECTION_HOTKEYS, TopBarView},
 };
@@ -30,8 +30,7 @@ pub struct App<'a> {
     /// Is the application running?
     running: bool,
     show_popup: bool,
-    modal: Option<Modal<Connection>>,
-    confirmation_modal: Option<ConfirmationModal>,
+    modal_manager: ModalManager,
     hotkeys: Vec<Hotkey<'a>>,
     table_widget: DataTable<Connection>,
 }
@@ -47,8 +46,7 @@ impl Default for App<'_> {
         Self {
             running: false,
             show_popup: false,
-            modal: None,
-            confirmation_modal: None,
+            modal_manager: ModalManager::new(),
             hotkeys: CONNECTION_HOTKEYS.to_vec(),
             table_widget,
         }
@@ -104,16 +102,13 @@ impl App<'_> {
             &mut self.table_widget.table_state,
         );
 
-        // Render connection modal if open
-        if let Some(modal) = &self.modal
-            && modal.is_open
-        {
+        // Render modals using the modal manager
+        if let Some(modal) = self.modal_manager.get_connection_modal() {
             frame.render_widget(modal.clone(), frame.area());
         }
 
-        // Render confirmation modal if open
-        if let Some(confirmation_modal) = &self.confirmation_modal
-            && confirmation_modal.is_open
+        if let Some(confirmation_modal) =
+            self.modal_manager.get_confirmation_modal()
         {
             frame.render_widget(confirmation_modal.clone(), frame.area());
         }
@@ -137,129 +132,93 @@ impl App<'_> {
 
     /// Handles the key events and updates the state of [`App`].
     async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
-        // Handle confirmation modal events first
-        if let Some(confirmation_modal) = &mut self.confirmation_modal
-            && confirmation_modal.is_open
-        {
-            let was_open = confirmation_modal.is_open;
-            confirmation_modal.handle_key_events(key).await?;
+        // Handle modal events first
+        if self.modal_manager.is_any_modal_open() {
+            self.modal_manager.handle_key_events(key).await?;
 
-            // If confirmation modal was closed and confirmed, delete the connection
-            if was_open && !confirmation_modal.is_open {
-                if confirmation_modal.confirm() {
-                    if let Some(connection) = &confirmation_modal.connection {
-                        // Delete the keyring credential using the user
-                        let entry =
-                            keyring::Entry::new("d7s", &connection.user)?;
-                        entry.delete_credential()?;
+            // Handle confirmation modal results
+            if let Some(Some(connection)) =
+                self.modal_manager.was_confirmation_modal_confirmed()
+            {
+                // Delete the keyring credential using the user
+                let entry = keyring::Entry::new("d7s", &connection.user)?;
+                entry.delete_credential()?;
 
-                        // Delete from database
-                        if let Err(e) =
-                            d7s_db::sqlite::delete_connection(&connection.name)
-                        {
-                            eprintln!("Failed to delete connection: {}", e);
-                        } else {
-                            self.refresh_connections();
-                        }
-                    }
+                // Delete from database
+                if let Err(e) =
+                    d7s_db::sqlite::delete_connection(&connection.name)
+                {
+                    eprintln!("Failed to delete connection: {}", e);
+                } else {
+                    self.refresh_connections();
                 }
             }
 
-            return Ok(());
-        }
-
-        // Handle connection modal events
-        if let Some(modal) = &mut self.modal
-            && modal.is_open
-        {
-            let was_open = modal.is_open;
-            modal.handle_key_events(key).await?;
-
-            // If modal was closed, refresh the table data
-            if was_open && !modal.is_open {
+            // Handle connection modal closure
+            if self.modal_manager.was_connection_modal_closed() {
                 self.refresh_connections();
             }
 
-            return Ok(());
+            // Clean up closed modals
+            self.modal_manager.cleanup_closed_modals();
+
+            // If escape was pressed, don't handle it again in the main key matching
+            if key.code == KeyCode::Esc {
+                return Ok(());
+            }
         }
+
         match (key.modifiers, key.code) {
             (_, KeyCode::Char('q'))
             | (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
             (_, KeyCode::Char('n')) => {
-                if self.modal.is_none() {
-                    self.modal =
-                        Some(Modal::new(Connection::default(), Mode::New));
-                    if let Some(modal) = &mut self.modal {
-                        modal.open();
-                    }
+                if !self.modal_manager.is_any_modal_open() {
+                    self.modal_manager.open_new_connection_modal();
                 }
             }
             (_, KeyCode::Char('d')) => {
                 // Only handle 'd' key if no modals are open
-                if (self.modal.is_none()
-                    || !self.modal.as_ref().unwrap().is_open)
-                    && (self.confirmation_modal.is_none()
-                        || !self.confirmation_modal.as_ref().unwrap().is_open)
-                {
-                    // Get the selected connection from the table
-                    if let Some(selected_index) =
+                if !self.modal_manager.is_any_modal_open()
+                    && let Some(selected_index) =
                         self.table_widget.table_state.selected()
+                {
+                    // Account for header row - selected_index 0 is header, 1+ are data rows
+                    let data_index = selected_index.saturating_sub(1);
+                    if data_index < self.table_widget.items.len()
+                        && let Some(connection) =
+                            self.table_widget.items.get(data_index)
                     {
-                        // Account for header row - selected_index 0 is header, 1+ are data rows
-                        let data_index = selected_index.saturating_sub(1);
-                        if data_index < self.table_widget.items.len() {
-                            if let Some(connection) =
-                                self.table_widget.items.get(data_index)
-                            {
-                                let message = format!(
-                                    "Are you sure you want to delete\nthe connection '{}'?\n\nThis action cannot be undone.",
-                                    connection.name
-                                );
-                                self.confirmation_modal =
-                                    Some(ConfirmationModal::new(
-                                        message,
-                                        connection.clone(),
-                                    ));
-                                return Ok(()); // Return early to prevent key propagation
-                            }
-                        }
+                        let message = format!(
+                            "Are you sure you want to delete\nthe connection '{}'?\n\nThis action cannot be undone.",
+                            connection.name
+                        );
+                        self.modal_manager.open_confirmation_modal(
+                            message,
+                            connection.clone(),
+                        );
+                        return Ok(()); // Return early to prevent key propagation
                     }
                 }
             }
             (_, KeyCode::Char('e')) => {
                 // Only handle 'e' key if no modal is open
-                if self.modal.is_none() || !self.modal.as_ref().unwrap().is_open
-                {
-                    // Get the selected connection from the table
-                    if let Some(selected_index) =
+                if !self.modal_manager.is_any_modal_open()
+                    && let Some(selected_index) =
                         self.table_widget.table_state.selected()
+                {
+                    // Account for header row - selected_index 0 is header, 1+ are data rows
+                    let data_index = selected_index.saturating_sub(1);
+                    if data_index < self.table_widget.items.len()
+                        && let Some(connection) =
+                            self.table_widget.items.get(data_index)
                     {
-                        // Account for header row - selected_index 0 is header, 1+ are data rows
-                        let data_index = selected_index.saturating_sub(1);
-                        if data_index < self.table_widget.items.len() {
-                            if let Some(connection) =
-                                self.table_widget.items.get_mut(data_index)
-                            {
-                                let entry = keyring::Entry::new(
-                                    "d7s",
-                                    &connection.user,
-                                )?;
-
-                                let password = entry.get_password()?;
-                                connection.password = Some(password);
-
-                                self.modal = Some(Modal::new(
-                                    connection.clone(),
-                                    Mode::Edit,
-                                ));
-
-                                if let Some(modal) = &mut self.modal {
-                                    modal.open_for_edit(connection);
-                                }
-
-                                return Ok(()); // Return early to prevent key propagation
-                            }
+                        if let Err(e) = self
+                            .modal_manager
+                            .open_edit_connection_modal(connection)
+                        {
+                            eprintln!("Failed to open edit modal: {}", e);
                         }
+                        return Ok(()); // Return early to prevent key propagation
                     }
                 }
             }
@@ -267,7 +226,10 @@ impl App<'_> {
             (_, KeyCode::Esc) => {
                 if self.show_popup {
                     self.toggle_popup();
+                } else if self.modal_manager.is_any_modal_open() {
+                    self.modal_manager.close_active_modal();
                 }
+                return Ok(());
             }
             // Vim keybindings for table navigation
             (_, KeyCode::Char('j')) | (_, KeyCode::Down) => {
