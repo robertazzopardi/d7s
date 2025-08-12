@@ -18,5 +18,10 @@ crossterm = "0.28.1"
 ratatui = "0.29.0"
 color-eyre = "0.6.3"
 unicode-width = "0.2"
-tokio = { version = "1.47.0", features = ["full"] }
+tokio = { version = "1.47.0", features = ["rt-multi-thread", "macros"] }
 keyring.workspace = true
+
+[profile.dev]
+debug = 0
+codegen-units = 256
+incremental = true
