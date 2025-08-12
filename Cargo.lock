@@ -247,6 +247,7 @@ dependencies = [
  "dirs",
  "keyring",
  "rusqlite",
+ "tokio",
  "tokio-postgres",
 ]
 

@@ -133,7 +133,13 @@ impl<T: TableData> Modal<T> {
         let connection_data = connection.ref_array();
         for (i, field) in self.fields.iter_mut().enumerate() {
             if i < connection_data.len() {
-                field.value = connection_data[i].clone();
+                // For password field (last field), use actual password instead of masked version
+                if i == connection_data.len() - 1 {
+                    field.value =
+                        connection.password.clone().unwrap_or_default();
+                } else {
+                    field.value = connection_data[i].clone();
+                }
             }
             field.set_focus(false);
         }
@@ -336,7 +342,6 @@ impl<T: TableData> Modal<T> {
                                     entry.set_password(password)?;
                                 }
 
-                                // TODO dont save password and user to database
                                 d7s_db::sqlite::save_connection(&connection)
                                     .unwrap();
                             }
