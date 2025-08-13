@@ -62,6 +62,13 @@ pub struct DataRow {
     pub values: Vec<String>,
 }
 
+/// Table row data
+#[derive(Debug, Clone)]
+pub struct TableRow {
+    pub values: Vec<String>,
+    pub column_names: Vec<String>,
+}
+
 impl TableData for Schema {
     fn title() -> &'static str {
         "Schemas"
@@ -127,6 +134,25 @@ impl TableData for Column {
 
     fn cols() -> Vec<&'static str> {
         vec!["Name", "Type", "Nullable", "Default", "Description"]
+    }
+}
+
+impl TableData for TableRow {
+    fn title() -> &'static str {
+        "Table Data"
+    }
+
+    fn ref_array(&self) -> Vec<String> {
+        self.values.clone()
+    }
+
+    fn num_columns(&self) -> usize {
+        self.values.len()
+    }
+
+    fn cols() -> Vec<&'static str> {
+        // This will be dynamically set based on the actual columns
+        vec![]
     }
 }
 

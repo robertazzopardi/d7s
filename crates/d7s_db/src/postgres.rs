@@ -1,6 +1,8 @@
+use chrono::{DateTime, Utc};
 use tokio_postgres::NoTls;
+use uuid::Uuid;
 
-use crate::{Column, Database, Schema, Table, TableData};
+use crate::{Column, Database, Schema, Table, TableData, TableRow};
 
 #[derive(Debug, Clone, Default)]
 
@@ -104,16 +106,14 @@ impl Postgres {
             ORDER BY t.table_name;
         ";
 
-        dbg!(&query, &schema_name);
         let rows = client.query(query, &[&schema_name]).await?;
         let mut tables = Vec::new();
 
-        dbg!(&rows);
         for row in rows {
             let table = Table {
                 name: row.get(0),
                 schema: row.get(1),
-                size: row.get(3),
+                size: row.get(2),
             };
             tables.push(table);
         }
@@ -186,6 +186,218 @@ impl Postgres {
         }
 
         Ok(data)
+    }
+
+    /// Get table data as TableRow objects
+    pub async fn get_table_data(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<TableRow>, tokio_postgres::Error> {
+        let client = self.get_connection().await?;
+
+        let query =
+            format!("SELECT * FROM {}.{} LIMIT 100", schema_name, table_name);
+
+        let rows = client.query(&query, &[]).await?;
+        let mut table_rows = Vec::new();
+        let mut column_names = Vec::new();
+
+        // Get column names from the first row
+        if let Some(first_row) = rows.first() {
+            for i in 0..first_row.len() {
+                column_names.push(first_row.columns()[i].name().to_string());
+            }
+        }
+
+        for row in rows {
+            let mut values = Vec::new();
+            for i in 0..row.len() {
+                let value: Option<String> = row.get(i);
+                values.push(value.unwrap_or_else(|| "NULL".to_string()));
+            }
+            table_rows.push(TableRow {
+                values,
+                column_names: column_names.clone(),
+            });
+        }
+
+        Ok(table_rows)
+    }
+
+    /// Get table data with column names (simplified version without extra dependencies)
+    pub async fn get_table_data_with_columns_simple(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<(Vec<Vec<String>>, Vec<String>), tokio_postgres::Error> {
+        let client = self.get_connection().await?;
+
+        let query =
+            format!("SELECT * FROM {}.{} LIMIT 100", schema_name, table_name);
+
+        let rows = client.query(&query, &[]).await?;
+        let mut data = Vec::new();
+        let mut column_names = Vec::new();
+
+        // Get column names from the first row
+        if let Some(first_row) = rows.first() {
+            for i in 0..first_row.len() {
+                column_names.push(first_row.columns()[i].name().to_string());
+            }
+        }
+
+        for row in rows {
+            let mut values = Vec::new();
+
+            for i in 0..row.len() {
+                let value =
+                    self.convert_postgres_value_to_string_simple(&row, i);
+                values.push(value);
+            }
+
+            data.push(values);
+        }
+
+        Ok((data, column_names))
+    }
+
+    /// Get table data with column names
+    pub async fn get_table_data_with_columns(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<(Vec<Vec<String>>, Vec<String>), tokio_postgres::Error> {
+        self.get_table_data_with_columns_simple(schema_name, table_name)
+            .await
+    }
+
+    /// Convert a PostgreSQL value to a string representation (simplified version)
+    fn convert_postgres_value_to_string_simple(
+        &self,
+        row: &tokio_postgres::Row,
+        index: usize,
+    ) -> String {
+        // Get the column type
+        let col_type = row.columns()[index].type_();
+        let type_name = col_type.name();
+
+        // Try different approaches based on type
+        match type_name {
+            // Handle JSON types
+            "json" | "jsonb" => {
+                if let Ok(value) =
+                    row.try_get::<_, Option<serde_json::Value>>(index)
+                {
+                    value
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "NULL".to_string())
+                } else {
+                    "NULL".to_string()
+                }
+            }
+            // Handle array types - try as text array first
+            _ if type_name.ends_with("[]") => {
+                if let Ok(value) = row.try_get::<_, Option<Vec<String>>>(index)
+                {
+                    value
+                        .map(|arr| format!("[{}]", arr.join(", ")))
+                        .unwrap_or_else(|| "NULL".to_string())
+                } else {
+                    // Fallback: try to get as text
+                    if let Ok(value) = row.try_get::<_, Option<String>>(index) {
+                        value.unwrap_or_else(|| "NULL".to_string())
+                    } else {
+                        format!("<{}>", type_name)
+                    }
+                }
+            }
+            // Handle text-like types
+            "text" | "varchar" | "char" | "character varying" | "character" => {
+                if let Ok(value) = row.try_get::<_, Option<String>>(index) {
+                    value.unwrap_or_else(|| "NULL".to_string())
+                } else {
+                    "NULL".to_string()
+                }
+            }
+            "uuid" => {
+                if let Ok(value) = row.try_get::<_, Option<Uuid>>(index) {
+                    value
+                        .map(|id| id.to_string())
+                        .unwrap_or_else(|| "NULL".to_string())
+                } else {
+                    "NULL".to_string()
+                }
+            }
+            // Handle numeric types
+            "int2" | "smallint" | "int4" | "integer" | "int8" | "bigint"
+            | "numeric" | "decimal" => {
+                if let Ok(value) = row.try_get::<_, Option<String>>(index) {
+                    value.unwrap_or_else(|| "NULL".to_string())
+                } else {
+                    "NULL".to_string()
+                }
+            }
+            // Handle floating point types
+            "float4" | "real" | "float8" | "double precision" => {
+                if let Ok(value) = row.try_get::<_, Option<String>>(index) {
+                    value.unwrap_or_else(|| "NULL".to_string())
+                } else {
+                    "NULL".to_string()
+                }
+            }
+            // Handle boolean types
+            "bool" | "boolean" => {
+                if let Ok(value) = row.try_get::<_, Option<bool>>(index) {
+                    value
+                        .map(|b| b.to_string())
+                        .unwrap_or_else(|| "NULL".to_string())
+                } else {
+                    "NULL".to_string()
+                }
+            }
+            // Handle date/time types
+            "timestamp" | "timestamptz" | "date" | "time" => {
+                if let Ok(value) =
+                    row.try_get::<_, Option<DateTime<Utc>>>(index)
+                {
+                    value
+                        .map(|dt| dt.to_string())
+                        .unwrap_or_else(|| "NULL".to_string())
+                } else {
+                    "NULL".to_string()
+                }
+            }
+            // Handle binary data
+            "bytea" => {
+                if let Ok(value) = row.try_get::<_, Option<Vec<u8>>>(index) {
+                    value
+                        .map(|bytes| format!("<{} bytes>", bytes.len()))
+                        .unwrap_or_else(|| "NULL".to_string())
+                } else {
+                    "NULL".to_string()
+                }
+            }
+            // Handle custom/enum types - try as text first
+            _ => {
+                // For custom types, try to get as text first
+                if let Ok(value) = row.try_get::<_, Option<String>>(index) {
+                    value.unwrap_or_else(|| "NULL".to_string())
+                } else {
+                    // If that fails, try to get as JSON (for complex types)
+                    if let Ok(value) =
+                        row.try_get::<_, Option<serde_json::Value>>(index)
+                    {
+                        value
+                            .map(|v| v.to_string())
+                            .unwrap_or_else(|| "NULL".to_string())
+                    } else {
+                        // Last resort: show type name
+                        format!("<{}>", type_name)
+                    }
+                }
+            }
+        }
     }
 }
 
