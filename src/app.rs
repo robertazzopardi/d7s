@@ -15,7 +15,7 @@ use ratatui::{
 use crate::widgets::{
     hotkey::Hotkey,
     modal::{ConfirmationModal, Modal, ModalManager, Mode},
-    table::DataTable,
+    table::{DataTable, TableDataWidget},
     top_bar_view::{CONNECTION_HOTKEYS, TopBarView},
 };
 
@@ -39,8 +39,9 @@ pub enum AppState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DatabaseExplorerState {
     Schemas,
-    Tables(String),          // schema name
-    Columns(String, String), // schema name, table name
+    Tables(String),            // schema name
+    Columns(String, String),   // schema name, table name
+    TableData(String, String), // schema name, table name
 }
 
 /// The main application which holds the state and logic of the application.
@@ -65,6 +66,8 @@ pub struct App<'a> {
     table_table: Option<DataTable<Table>>,
     /// Current column table data
     column_table: Option<DataTable<Column>>,
+    /// Current table data (rows)
+    table_data: Option<TableDataWidget>,
 }
 
 impl Default for App<'_> {
@@ -88,6 +91,7 @@ impl Default for App<'_> {
             schema_table: None,
             table_table: None,
             column_table: None,
+            table_data: None,
         }
     }
 }
@@ -202,7 +206,7 @@ impl App<'_> {
             {
                 // Delete the keyring credential using the user
                 let entry = keyring::Entry::new("d7s", &connection.user)?;
-                entry.delete_credential()?;
+                let _ = entry.delete_credential();
 
                 // Delete from database
                 if let Err(e) =
@@ -287,6 +291,38 @@ impl App<'_> {
                 }
             }
             (_, KeyCode::Char('p')) => self.toggle_popup(),
+            (_, KeyCode::Char('t')) => {
+                if self.state == AppState::DatabaseConnected {
+                    if let Some(DatabaseExplorerState::TableData(
+                        schema_name,
+                        table_name,
+                    )) = &self.explorer_state
+                    {
+                        // Toggle to columns view
+                        let schema_name = schema_name.clone();
+                        let table_name = table_name.clone();
+                        if let Err(e) =
+                            self.load_columns(&schema_name, &table_name).await
+                        {
+                            eprintln!("Failed to load columns: {}", e);
+                        }
+                    } else if let Some(DatabaseExplorerState::Columns(
+                        schema_name,
+                        table_name,
+                    )) = &self.explorer_state
+                    {
+                        // Toggle to data view
+                        let schema_name = schema_name.clone();
+                        let table_name = table_name.clone();
+                        if let Err(e) = self
+                            .load_table_data(&schema_name, &table_name)
+                            .await
+                        {
+                            eprintln!("Failed to load table data: {}", e);
+                        }
+                    }
+                }
+            }
             (_, KeyCode::Esc) => {
                 if self.show_popup {
                     self.toggle_popup();
@@ -449,6 +485,7 @@ impl App<'_> {
         self.schema_table = None;
         self.table_table = None;
         self.column_table = None;
+        self.table_data = None;
     }
 
     /// Get the title for the database view based on current state
@@ -460,6 +497,9 @@ impl App<'_> {
             }
             Some(DatabaseExplorerState::Columns(schema, table)) => {
                 format!(" Columns in {}.{} ", schema, table)
+            }
+            Some(DatabaseExplorerState::TableData(schema, table)) => {
+                format!(" Data in {}.{} ", schema, table)
             }
             None => " Database Explorer ".to_string(),
         }
@@ -492,6 +532,15 @@ impl App<'_> {
                         column_table.clone(),
                         area,
                         &mut column_table.table_state.clone(),
+                    );
+                }
+            }
+            Some(DatabaseExplorerState::TableData(_, _)) => {
+                if let Some(table_data) = &self.table_data {
+                    frame.render_stateful_widget(
+                        table_data.clone(),
+                        area,
+                        &mut table_data.table_state.clone(),
                     );
                 }
             }
@@ -574,12 +623,19 @@ impl App<'_> {
                     if let Some(selected_index) =
                         schema_table.table_state.selected()
                     {
-                        let data_index = selected_index.saturating_sub(1);
-                        if data_index < schema_table.items.len() {
+                        if selected_index < schema_table.items.len() {
                             if let Some(schema) =
-                                schema_table.items.get(data_index)
+                                schema_table.items.get(selected_index)
                             {
                                 let schema_name = schema.name.clone();
+
+                                if let Some(connection) =
+                                    &mut self.active_connection
+                                {
+                                    connection.schema =
+                                        Some(schema_name.clone());
+                                }
+
                                 self.load_tables(&schema_name).await?;
                             }
                         }
@@ -587,27 +643,44 @@ impl App<'_> {
                 }
             }
             Some(DatabaseExplorerState::Tables(schema_name)) => {
-                // Navigate to columns in selected table
+                // Navigate to table data in selected table (show data first, not columns)
                 if let Some(table_table) = &self.table_table {
                     if let Some(selected_index) =
                         table_table.table_state.selected()
                     {
-                        let data_index = selected_index.saturating_sub(1);
+                        let data_index = selected_index;
                         if data_index < table_table.items.len() {
                             if let Some(table) =
                                 table_table.items.get(data_index)
                             {
                                 let schema_name = schema_name.clone();
                                 let table_name = table.name.clone();
-                                self.load_columns(&schema_name, &table_name)
+
+                                if let Some(connection) =
+                                    &mut self.active_connection
+                                {
+                                    connection.table = Some(table_name.clone());
+                                }
+
+                                self.load_table_data(&schema_name, &table_name)
                                     .await?;
                             }
                         }
                     }
                 }
             }
-            Some(DatabaseExplorerState::Columns(_, _)) => {
-                // At column level, do nothing on Enter (could show sample data later)
+            Some(DatabaseExplorerState::Columns(schema_name, table_name)) => {
+                // Toggle to data view
+                let schema_name = schema_name.clone();
+                let table_name = table_name.clone();
+                self.load_table_data(&schema_name, &table_name).await?;
+            }
+            Some(DatabaseExplorerState::TableData(schema_name, table_name)) => {
+                // Toggle back to columns view
+                self.explorer_state = Some(DatabaseExplorerState::Columns(
+                    schema_name.clone(),
+                    table_name.clone(),
+                ));
             }
             None => {
                 // Load schemas if not loaded yet
@@ -620,18 +693,38 @@ impl App<'_> {
     /// Go back to previous level in database navigation
     fn go_back_in_database(&mut self) {
         match &self.explorer_state {
+            Some(DatabaseExplorerState::TableData(schema_name, _)) => {
+                // Go back to tables in the same schema
+                if let Some(table_table) = &self.table_table {
+                    self.explorer_state = Some(DatabaseExplorerState::Tables(
+                        schema_name.clone(),
+                    ));
+
+                    if let Some(connection) = &mut self.active_connection {
+                        connection.table = None;
+                    }
+                }
+            }
             Some(DatabaseExplorerState::Columns(schema_name, _)) => {
                 // Go back to tables in the same schema
                 if let Some(table_table) = &self.table_table {
                     self.explorer_state = Some(DatabaseExplorerState::Tables(
                         schema_name.clone(),
                     ));
+
+                    if let Some(connection) = &mut self.active_connection {
+                        connection.table = None;
+                    }
                 }
             }
             Some(DatabaseExplorerState::Tables(_)) => {
                 // Go back to schemas
                 if let Some(schema_table) = &self.schema_table {
                     self.explorer_state = Some(DatabaseExplorerState::Schemas);
+
+                    if let Some(connection) = &mut self.active_connection {
+                        connection.schema = None;
+                    }
                 }
             }
             Some(DatabaseExplorerState::Schemas) => {
@@ -747,7 +840,68 @@ impl App<'_> {
                     }
                 }
             }
+            Some(DatabaseExplorerState::TableData(_, _)) => {
+                if let Some(table_data) = &mut self.table_data {
+                    match key {
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            table_data.table_state.select_next();
+                        }
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            table_data.table_state.select_previous();
+                        }
+                        KeyCode::Char('h')
+                        | KeyCode::Left
+                        | KeyCode::Char('b') => {
+                            table_data.table_state.select_previous_column();
+                        }
+                        KeyCode::Char('l')
+                        | KeyCode::Right
+                        | KeyCode::Char('w') => {
+                            table_data.table_state.select_next_column();
+                        }
+                        KeyCode::Char('g') => {
+                            table_data.table_state.select(Some(1));
+                        }
+                        KeyCode::Char('G') => {
+                            if !table_data.items.is_empty() {
+                                table_data
+                                    .table_state
+                                    .select(Some(table_data.items.len()));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
             None => {}
         }
+    }
+
+    /// Load table data for a table
+    async fn load_table_data(
+        &mut self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<()> {
+        if let Some(database) = &self.active_database {
+            match database
+                .get_table_data_with_columns(schema_name, table_name)
+                .await
+            {
+                Ok((data, column_names)) => {
+                    self.table_data =
+                        Some(TableDataWidget::new(data, column_names));
+                    self.explorer_state =
+                        Some(DatabaseExplorerState::TableData(
+                            schema_name.to_string(),
+                            table_name.to_string(),
+                        ));
+                }
+                Err(e) => {
+                    eprintln!("Failed to load table data: {}", e);
+                }
+            }
+        }
+        Ok(())
     }
 }
