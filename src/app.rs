@@ -3,8 +3,7 @@ use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
 use d7s_db::{
-    Column, Database, DatabaseObjectType, Schema, Table, TableData,
-    connection::Connection, postgres::Postgres,
+    Column, Database, Schema, Table, connection::Connection, postgres::Postgres,
 };
 use ratatui::{
     DefaultTerminal, Frame,
@@ -14,7 +13,7 @@ use ratatui::{
 
 use crate::widgets::{
     hotkey::Hotkey,
-    modal::{ConfirmationModal, Modal, ModalManager, Mode},
+    modal::ModalManager,
     table::{DataTable, TableDataWidget},
     top_bar_view::{CONNECTION_HOTKEYS, TopBarView},
 };
@@ -29,14 +28,14 @@ _________________
 ";
 
 /// Application state to track whether we're viewing connections or connected to a database
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppState {
     ConnectionList,
     DatabaseConnected,
 }
 
 /// Database explorer state to track what object type is being viewed
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DatabaseExplorerState {
     Schemas,
     Tables(String),            // schema name
@@ -50,6 +49,7 @@ pub struct App<'a> {
     running: bool,
     show_popup: bool,
     modal_manager: ModalManager,
+    #[allow(dead_code)]
     hotkeys: Vec<Hotkey<'a>>,
     table_widget: DataTable<Connection>,
     /// Current application state
@@ -195,13 +195,14 @@ impl App<'_> {
     }
 
     /// Handles the key events and updates the state of [`App`].
+    #[allow(clippy::too_many_lines)]
     async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Handle modal events first
         if self.modal_manager.is_any_modal_open() {
             self.modal_manager.handle_key_events(key).await?;
 
             // Handle confirmation modal results
-            if let Some(Some(connection)) =
+            if let Some(connection) =
                 self.modal_manager.was_confirmation_modal_confirmed()
             {
                 // Delete the keyring credential using the user
@@ -212,7 +213,7 @@ impl App<'_> {
                 if let Err(e) =
                     d7s_db::sqlite::delete_connection(&connection.name)
                 {
-                    eprintln!("Failed to delete connection: {}", e);
+                    eprintln!("Failed to delete connection: {e}");
                 } else {
                     self.refresh_connections();
                 }
@@ -226,10 +227,7 @@ impl App<'_> {
             // Clean up closed modals
             self.modal_manager.cleanup_closed_modals();
 
-            // If escape was pressed, don't handle it again in the main key matching
-            // if key.code == KeyCode::Esc {
             return Ok(());
-            // }
         }
 
         match (key.modifiers, key.code) {
@@ -284,7 +282,7 @@ impl App<'_> {
                             .modal_manager
                             .open_edit_connection_modal(connection)
                         {
-                            eprintln!("Failed to open edit modal: {}", e);
+                            eprintln!("Failed to open edit modal: {e}");
                         }
                         return Ok(()); // Return early to prevent key propagation
                     }
@@ -304,7 +302,7 @@ impl App<'_> {
                         if let Err(e) =
                             self.load_columns(&schema_name, &table_name).await
                         {
-                            eprintln!("Failed to load columns: {}", e);
+                            eprintln!("Failed to load columns: {e}");
                         }
                     } else if let Some(DatabaseExplorerState::Columns(
                         schema_name,
@@ -318,7 +316,7 @@ impl App<'_> {
                             .load_table_data(&schema_name, &table_name)
                             .await
                         {
-                            eprintln!("Failed to load table data: {}", e);
+                            eprintln!("Failed to load table data: {e}");
                         }
                     }
                 }
@@ -343,32 +341,28 @@ impl App<'_> {
                 return Ok(());
             }
             // Vim keybindings for table navigation
-            (_, KeyCode::Char('j')) | (_, KeyCode::Down) => {
+            (_, KeyCode::Char('j') | KeyCode::Down) => {
                 if self.state == AppState::ConnectionList {
                     self.table_widget.table_state.select_next();
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Down);
                 }
             }
-            (_, KeyCode::Char('k')) | (_, KeyCode::Up) => {
+            (_, KeyCode::Char('k') | KeyCode::Up) => {
                 if self.state == AppState::ConnectionList {
                     self.table_widget.table_state.select_previous();
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Up);
                 }
             }
-            (_, KeyCode::Char('h'))
-            | (_, KeyCode::Left)
-            | (_, KeyCode::Char('b')) => {
+            (_, KeyCode::Char('h' | 'b') | KeyCode::Left) => {
                 if self.state == AppState::ConnectionList {
                     self.table_widget.table_state.select_previous_column();
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Left);
                 }
             }
-            (_, KeyCode::Char('l'))
-            | (_, KeyCode::Right)
-            | (_, KeyCode::Char('w')) => {
+            (_, KeyCode::Char('l' | 'w') | KeyCode::Right) => {
                 if self.state == AppState::ConnectionList {
                     self.table_widget.table_state.select_next_column();
                 } else if self.state == AppState::DatabaseConnected {
@@ -382,17 +376,16 @@ impl App<'_> {
                 }
             }
             (_, KeyCode::Char('$')) => {
-                if self.state == AppState::ConnectionList {
-                    if let Some(num_cols) = self
+                if self.state == AppState::ConnectionList
+                    && let Some(num_cols) = self
                         .table_widget
                         .items
                         .first()
                         .map(d7s_db::TableData::num_columns)
-                    {
-                        self.table_widget
-                            .table_state
-                            .select_column(Some(num_cols.saturating_sub(1)));
-                    }
+                {
+                    self.table_widget
+                        .table_state
+                        .select_column(Some(num_cols.saturating_sub(1)));
                 }
             }
             (_, KeyCode::Char('g')) => {
@@ -441,35 +434,34 @@ impl App<'_> {
         if let Some(selected_index) = self.table_widget.table_state.selected() {
             // Account for header row - selected_index 0 is header, 1+ are data rows
             let data_index = selected_index.saturating_sub(1);
-            if data_index < self.table_widget.items.len() {
-                if let Some(connection) =
+            if data_index < self.table_widget.items.len()
+                && let Some(connection) =
                     self.table_widget.items.get(data_index)
-                {
-                    // Get the password from keyring
-                    let entry = keyring::Entry::new("d7s", &connection.user)?;
-                    let password = entry.get_password()?;
+            {
+                // Get the password from keyring
+                let entry = keyring::Entry::new("d7s", &connection.user)?;
+                let password = entry.get_password()?;
 
-                    // Create connection with password
-                    let mut connection_with_password = connection.clone();
-                    connection_with_password.password = Some(password);
+                // Create connection with password
+                let mut connection_with_password = connection.clone();
+                connection_with_password.password = Some(password);
 
-                    // Test the connection first
-                    let postgres = connection_with_password.to_postgres();
-                    if postgres.test().await {
-                        // Connection successful, update state
-                        self.active_connection =
-                            Some(connection_with_password.clone());
-                        self.active_database = Some(postgres);
-                        self.state = AppState::DatabaseConnected;
+                // Test the connection first
+                let postgres = connection_with_password.to_postgres();
+                if postgres.test().await {
+                    // Connection successful, update state
+                    self.active_connection =
+                        Some(connection_with_password.clone());
+                    self.active_database = Some(postgres);
+                    self.state = AppState::DatabaseConnected;
 
-                        // Load schemas after successful connection
-                        self.load_schemas().await?;
-                    } else {
-                        eprintln!(
-                            "Failed to connect to database: {}",
-                            connection.name
-                        );
-                    }
+                    // Load schemas after successful connection
+                    self.load_schemas().await?;
+                } else {
+                    eprintln!(
+                        "Failed to connect to database: {}",
+                        connection.name
+                    );
                 }
             }
         }
@@ -493,20 +485,20 @@ impl App<'_> {
         match &self.explorer_state {
             Some(DatabaseExplorerState::Schemas) => " Schemas ".to_string(),
             Some(DatabaseExplorerState::Tables(schema)) => {
-                format!(" Tables in {} ", schema)
+                format!(" Tables in {schema} ")
             }
             Some(DatabaseExplorerState::Columns(schema, table)) => {
-                format!(" Columns in {}.{} ", schema, table)
+                format!(" Columns in {schema}.{table} ")
             }
             Some(DatabaseExplorerState::TableData(schema, table)) => {
-                format!(" Data in {}.{} ", schema, table)
+                format!(" Data in {schema}.{table} ")
             }
             None => " Database Explorer ".to_string(),
         }
     }
 
     /// Render the appropriate database table based on explorer state
-    fn render_database_table(&mut self, frame: &mut Frame, area: Rect) {
+    fn render_database_table(&self, frame: &mut Frame, area: Rect) {
         match &self.explorer_state {
             Some(DatabaseExplorerState::Schemas) => {
                 if let Some(schema_table) = &self.schema_table {
@@ -566,7 +558,7 @@ impl App<'_> {
                     self.explorer_state = Some(DatabaseExplorerState::Schemas);
                 }
                 Err(e) => {
-                    eprintln!("Failed to load schemas: {}", e);
+                    eprintln!("Failed to load schemas: {e}");
                 }
             }
         }
@@ -584,7 +576,7 @@ impl App<'_> {
                     ));
                 }
                 Err(e) => {
-                    eprintln!("Failed to load tables: {}", e);
+                    eprintln!("Failed to load tables: {e}");
                 }
             }
         }
@@ -607,7 +599,7 @@ impl App<'_> {
                     ));
                 }
                 Err(e) => {
-                    eprintln!("Failed to load columns: {}", e);
+                    eprintln!("Failed to load columns: {e}");
                 }
             }
         }
@@ -619,53 +611,39 @@ impl App<'_> {
         match &self.explorer_state {
             Some(DatabaseExplorerState::Schemas) => {
                 // Navigate to tables in selected schema
-                if let Some(schema_table) = &self.schema_table {
-                    if let Some(selected_index) =
+                if let Some(schema_table) = &self.schema_table
+                    && let Some(selected_index) =
                         schema_table.table_state.selected()
-                    {
-                        if selected_index < schema_table.items.len() {
-                            if let Some(schema) =
-                                schema_table.items.get(selected_index)
-                            {
-                                let schema_name = schema.name.clone();
+                    && selected_index < schema_table.items.len()
+                    && let Some(schema) = schema_table.items.get(selected_index)
+                {
+                    let schema_name = schema.name.clone();
 
-                                if let Some(connection) =
-                                    &mut self.active_connection
-                                {
-                                    connection.schema =
-                                        Some(schema_name.clone());
-                                }
-
-                                self.load_tables(&schema_name).await?;
-                            }
-                        }
+                    if let Some(connection) = &mut self.active_connection {
+                        connection.schema = Some(schema_name.clone());
                     }
+
+                    self.load_tables(&schema_name).await?;
                 }
             }
             Some(DatabaseExplorerState::Tables(schema_name)) => {
                 // Navigate to table data in selected table (show data first, not columns)
-                if let Some(table_table) = &self.table_table {
-                    if let Some(selected_index) =
+                if let Some(table_table) = &self.table_table
+                    && let Some(selected_index) =
                         table_table.table_state.selected()
+                {
+                    let data_index = selected_index;
+                    if data_index < table_table.items.len()
+                        && let Some(table) = table_table.items.get(data_index)
                     {
-                        let data_index = selected_index;
-                        if data_index < table_table.items.len() {
-                            if let Some(table) =
-                                table_table.items.get(data_index)
-                            {
-                                let schema_name = schema_name.clone();
-                                let table_name = table.name.clone();
+                        let schema_name = schema_name.clone();
+                        let table_name = table.name.clone();
 
-                                if let Some(connection) =
-                                    &mut self.active_connection
-                                {
-                                    connection.table = Some(table_name.clone());
-                                }
-
-                                self.load_table_data(&schema_name, &table_name)
-                                    .await?;
-                            }
+                        if let Some(connection) = &mut self.active_connection {
+                            connection.table = Some(table_name.clone());
                         }
+
+                        self.load_table_data(&schema_name, &table_name).await?;
                     }
                 }
             }
@@ -693,21 +671,12 @@ impl App<'_> {
     /// Go back to previous level in database navigation
     fn go_back_in_database(&mut self) {
         match &self.explorer_state {
-            Some(DatabaseExplorerState::TableData(schema_name, _)) => {
+            Some(
+                DatabaseExplorerState::TableData(schema_name, _)
+                | DatabaseExplorerState::Columns(schema_name, _),
+            ) => {
                 // Go back to tables in the same schema
-                if let Some(table_table) = &self.table_table {
-                    self.explorer_state = Some(DatabaseExplorerState::Tables(
-                        schema_name.clone(),
-                    ));
-
-                    if let Some(connection) = &mut self.active_connection {
-                        connection.table = None;
-                    }
-                }
-            }
-            Some(DatabaseExplorerState::Columns(schema_name, _)) => {
-                // Go back to tables in the same schema
-                if let Some(table_table) = &self.table_table {
+                if self.table_table.is_some() {
                     self.explorer_state = Some(DatabaseExplorerState::Tables(
                         schema_name.clone(),
                     ));
@@ -719,7 +688,7 @@ impl App<'_> {
             }
             Some(DatabaseExplorerState::Tables(_)) => {
                 // Go back to schemas
-                if let Some(schema_table) = &self.schema_table {
+                if self.schema_table.is_some() {
                     self.explorer_state = Some(DatabaseExplorerState::Schemas);
 
                     if let Some(connection) = &mut self.active_connection {
@@ -727,11 +696,7 @@ impl App<'_> {
                     }
                 }
             }
-            Some(DatabaseExplorerState::Schemas) => {
-                // Go back to connection list (disconnect)
-                self.disconnect_from_database();
-            }
-            None => {
+            Some(DatabaseExplorerState::Schemas) | None => {
                 // Go back to connection list (disconnect)
                 self.disconnect_from_database();
             }
@@ -742,138 +707,138 @@ impl App<'_> {
     fn handle_database_table_navigation(&mut self, key: KeyCode) {
         match &self.explorer_state {
             Some(DatabaseExplorerState::Schemas) => {
-                if let Some(schema_table) = &mut self.schema_table {
-                    match key {
-                        KeyCode::Char('j') | KeyCode::Down => {
-                            schema_table.table_state.select_next();
-                        }
-                        KeyCode::Char('k') | KeyCode::Up => {
-                            schema_table.table_state.select_previous();
-                        }
-                        KeyCode::Char('h')
-                        | KeyCode::Left
-                        | KeyCode::Char('b') => {
-                            schema_table.table_state.select_previous_column();
-                        }
-                        KeyCode::Char('l')
-                        | KeyCode::Right
-                        | KeyCode::Char('w') => {
-                            schema_table.table_state.select_next_column();
-                        }
-                        KeyCode::Char('g') => {
-                            schema_table.table_state.select(Some(1));
-                        }
-                        KeyCode::Char('G') => {
-                            if !schema_table.items.is_empty() {
-                                schema_table
-                                    .table_state
-                                    .select(Some(schema_table.items.len()));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
+                self.handle_schema_table_navigation(key);
             }
             Some(DatabaseExplorerState::Tables(_)) => {
-                if let Some(table_table) = &mut self.table_table {
-                    match key {
-                        KeyCode::Char('j') | KeyCode::Down => {
-                            table_table.table_state.select_next();
-                        }
-                        KeyCode::Char('k') | KeyCode::Up => {
-                            table_table.table_state.select_previous();
-                        }
-                        KeyCode::Char('h')
-                        | KeyCode::Left
-                        | KeyCode::Char('b') => {
-                            table_table.table_state.select_previous_column();
-                        }
-                        KeyCode::Char('l')
-                        | KeyCode::Right
-                        | KeyCode::Char('w') => {
-                            table_table.table_state.select_next_column();
-                        }
-                        KeyCode::Char('g') => {
-                            table_table.table_state.select(Some(1));
-                        }
-                        KeyCode::Char('G') => {
-                            if !table_table.items.is_empty() {
-                                table_table
-                                    .table_state
-                                    .select(Some(table_table.items.len()));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
+                self.handle_table_table_navigation(key);
             }
             Some(DatabaseExplorerState::Columns(_, _)) => {
-                if let Some(column_table) = &mut self.column_table {
-                    match key {
-                        KeyCode::Char('j') | KeyCode::Down => {
-                            column_table.table_state.select_next();
-                        }
-                        KeyCode::Char('k') | KeyCode::Up => {
-                            column_table.table_state.select_previous();
-                        }
-                        KeyCode::Char('h')
-                        | KeyCode::Left
-                        | KeyCode::Char('b') => {
-                            column_table.table_state.select_previous_column();
-                        }
-                        KeyCode::Char('l')
-                        | KeyCode::Right
-                        | KeyCode::Char('w') => {
-                            column_table.table_state.select_next_column();
-                        }
-                        KeyCode::Char('g') => {
-                            column_table.table_state.select(Some(1));
-                        }
-                        KeyCode::Char('G') => {
-                            if !column_table.items.is_empty() {
-                                column_table
-                                    .table_state
-                                    .select(Some(column_table.items.len()));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
+                self.handle_column_table_navigation(key);
             }
             Some(DatabaseExplorerState::TableData(_, _)) => {
-                if let Some(table_data) = &mut self.table_data {
-                    match key {
-                        KeyCode::Char('j') | KeyCode::Down => {
-                            table_data.table_state.select_next();
-                        }
-                        KeyCode::Char('k') | KeyCode::Up => {
-                            table_data.table_state.select_previous();
-                        }
-                        KeyCode::Char('h')
-                        | KeyCode::Left
-                        | KeyCode::Char('b') => {
-                            table_data.table_state.select_previous_column();
-                        }
-                        KeyCode::Char('l')
-                        | KeyCode::Right
-                        | KeyCode::Char('w') => {
-                            table_data.table_state.select_next_column();
-                        }
-                        KeyCode::Char('g') => {
-                            table_data.table_state.select(Some(1));
-                        }
-                        KeyCode::Char('G') => {
-                            if !table_data.items.is_empty() {
-                                table_data
-                                    .table_state
-                                    .select(Some(table_data.items.len()));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
+                self.handle_table_data_navigation(key);
             }
             None => {}
+        }
+    }
+
+    fn handle_table_data_navigation(&mut self, key: KeyCode) {
+        if let Some(table_data) = &mut self.table_data {
+            match key {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    table_data.table_state.select_next();
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    table_data.table_state.select_previous();
+                }
+                KeyCode::Char('h' | 'b') | KeyCode::Left => {
+                    table_data.table_state.select_previous_column();
+                }
+                KeyCode::Char('l' | 'w') | KeyCode::Right => {
+                    table_data.table_state.select_next_column();
+                }
+                KeyCode::Char('g') => {
+                    table_data.table_state.select(Some(1));
+                }
+                KeyCode::Char('G') => {
+                    if !table_data.items.is_empty() {
+                        table_data
+                            .table_state
+                            .select(Some(table_data.items.len()));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn handle_column_table_navigation(&mut self, key: KeyCode) {
+        if let Some(column_table) = &mut self.column_table {
+            match key {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    column_table.table_state.select_next();
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    column_table.table_state.select_previous();
+                }
+                KeyCode::Char('h' | 'b') | KeyCode::Left => {
+                    column_table.table_state.select_previous_column();
+                }
+                KeyCode::Char('l' | 'w') | KeyCode::Right => {
+                    column_table.table_state.select_next_column();
+                }
+                KeyCode::Char('g') => {
+                    column_table.table_state.select(Some(1));
+                }
+                KeyCode::Char('G') => {
+                    if !column_table.items.is_empty() {
+                        column_table
+                            .table_state
+                            .select(Some(column_table.items.len()));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn handle_table_table_navigation(&mut self, key: KeyCode) {
+        if let Some(table_table) = &mut self.table_table {
+            match key {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    table_table.table_state.select_next();
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    table_table.table_state.select_previous();
+                }
+                KeyCode::Char('h' | 'b') | KeyCode::Left => {
+                    table_table.table_state.select_previous_column();
+                }
+                KeyCode::Char('l' | 'w') | KeyCode::Right => {
+                    table_table.table_state.select_next_column();
+                }
+                KeyCode::Char('g') => {
+                    table_table.table_state.select(Some(1));
+                }
+                KeyCode::Char('G') => {
+                    if !table_table.items.is_empty() {
+                        table_table
+                            .table_state
+                            .select(Some(table_table.items.len()));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn handle_schema_table_navigation(&mut self, key: KeyCode) {
+        if let Some(schema_table) = &mut self.schema_table {
+            match key {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    schema_table.table_state.select_next();
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    schema_table.table_state.select_previous();
+                }
+                KeyCode::Char('h' | 'b') | KeyCode::Left => {
+                    schema_table.table_state.select_previous_column();
+                }
+                KeyCode::Char('l' | 'w') | KeyCode::Right => {
+                    schema_table.table_state.select_next_column();
+                }
+                KeyCode::Char('g') => {
+                    schema_table.table_state.select(Some(1));
+                }
+                KeyCode::Char('G') => {
+                    if !schema_table.items.is_empty() {
+                        schema_table
+                            .table_state
+                            .select(Some(schema_table.items.len()));
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
@@ -898,7 +863,7 @@ impl App<'_> {
                         ));
                 }
                 Err(e) => {
-                    eprintln!("Failed to load table data: {}", e);
+                    eprintln!("Failed to load table data: {e}");
                 }
             }
         }
