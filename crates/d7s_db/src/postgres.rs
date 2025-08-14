@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use tokio_postgres::NoTls;
+use tokio_postgres::{NoTls, types::FromSql};
 use uuid::Uuid;
 
 use crate::{Column, Database, Schema, Table, TableData, TableRow};
@@ -26,16 +26,16 @@ impl Database for Postgres {
             self.database
         );
 
-        let Ok(_) = tokio_postgres::connect(&config, NoTls).await else {
-            return false;
-        };
-
-        true
+        tokio_postgres::connect(&config, NoTls).await.is_ok()
     }
 }
 
 impl Postgres {
     /// Get a connection to the database
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the query fails.
     async fn get_connection(
         &self,
     ) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
@@ -54,7 +54,7 @@ impl Postgres {
         // Spawn the connection to run in the background
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("Database connection error: {}", e);
+                eprintln!("Database connection error: {e}");
             }
         });
 
@@ -62,6 +62,10 @@ impl Postgres {
     }
 
     /// Get all schemas in the database
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the query fails.
     pub async fn get_schemas(
         &self,
     ) -> Result<Vec<Schema>, tokio_postgres::Error> {
@@ -89,6 +93,10 @@ impl Postgres {
     }
 
     /// Get all tables in a schema
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the query fails.
     pub async fn get_tables(
         &self,
         schema_name: &str,
@@ -122,6 +130,10 @@ impl Postgres {
     }
 
     /// Get all columns in a table
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the query fails.
     pub async fn get_columns(
         &self,
         schema_name: &str,
@@ -162,6 +174,10 @@ impl Postgres {
     }
 
     /// Get sample data from a table
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the query fails.
     pub async fn get_sample_data(
         &self,
         schema_name: &str,
@@ -171,7 +187,7 @@ impl Postgres {
         let client = self.get_connection().await?;
 
         let query =
-            format!("SELECT * FROM {}.{} LIMIT $1", schema_name, table_name);
+            format!("SELECT * FROM {schema_name}.{table_name} LIMIT $1");
 
         let rows = client.query(&query, &[&limit]).await?;
         let mut data = Vec::new();
@@ -188,7 +204,11 @@ impl Postgres {
         Ok(data)
     }
 
-    /// Get table data as TableRow objects
+    /// Get table data as `TableRow` objects
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the query fails.
     pub async fn get_table_data(
         &self,
         schema_name: &str,
@@ -197,7 +217,7 @@ impl Postgres {
         let client = self.get_connection().await?;
 
         let query =
-            format!("SELECT * FROM {}.{} LIMIT 100", schema_name, table_name);
+            format!("SELECT * FROM {schema_name}.{table_name} LIMIT 100");
 
         let rows = client.query(&query, &[]).await?;
         let mut table_rows = Vec::new();
@@ -226,6 +246,10 @@ impl Postgres {
     }
 
     /// Get table data with column names (simplified version without extra dependencies)
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the query fails.
     pub async fn get_table_data_with_columns_simple(
         &self,
         schema_name: &str,
@@ -234,7 +258,7 @@ impl Postgres {
         let client = self.get_connection().await?;
 
         let query =
-            format!("SELECT * FROM {}.{} LIMIT 100", schema_name, table_name);
+            format!("SELECT * FROM {schema_name}.{table_name} LIMIT 100");
 
         let rows = client.query(&query, &[]).await?;
         let mut data = Vec::new();
@@ -251,8 +275,7 @@ impl Postgres {
             let mut values = Vec::new();
 
             for i in 0..row.len() {
-                let value =
-                    self.convert_postgres_value_to_string_simple(&row, i);
+                let value = convert_postgres_value_to_string_simple(&row, i);
                 values.push(value);
             }
 
@@ -263,6 +286,10 @@ impl Postgres {
     }
 
     /// Get table data with column names
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the query fails.
     pub async fn get_table_data_with_columns(
         &self,
         schema_name: &str,
@@ -271,134 +298,113 @@ impl Postgres {
         self.get_table_data_with_columns_simple(schema_name, table_name)
             .await
     }
+}
 
-    /// Convert a PostgreSQL value to a string representation (simplified version)
-    fn convert_postgres_value_to_string_simple(
-        &self,
-        row: &tokio_postgres::Row,
-        index: usize,
-    ) -> String {
-        // Get the column type
-        let col_type = row.columns()[index].type_();
-        let type_name = col_type.name();
+/// Convert a `PostgreSQL` value to a string representation (simplified version)
+fn convert_postgres_value_to_string_simple(
+    row: &tokio_postgres::Row,
+    index: usize,
+) -> String {
+    let col_type = row.columns()[index].type_();
+    let type_name = col_type.name();
 
-        // Try different approaches based on type
-        match type_name {
-            // Handle JSON types
-            "json" | "jsonb" => {
-                if let Ok(value) =
-                    row.try_get::<_, Option<serde_json::Value>>(index)
-                {
-                    value
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "NULL".to_string())
-                } else {
-                    "NULL".to_string()
-                }
-            }
-            // Handle array types - try as text array first
-            _ if type_name.ends_with("[]") => {
-                if let Ok(value) = row.try_get::<_, Option<Vec<String>>>(index)
-                {
-                    value
-                        .map(|arr| format!("[{}]", arr.join(", ")))
-                        .unwrap_or_else(|| "NULL".to_string())
-                } else {
-                    // Fallback: try to get as text
-                    if let Ok(value) = row.try_get::<_, Option<String>>(index) {
-                        value.unwrap_or_else(|| "NULL".to_string())
-                    } else {
-                        format!("<{}>", type_name)
-                    }
-                }
-            }
-            // Handle text-like types
-            "text" | "varchar" | "char" | "character varying" | "character" => {
-                if let Ok(value) = row.try_get::<_, Option<String>>(index) {
-                    value.unwrap_or_else(|| "NULL".to_string())
-                } else {
-                    "NULL".to_string()
-                }
-            }
-            "uuid" => {
-                if let Ok(value) = row.try_get::<_, Option<Uuid>>(index) {
-                    value
-                        .map(|id| id.to_string())
-                        .unwrap_or_else(|| "NULL".to_string())
-                } else {
-                    "NULL".to_string()
-                }
-            }
-            // Handle numeric types
-            "int2" | "smallint" | "int4" | "integer" | "int8" | "bigint"
-            | "numeric" | "decimal" => {
-                if let Ok(value) = row.try_get::<_, Option<String>>(index) {
-                    value.unwrap_or_else(|| "NULL".to_string())
-                } else {
-                    "NULL".to_string()
-                }
-            }
-            // Handle floating point types
-            "float4" | "real" | "float8" | "double precision" => {
-                if let Ok(value) = row.try_get::<_, Option<String>>(index) {
-                    value.unwrap_or_else(|| "NULL".to_string())
-                } else {
-                    "NULL".to_string()
-                }
-            }
-            // Handle boolean types
-            "bool" | "boolean" => {
-                if let Ok(value) = row.try_get::<_, Option<bool>>(index) {
-                    value
-                        .map(|b| b.to_string())
-                        .unwrap_or_else(|| "NULL".to_string())
-                } else {
-                    "NULL".to_string()
-                }
-            }
-            // Handle date/time types
-            "timestamp" | "timestamptz" | "date" | "time" => {
-                if let Ok(value) =
-                    row.try_get::<_, Option<DateTime<Utc>>>(index)
-                {
-                    value
-                        .map(|dt| dt.to_string())
-                        .unwrap_or_else(|| "NULL".to_string())
-                } else {
-                    "NULL".to_string()
-                }
-            }
-            // Handle binary data
-            "bytea" => {
-                if let Ok(value) = row.try_get::<_, Option<Vec<u8>>>(index) {
-                    value
-                        .map(|bytes| format!("<{} bytes>", bytes.len()))
-                        .unwrap_or_else(|| "NULL".to_string())
-                } else {
-                    "NULL".to_string()
-                }
-            }
-            // Handle custom/enum types - try as text first
-            _ => {
-                // For custom types, try to get as text first
-                if let Ok(value) = row.try_get::<_, Option<String>>(index) {
-                    value.unwrap_or_else(|| "NULL".to_string())
-                } else {
-                    // If that fails, try to get as JSON (for complex types)
-                    if let Ok(value) =
-                        row.try_get::<_, Option<serde_json::Value>>(index)
-                    {
-                        value
-                            .map(|v| v.to_string())
-                            .unwrap_or_else(|| "NULL".to_string())
-                    } else {
-                        // Last resort: show type name
-                        format!("<{}>", type_name)
-                    }
-                }
-            }
+    match type_name {
+        "json" | "jsonb" => get_json(row, index),
+        _ if type_name.ends_with("[]") => get_vec_string(row, index, type_name),
+        "text" | "varchar" | "char" | "character varying" | "character"
+        | "float4" | "real" | "float8" | "double precision" => {
+            get_string::<String>(row, index)
         }
+        "uuid" => get_string::<Uuid>(row, index),
+        "int2" | "smallint" | "int4" | "integer" | "int8" | "bigint"
+        | "numeric" | "decimal" => get_string::<String>(row, index),
+        "bool" | "boolean" => get_bool(row, index),
+        "timestamp" | "timestamptz" | "date" | "time" => {
+            get_string::<DateTime<Utc>>(row, index)
+        }
+        "bytea" => get_bytes(row, index),
+        _ => get_custom(row, index, type_name),
     }
+}
+
+fn get_string<'a, T: ToString + FromSql<'a>>(
+    row: &'a tokio_postgres::Row,
+    index: usize,
+) -> String {
+    row.try_get::<_, Option<T>>(index).map_or_else(
+        |_| "NULL".to_string(),
+        |v| v.map_or_else(|| "NULL".to_string(), |x| x.to_string()),
+    )
+}
+
+fn get_vec_string(
+    row: &tokio_postgres::Row,
+    index: usize,
+    type_name: &str,
+) -> String {
+    row.try_get::<_, Option<Vec<String>>>(index).map_or_else(
+        |_| {
+            row.try_get::<_, Option<String>>(index).map_or_else(
+                |_| format!("<{type_name}>"),
+                |value| value.unwrap_or_else(|| "NULL".to_string()),
+            )
+        },
+        |value| {
+            value.map_or_else(
+                || "NULL".to_string(),
+                |arr| format!("[{}]", arr.join(", ")),
+            )
+        },
+    )
+}
+
+fn get_bool(row: &tokio_postgres::Row, index: usize) -> String {
+    row.try_get::<_, Option<bool>>(index).map_or_else(
+        |_| "NULL".to_string(),
+        |value| value.map_or_else(|| "NULL".to_string(), |b| b.to_string()),
+    )
+}
+
+fn get_bytes(row: &tokio_postgres::Row, index: usize) -> String {
+    row.try_get::<_, Option<Vec<u8>>>(index).map_or_else(
+        |_| "NULL".to_string(),
+        |value| {
+            value.map_or_else(
+                || "NULL".to_string(),
+                |bytes| format!("<{} bytes>", bytes.len()),
+            )
+        },
+    )
+}
+
+fn get_json(row: &tokio_postgres::Row, index: usize) -> String {
+    row.try_get::<_, Option<serde_json::Value>>(index)
+        .map_or_else(
+            |_| "NULL".to_string(),
+            |value| value.map_or_else(|| "NULL".to_string(), |v| v.to_string()),
+        )
+}
+
+fn get_custom(
+    row: &tokio_postgres::Row,
+    index: usize,
+    type_name: &str,
+) -> String {
+    row.try_get::<_, Option<String>>(index).map_or_else(
+        |_| {
+            row.try_get::<_, Option<serde_json::Value>>(index)
+                .map_or_else(
+                    |_| format!("<{type_name}>"),
+                    |value| {
+                        value.map_or_else(
+                            || "NULL".to_string(),
+                            |v| v.to_string(),
+                        )
+                    },
+                )
+        },
+        |value| value.unwrap_or_else(|| "NULL".to_string()),
+    )
 }
 
 impl TableData for Postgres {
