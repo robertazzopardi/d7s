@@ -1,5 +1,5 @@
 use color_eyre::Result;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use d7s_db::{Database, TableData, connection::Connection};
 use ratatui::{
     prelude::{Alignment, Buffer, Constraint, Direction, Layout, Rect, Widget},
@@ -48,11 +48,6 @@ impl ModalField {
         }
     }
 
-    pub fn with_value(mut self, value: String) -> Self {
-        self.value = value;
-        self
-    }
-
     pub const fn set_focus(&mut self, focused: bool) {
         self.is_focused = focused;
     }
@@ -72,6 +67,7 @@ pub struct Modal<T: TableData> {
     pub current_field: usize,
     pub is_open: bool,
     pub selected_button: usize,
+    #[allow(dead_code)]
     pub data: T,
     pub mode: Mode,
     pub test_result: TestResult,
@@ -138,7 +134,7 @@ impl<T: TableData> Modal<T> {
                     field.value =
                         connection.password.clone().unwrap_or_default();
                 } else {
-                    field.value = connection_data[i].clone();
+                    field.value.clone_from(&connection_data[i]);
                 }
             }
             field.set_focus(false);
@@ -323,10 +319,10 @@ impl<T: TableData> Modal<T> {
             (_, KeyCode::Esc) => {
                 self.close();
             }
-            (_, KeyCode::BackTab) | (_, KeyCode::Up) => {
+            (_, KeyCode::BackTab | KeyCode::Up) => {
                 self.prev_field();
             }
-            (_, KeyCode::Tab) | (_, KeyCode::Down) => {
+            (_, KeyCode::Tab | KeyCode::Down) => {
                 self.next_field();
             }
             (_, KeyCode::Enter) => {
@@ -411,7 +407,7 @@ impl<T: TableData> Modal<T> {
 }
 
 impl ConfirmationModal {
-    pub fn new(message: String, connection: Connection) -> Self {
+    pub const fn new(message: String, connection: Connection) -> Self {
         Self {
             is_open: true,
             selected_button: 0,
@@ -420,25 +416,25 @@ impl ConfirmationModal {
         }
     }
 
-    pub fn close(&mut self) {
+    pub const fn close(&mut self) {
         self.is_open = false;
     }
 
-    pub fn next_button(&mut self) {
+    pub const fn next_button(&mut self) {
         self.selected_button = (self.selected_button + 1) % 2;
     }
 
-    pub fn prev_button(&mut self) {
+    pub const fn prev_button(&mut self) {
         self.selected_button = (self.selected_button + 1) % 2;
     }
 
-    pub fn confirm(&self) -> bool {
+    pub const fn confirm(&self) -> bool {
         self.selected_button == 0
     }
 
-    pub async fn handle_key_events(&mut self, key: KeyEvent) -> Result<()> {
+    pub const fn handle_key_events(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
+            (_, KeyCode::Esc | KeyCode::Enter) => {
                 self.close();
             }
             (_, KeyCode::Left) => {
@@ -447,13 +443,8 @@ impl ConfirmationModal {
             (_, KeyCode::Right) => {
                 self.next_button();
             }
-            (_, KeyCode::Enter) => {
-                self.close();
-            }
             _ => {}
         }
-
-        Ok(())
     }
 }
 
@@ -512,9 +503,10 @@ pub struct ModalManager {
     active_modal_type: Option<ModalType>,
 }
 
+// #[allow(dead_code)]
 impl ModalManager {
     /// Create a new modal manager
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             connection_modal: None,
             confirmation_modal: None,
@@ -524,31 +516,8 @@ impl ModalManager {
 
     /// Check if any modal is currently open
     pub fn is_any_modal_open(&self) -> bool {
-        self.connection_modal
-            .as_ref()
-            .map(|m| m.is_open)
-            .unwrap_or(false)
-            || self
-                .confirmation_modal
-                .as_ref()
-                .map(|m| m.is_open)
-                .unwrap_or(false)
-    }
-
-    /// Check if a specific modal type is open
-    pub fn is_modal_open(&self, modal_type: &ModalType) -> bool {
-        match modal_type {
-            ModalType::Connection => self
-                .connection_modal
-                .as_ref()
-                .map(|m| m.is_open)
-                .unwrap_or(false),
-            ModalType::Confirmation => self
-                .confirmation_modal
-                .as_ref()
-                .map(|m| m.is_open)
-                .unwrap_or(false),
-        }
+        self.connection_modal.as_ref().is_some_and(|m| m.is_open)
+            || self.confirmation_modal.as_ref().is_some_and(|m| m.is_open)
     }
 
     /// Open a new connection modal
@@ -591,7 +560,7 @@ impl ModalManager {
     }
 
     /// Close the currently active modal
-    pub fn close_active_modal(&mut self) {
+    pub const fn close_active_modal(&mut self) {
         match self.active_modal_type {
             Some(ModalType::Connection) => {
                 if let Some(modal) = &mut self.connection_modal {
@@ -608,16 +577,28 @@ impl ModalManager {
         self.active_modal_type = None;
     }
 
-    /// Close all modals
-    pub fn close_all_modals(&mut self) {
-        if let Some(modal) = &mut self.connection_modal {
-            modal.close();
-        }
-        if let Some(modal) = &mut self.confirmation_modal {
-            modal.close();
-        }
-        self.active_modal_type = None;
-    }
+    // /// Check if a specific modal type is open
+    // pub fn is_modal_open(&self, modal_type: &ModalType) -> bool {
+    //     match modal_type {
+    //         ModalType::Connection => {
+    //             self.connection_modal.as_ref().is_some_and(|m| m.is_open)
+    //         }
+    //         ModalType::Confirmation => {
+    //             self.confirmation_modal.as_ref().is_some_and(|m| m.is_open)
+    //         }
+    //     }
+    // }
+
+    // /// Close all modals
+    // pub const fn close_all_modals(&mut self) {
+    //     if let Some(modal) = &mut self.connection_modal {
+    //         modal.close();
+    //     }
+    //     if let Some(modal) = &mut self.confirmation_modal {
+    //         modal.close();
+    //     }
+    //     self.active_modal_type = None;
+    // }
 
     /// Handle key events for the currently active modal
     pub async fn handle_key_events(&mut self, key: KeyEvent) -> Result<()> {
@@ -634,7 +615,7 @@ impl ModalManager {
             }
             Some(ModalType::Confirmation) => {
                 if let Some(modal) = &mut self.confirmation_modal {
-                    modal.handle_key_events(key).await?;
+                    modal.handle_key_events(key);
 
                     // If modal was closed, clear the active type
                     if !modal.is_open {
@@ -647,52 +628,28 @@ impl ModalManager {
         Ok(())
     }
 
-    /// Get the currently active modal type
-    pub fn get_active_modal_type(&self) -> Option<&ModalType> {
-        self.active_modal_type.as_ref()
-    }
-
     /// Get a reference to the connection modal
-    pub fn get_connection_modal(&self) -> Option<&Modal<Connection>> {
+    pub const fn get_connection_modal(&self) -> Option<&Modal<Connection>> {
         self.connection_modal.as_ref()
     }
 
-    /// Get a mutable reference to the connection modal
-    pub fn get_connection_modal_mut(
-        &mut self,
-    ) -> Option<&mut Modal<Connection>> {
-        self.connection_modal.as_mut()
-    }
-
     /// Get a reference to the confirmation modal
-    pub fn get_confirmation_modal(&self) -> Option<&ConfirmationModal> {
+    pub const fn get_confirmation_modal(&self) -> Option<&ConfirmationModal> {
         self.confirmation_modal.as_ref()
-    }
-
-    /// Get a mutable reference to the confirmation modal
-    pub fn get_confirmation_modal_mut(
-        &mut self,
-    ) -> Option<&mut ConfirmationModal> {
-        self.confirmation_modal.as_mut()
     }
 
     /// Check if the connection modal was just closed and needs a refresh
     pub fn was_connection_modal_closed(&self) -> bool {
-        self.connection_modal
-            .as_ref()
-            .map(|m| !m.is_open)
-            .unwrap_or(false)
+        self.connection_modal.as_ref().is_some_and(|m| !m.is_open)
     }
 
     /// Check if the confirmation modal was just closed and confirmed
-    pub fn was_confirmation_modal_confirmed(
-        &self,
-    ) -> Option<Option<Connection>> {
+    pub fn was_confirmation_modal_confirmed(&self) -> Option<Connection> {
         if let Some(modal) = &self.confirmation_modal
             && !modal.is_open
             && modal.confirm()
         {
-            return Some(modal.connection.clone());
+            return modal.connection.clone();
         }
 
         None

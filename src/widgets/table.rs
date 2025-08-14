@@ -27,7 +27,8 @@ pub struct TableDataWidget {
 
 impl TableDataWidget {
     pub fn new(items: Vec<Vec<String>>, column_names: Vec<String>) -> Self {
-        let longest_item_lens = constraint_len_calculator_for_data(&items, &column_names);
+        let longest_item_lens =
+            constraint_len_calculator_for_data(&items, &column_names);
         Self {
             items,
             column_names,
@@ -56,14 +57,16 @@ impl StatefulWidget for TableDataWidget {
             .add_modifier(Modifier::REVERSED)
             .fg(ratatui::style::Color::Magenta);
 
-        let header = self.column_names
+        let header = self
+            .column_names
             .iter()
             .map(|name| Cell::from(name.clone()))
             .collect::<Row>()
             .height(1);
 
-        let rows = self.items.iter().enumerate().map(|(i, values)| {
-            values.into_iter()
+        let rows = self.items.iter().map(|values| {
+            values
+                .iter()
                 .map(|value| Cell::from(value.clone()))
                 .collect::<Row>()
                 .style(Style::new())
@@ -128,9 +131,9 @@ impl<T: TableData + std::fmt::Debug> StatefulWidget for DataTable<T> {
             .collect::<Row>()
             .height(1);
 
-        let rows = self.items.iter().enumerate().map(|(i, data)| {
-            let item = data.ref_array();
-            item.into_iter()
+        let rows = self.items.iter().map(|data| {
+            data.ref_array()
+                .into_iter()
                 .map(Cell::from)
                 .collect::<Row>()
                 .style(Style::new())
@@ -160,16 +163,24 @@ impl<T: TableData + std::fmt::Debug> StatefulWidget for DataTable<T> {
 }
 
 // Helper function to calculate constraints for table data
-fn constraint_len_calculator_for_data(items: &[Vec<String>], column_names: &[String]) -> Vec<u16> {
-    let mut longest_lens = column_names.iter().map(|name| name.len() as u16).collect::<Vec<u16>>();
-    
+fn constraint_len_calculator_for_data(
+    items: &[Vec<String>],
+    column_names: &[String],
+) -> Vec<u16> {
+    let mut longest_lens = column_names
+        .iter()
+        .map(|name| u16::try_from(name.len()).unwrap_or(0))
+        .collect::<Vec<u16>>();
+
     for item in items {
         for (i, value) in item.iter().enumerate() {
-            if i < longest_lens.len() {
-                longest_lens[i] = longest_lens[i].max(value.len() as u16);
+            if i < longest_lens.len()
+                && let Ok(len) = u16::try_from(value.len())
+            {
+                longest_lens[i] = longest_lens[i].max(len);
             }
         }
     }
-    
+
     longest_lens
 }

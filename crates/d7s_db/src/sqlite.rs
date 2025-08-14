@@ -72,11 +72,8 @@ pub fn get_connections() -> Result<Vec<Connection>> {
         .query_map([], |row| {
             let user: String = row.get(5)?;
             let password = {
-                if let Ok(entry) = keyring::Entry::new("d7s", &user) {
-                    entry.get_password().ok()
-                } else {
-                    None
-                }
+                keyring::Entry::new("d7s", &user)
+                    .map_or(None, |entry| entry.get_password().ok())
             };
 
             Ok(Connection {

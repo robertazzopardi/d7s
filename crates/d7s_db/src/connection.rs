@@ -43,11 +43,9 @@ impl TableData for Connection {
             self.user.clone(),
             self.database.clone(),
             // Mask password field with dots
-            if let Some(password) = &self.password {
+            self.password.as_ref().map_or_else(String::new, |password| {
                 "•".repeat(password.len())
-            } else {
-                String::new()
-            },
+            }),
         ]
     }
 
