@@ -2,6 +2,7 @@ use color_eyre::Result;
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
+use d7s_auth::Keyring;
 use d7s_db::{
     Column, Database, Schema, Table, connection::Connection, postgres::Postgres,
 };
@@ -68,6 +69,7 @@ pub struct App<'a> {
     column_table: Option<DataTable<Column>>,
     /// Current table data (rows)
     table_data: Option<TableDataWidget>,
+    keyring: Option<Keyring>,
 }
 
 impl Default for App<'_> {
@@ -92,6 +94,7 @@ impl Default for App<'_> {
             table_table: None,
             column_table: None,
             table_data: None,
+            keyring: None,
         }
     }
 }
@@ -199,15 +202,25 @@ impl App<'_> {
     async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Handle modal events first
         if self.modal_manager.is_any_modal_open() {
-            self.modal_manager.handle_key_events(key).await?;
+            // Initialize keyring if not already available
+            if self.keyring.is_none() {
+                self.keyring = Some(Keyring::new("d7s"));
+            }
+
+            if let Some(keyring) = self.keyring.as_ref() {
+                self.modal_manager.handle_key_events(key, keyring).await?;
+            }
 
             // Handle confirmation modal results
             if let Some(connection) =
                 self.modal_manager.was_confirmation_modal_confirmed()
             {
                 // Delete the keyring credential using the user
-                let entry = keyring::Entry::new("d7s", &connection.user)?;
-                let _ = entry.delete_credential();
+                if let Some(keyring) = &self.keyring {
+                    let _ = keyring.delete_password();
+                } else {
+                    eprintln!("No keyring found");
+                }
 
                 // Delete from database
                 if let Err(e) =
@@ -237,6 +250,10 @@ impl App<'_> {
                 if self.state == AppState::ConnectionList
                     && !self.modal_manager.is_any_modal_open()
                 {
+                    // Initialize keyring if not already available
+                    if self.keyring.is_none() {
+                        self.keyring = Some(Keyring::new("d7s"));
+                    }
                     self.modal_manager.open_new_connection_modal();
                 }
             }
@@ -278,9 +295,16 @@ impl App<'_> {
                         && let Some(connection) =
                             self.table_widget.items.get(data_index)
                     {
-                        if let Err(e) = self
-                            .modal_manager
-                            .open_edit_connection_modal(connection)
+                        // Initialize keyring if not already available
+                        if self.keyring.is_none() {
+                            self.keyring = Some(Keyring::new("d7s"));
+                        }
+
+                        if let Err(e) =
+                            self.modal_manager.open_edit_connection_modal(
+                                connection,
+                                self.keyring.as_ref().unwrap(),
+                            )
                         {
                             eprintln!("Failed to open edit modal: {e}");
                         }
@@ -438,9 +462,9 @@ impl App<'_> {
                 && let Some(connection) =
                     self.table_widget.items.get(data_index)
             {
-                // Get the password from keyring
-                let entry = keyring::Entry::new("d7s", &connection.user)?;
+                let entry = Keyring::new(&connection.user);
                 let password = entry.get_password()?;
+                self.keyring = Some(entry);
 
                 // Create connection with password
                 let mut connection_with_password = connection.clone();

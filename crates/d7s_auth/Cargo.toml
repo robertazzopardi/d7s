@@ -1,0 +1,11 @@
+[package]
+name = "d7s_auth"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+dev = []
+
+[dependencies]
+keyring = "3.6.3"
