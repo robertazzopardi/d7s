@@ -70,21 +70,15 @@ pub fn get_connections() -> Result<Vec<Connection>> {
     let mut stmt = conn.prepare("SELECT * FROM connections")?;
     let connections = stmt
         .query_map([], |row| {
-            let user: String = row.get(5)?;
-            let password = {
-                keyring::Entry::new("d7s", &user)
-                    .map_or(None, |entry| entry.get_password().ok())
-            };
-
             Ok(Connection {
                 name: row.get(1)?,
                 host: row.get(2)?,
                 port: row.get(3)?,
                 database: row.get(4)?,
-                user,
+                user: row.get(5)?,
                 schema: None,
                 table: None,
-                password,
+                password: None,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;

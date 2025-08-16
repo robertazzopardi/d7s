@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/d7s_db"]
+members = ["crates/d7s_auth", "crates/d7s_db"]
 
 [package]
 name = "d7s"
@@ -13,13 +13,15 @@ edition = "2024"
 identifier = "com.robertazzopardi.d7s"
 
 [workspace.dependencies]
-keyring = { version = "3.6.3", features = ["apple-native"] }
+d7s_auth = { path = "crates/d7s_auth", version = "*" }
 
 [dependencies]
 d7s_db = { path = "crates/d7s_db" }
-crossterm = "0.28.1"
-ratatui = "0.29.0"
+crossterm = { version = "0.28.1", default-features = false }
+ratatui = { version = "0.29.0", features = [
+    "crossterm",
+], default-features = false }
 color-eyre = "0.6.3"
-unicode-width = "0.2"
-tokio = { version = "1.47.0", features = ["rt-multi-thread", "macros"] }
-keyring.workspace = true
+unicode-width = { version = "0.2", default-features = false }
+tokio = "1.47.0"
+d7s_auth.workspace = true
