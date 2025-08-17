@@ -298,7 +298,10 @@ impl App<'_> {
         }
 
         // Handle SQL executor input
-        if let Some(DatabaseExplorerState::SqlExecutor) = &self.explorer_state {
+        if matches!(
+            &self.explorer_state,
+            Some(DatabaseExplorerState::SqlExecutor)
+        ) {
             match (key.modifiers, key.code) {
                 (_, KeyCode::Char(ch)) if !ch.is_control() => {
                     self.sql_executor.add_char(ch);
@@ -482,15 +485,15 @@ impl App<'_> {
                 } else if self.modal_manager.is_any_modal_open() {
                     self.modal_manager.close_active_modal();
                 } else if self.state == AppState::DatabaseConnected {
-                    if let Some(DatabaseExplorerState::SqlExecutor) =
-                        &self.explorer_state
-                    {
+                    if matches!(
+                        &self.explorer_state,
+                        Some(DatabaseExplorerState::SqlExecutor)
+                    ) {
                         // Deactivate SQL executor and go back to schemas
                         self.sql_executor.deactivate();
-                        self.go_back_in_database();
-                    } else {
-                        self.go_back_in_database();
                     }
+
+                    self.go_back_in_database();
                 }
                 return Ok(());
             }
@@ -849,28 +852,27 @@ impl App<'_> {
             }
             Some(DatabaseExplorerState::SqlExecutor) => {
                 // Execute SQL query
-                if !self.sql_executor.sql_input.trim().is_empty() {
-                    if let Some(database) = &self.active_database {
-                        match database
-                            .execute_sql(&self.sql_executor.sql_input)
-                            .await
-                        {
-                            Ok(results) => {
-                                let data: Vec<Vec<String>> = results
-                                    .iter()
-                                    .map(|row| row.values.clone())
-                                    .collect();
-                                let column_names = if !results.is_empty() {
-                                    results[0].column_names.clone()
-                                } else {
-                                    vec!["Result".to_string()]
-                                };
-                                self.sql_executor
-                                    .set_results(data, column_names);
-                            }
-                            Err(e) => {
-                                self.sql_executor.set_error(e.to_string());
-                            }
+                if !self.sql_executor.sql_input.trim().is_empty()
+                    && let Some(database) = &self.active_database
+                {
+                    match database
+                        .execute_sql(&self.sql_executor.sql_input)
+                        .await
+                    {
+                        Ok(results) => {
+                            let data: Vec<Vec<String>> = results
+                                .iter()
+                                .map(|row| row.values.clone())
+                                .collect();
+                            let column_names = if results.is_empty() {
+                                vec!["Result".to_string()]
+                            } else {
+                                results[0].column_names.clone()
+                            };
+                            self.sql_executor.set_results(data, column_names);
+                        }
+                        Err(e) => {
+                            self.sql_executor.set_error(e.to_string());
                         }
                     }
                 }
@@ -1184,10 +1186,9 @@ impl App<'_> {
                         table_data.items = filtered_items;
                     }
                 }
-                Some(DatabaseExplorerState::SqlExecutor) => {
+                Some(DatabaseExplorerState::SqlExecutor) | None => {
                     // No filtering for SQL executor
-                }
-                None => {}
+                } // None => {}
             },
         }
     }
@@ -1219,10 +1220,9 @@ impl App<'_> {
                         table_data.items.clone_from(&self.original_table_data);
                     }
                 }
-                Some(DatabaseExplorerState::SqlExecutor) => {
+                Some(DatabaseExplorerState::SqlExecutor) | None => {
                     // No filtering for SQL executor
-                }
-                None => {}
+                } // None => {}
             },
         }
     }

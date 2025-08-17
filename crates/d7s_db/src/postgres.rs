@@ -38,7 +38,15 @@ impl Database for Postgres {
         let rows = client.query(sql, &[]).await?;
         let mut result = Vec::new();
 
-        if !rows.is_empty() {
+        if rows.is_empty() {
+            // For queries that don't return rows (INSERT, UPDATE, DELETE, etc.)
+            // Return a single row with the affected row count
+            let affected_rows = client.execute(sql, &[]).await?;
+            result.push(TableRow {
+                values: vec![format!("Affected rows: {}", affected_rows)],
+                column_names: vec!["Result".to_string()],
+            });
+        } else {
             // Get column names from the first row
             let column_names: Vec<String> = rows[0]
                 .columns()
@@ -58,14 +66,6 @@ impl Database for Postgres {
                     column_names: column_names.clone(),
                 });
             }
-        } else {
-            // For queries that don't return rows (INSERT, UPDATE, DELETE, etc.)
-            // Return a single row with the affected row count
-            let affected_rows = client.execute(sql, &[]).await?;
-            result.push(TableRow {
-                values: vec![format!("Affected rows: {}", affected_rows)],
-                column_names: vec!["Result".to_string()],
-            });
         }
 
         Ok(result)

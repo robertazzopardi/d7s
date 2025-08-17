@@ -18,14 +18,17 @@ impl Database for Sqlite {
         sql: &str,
     ) -> Result<Vec<TableRow>, Box<dyn std::error::Error>> {
         // rusqlite is synchronous, so we just run it in the async context
-        let client = self.get_connection().await?;
+        let client = self.get_connection()?;
 
         // Try to prepare the statement
         let mut stmt = client.prepare(sql)?;
 
         // Try to get column names
-        let column_names: Vec<String> =
-            stmt.column_names().iter().map(|s| s.to_string()).collect();
+        let column_names: Vec<String> = stmt
+            .column_names()
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
 
         let mut result = Vec::new();
 
@@ -37,7 +40,7 @@ impl Database for Sqlite {
             found_row = true;
             let mut values = Vec::new();
             for i in 0..column_names.len() {
-                let value = convert_sqlite_value_to_string(&row, i);
+                let value = convert_sqlite_value_to_string(row, i);
                 values.push(value);
             }
             result.push(TableRow {
@@ -60,12 +63,10 @@ impl Database for Sqlite {
 }
 
 impl Sqlite {
-    async fn get_connection(
+    fn get_connection(
         &self,
     ) -> Result<SqliteConnection, Box<dyn std::error::Error>> {
-        let conn = SqliteConnection::open(&self.path)?;
-
-        Ok(conn)
+        Ok(SqliteConnection::open(&self.path)?)
     }
 }
 
@@ -180,7 +181,7 @@ pub fn delete_connection(
     Ok(())
 }
 
-/// Convert a SQLite value to a string representation
+/// Convert a `SQLite` value to a string representation
 fn convert_sqlite_value_to_string(row: &rusqlite::Row, index: usize) -> String {
     // Try to get as different types and convert to string
     if let Ok(value) = row.get::<_, Option<String>>(index) {
@@ -188,21 +189,18 @@ fn convert_sqlite_value_to_string(row: &rusqlite::Row, index: usize) -> String {
     }
 
     if let Ok(value) = row.get::<_, Option<i64>>(index) {
-        return value
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "NULL".to_string());
+        return value.map_or_else(|| "NULL".to_string(), |v| v.to_string());
     }
 
     if let Ok(value) = row.get::<_, Option<f64>>(index) {
-        return value
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "NULL".to_string());
+        return value.map_or_else(|| "NULL".to_string(), |v| v.to_string());
     }
 
     if let Ok(value) = row.get::<_, Option<Vec<u8>>>(index) {
-        return value
-            .map(|v| format!("<{} bytes>", v.len()))
-            .unwrap_or_else(|| "NULL".to_string());
+        return value.map_or_else(
+            || "NULL".to_string(),
+            |v| format!("<{} bytes>", v.len()),
+        );
     }
 
     // Fallback for unknown types
