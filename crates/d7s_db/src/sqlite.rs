@@ -1,7 +1,7 @@
 use color_eyre::Result;
 use rusqlite::{Connection as SqliteConnection, params};
 
-use crate::{Database, connection::Connection, get_db_path};
+use crate::{Database, TableRow, connection::Connection, get_db_path};
 
 pub struct Sqlite {
     pub name: String,
@@ -11,6 +11,61 @@ pub struct Sqlite {
 impl Database for Sqlite {
     async fn test(&self) -> bool {
         true
+    }
+
+    async fn execute_sql(
+        &self,
+        sql: &str,
+    ) -> Result<Vec<TableRow>, Box<dyn std::error::Error>> {
+        // rusqlite is synchronous, so we just run it in the async context
+        let client = self.get_connection().await?;
+
+        // Try to prepare the statement
+        let mut stmt = client.prepare(sql)?;
+
+        // Try to get column names
+        let column_names: Vec<String> =
+            stmt.column_names().iter().map(|s| s.to_string()).collect();
+
+        let mut result = Vec::new();
+
+        // Try to query for rows
+        let mut rows_iter = stmt.query([])?;
+
+        let mut found_row = false;
+        while let Some(row) = rows_iter.next()? {
+            found_row = true;
+            let mut values = Vec::new();
+            for i in 0..column_names.len() {
+                let value = convert_sqlite_value_to_string(&row, i);
+                values.push(value);
+            }
+            result.push(TableRow {
+                values,
+                column_names: column_names.clone(),
+            });
+        }
+
+        // If no rows, treat as an execute (e.g. INSERT/UPDATE/DELETE)
+        if !found_row {
+            let affected_rows = client.execute(sql, [])?;
+            result.push(TableRow {
+                values: vec![format!("Affected rows: {}", affected_rows)],
+                column_names: vec!["Result".to_string()],
+            });
+        }
+
+        Ok(result)
+    }
+}
+
+impl Sqlite {
+    async fn get_connection(
+        &self,
+    ) -> Result<SqliteConnection, Box<dyn std::error::Error>> {
+        let conn = SqliteConnection::open(&self.path)?;
+
+        Ok(conn)
     }
 }
 
@@ -123,4 +178,33 @@ pub fn delete_connection(
     )?;
 
     Ok(())
+}
+
+/// Convert a SQLite value to a string representation
+fn convert_sqlite_value_to_string(row: &rusqlite::Row, index: usize) -> String {
+    // Try to get as different types and convert to string
+    if let Ok(value) = row.get::<_, Option<String>>(index) {
+        return value.unwrap_or_else(|| "NULL".to_string());
+    }
+
+    if let Ok(value) = row.get::<_, Option<i64>>(index) {
+        return value
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "NULL".to_string());
+    }
+
+    if let Ok(value) = row.get::<_, Option<f64>>(index) {
+        return value
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "NULL".to_string());
+    }
+
+    if let Ok(value) = row.get::<_, Option<Vec<u8>>>(index) {
+        return value
+            .map(|v| format!("<{} bytes>", v.len()))
+            .unwrap_or_else(|| "NULL".to_string());
+    }
+
+    // Fallback for unknown types
+    "<unprintable>".to_string()
 }

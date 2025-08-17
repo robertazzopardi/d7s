@@ -3,6 +3,7 @@ pub mod hotkey;
 pub mod hotkey_view;
 pub mod modal;
 pub mod search_filter;
+pub mod sql_executor;
 pub mod table;
 pub mod top_bar_view;
 

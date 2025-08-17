@@ -28,6 +28,48 @@ impl Database for Postgres {
 
         tokio_postgres::connect(&config, NoTls).await.is_ok()
     }
+
+    async fn execute_sql(
+        &self,
+        sql: &str,
+    ) -> Result<Vec<TableRow>, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+
+        let rows = client.query(sql, &[]).await?;
+        let mut result = Vec::new();
+
+        if !rows.is_empty() {
+            // Get column names from the first row
+            let column_names: Vec<String> = rows[0]
+                .columns()
+                .iter()
+                .map(|col| col.name().to_string())
+                .collect();
+
+            for row in rows {
+                let mut values = Vec::new();
+                for i in 0..row.columns().len() {
+                    let value =
+                        convert_postgres_value_to_string_simple(&row, i);
+                    values.push(value);
+                }
+                result.push(TableRow {
+                    values,
+                    column_names: column_names.clone(),
+                });
+            }
+        } else {
+            // For queries that don't return rows (INSERT, UPDATE, DELETE, etc.)
+            // Return a single row with the affected row count
+            let affected_rows = client.execute(sql, &[]).await?;
+            result.push(TableRow {
+                values: vec![format!("Affected rows: {}", affected_rows)],
+                column_names: vec!["Result".to_string()],
+            });
+        }
+
+        Ok(result)
+    }
 }
 
 impl Postgres {

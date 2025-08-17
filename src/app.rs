@@ -16,8 +16,9 @@ use crate::widgets::{
     hotkey::Hotkey,
     modal::ModalManager,
     search_filter::SearchFilter,
+    sql_executor::SqlExecutor,
     table::{DataTable, TableDataWidget},
-    top_bar_view::{CONNECTION_HOTKEYS, TopBarView},
+    top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS, TopBarView},
 };
 
 pub const APP_NAME: &str = r"
@@ -43,6 +44,7 @@ pub enum DatabaseExplorerState {
     Tables(String),            // schema name
     Columns(String, String),   // schema name, table name
     TableData(String, String), // schema name, table name
+    SqlExecutor,               // SQL execution mode
 }
 
 /// The main application which holds the state and logic of the application.
@@ -70,6 +72,8 @@ pub struct App<'a> {
     column_table: Option<DataTable<Column>>,
     /// Current table data (rows)
     table_data: Option<TableDataWidget>,
+    /// SQL executor widget
+    sql_executor: SqlExecutor,
     keyring: Option<Keyring>,
     /// Search filter widget
     search_filter: SearchFilter,
@@ -103,6 +107,7 @@ impl Default for App<'_> {
             table_table: None,
             column_table: None,
             table_data: None,
+            sql_executor: SqlExecutor::new(),
             keyring: None,
             search_filter: SearchFilter::new(),
             original_connections: items,
@@ -142,7 +147,13 @@ impl App<'_> {
 
         let current_connection =
             self.active_connection.clone().unwrap_or_default();
-        frame.render_widget(TopBarView { current_connection }, layout[0]);
+        frame.render_widget(
+            TopBarView {
+                current_connection,
+                hotkeys: &self.hotkeys,
+            },
+            layout[0],
+        );
 
         // Create the main content area
         let main_area = if self.search_filter.is_active {
@@ -286,6 +297,41 @@ impl App<'_> {
             }
         }
 
+        // Handle SQL executor input
+        if let Some(DatabaseExplorerState::SqlExecutor) = &self.explorer_state {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char(ch)) if !ch.is_control() => {
+                    self.sql_executor.add_char(ch);
+                    return Ok(());
+                }
+                (_, KeyCode::Backspace) => {
+                    self.sql_executor.delete_char();
+                    return Ok(());
+                }
+                (_, KeyCode::Left) => {
+                    self.sql_executor.move_cursor_left();
+                    return Ok(());
+                }
+                (_, KeyCode::Right) => {
+                    self.sql_executor.move_cursor_right();
+                    return Ok(());
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
+                    self.sql_executor.move_cursor_to_start();
+                    return Ok(());
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
+                    self.sql_executor.move_cursor_to_end();
+                    return Ok(());
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
+                    self.sql_executor.clear();
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+
         // Handle modal events first
         if self.modal_manager.is_any_modal_open() {
             // Handle modal events - pass keyring if available
@@ -422,13 +468,29 @@ impl App<'_> {
                     }
                 }
             }
+            (_, KeyCode::Char('s')) => {
+                if self.state == AppState::DatabaseConnected {
+                    // Enter SQL execution mode
+                    self.explorer_state =
+                        Some(DatabaseExplorerState::SqlExecutor);
+                    self.sql_executor.activate();
+                }
+            }
             (_, KeyCode::Esc) => {
                 if self.show_popup {
                     self.toggle_popup();
                 } else if self.modal_manager.is_any_modal_open() {
                     self.modal_manager.close_active_modal();
                 } else if self.state == AppState::DatabaseConnected {
-                    self.go_back_in_database();
+                    if let Some(DatabaseExplorerState::SqlExecutor) =
+                        &self.explorer_state
+                    {
+                        // Deactivate SQL executor and go back to schemas
+                        self.sql_executor.deactivate();
+                        self.go_back_in_database();
+                    } else {
+                        self.go_back_in_database();
+                    }
                 }
                 return Ok(());
             }
@@ -562,6 +624,9 @@ impl App<'_> {
                     self.active_database = Some(postgres);
                     self.state = AppState::DatabaseConnected;
 
+                    // Update hotkeys for database mode
+                    self.hotkeys = DATABASE_HOTKEYS.to_vec();
+
                     // Load schemas after successful connection
                     self.load_schemas().await?;
                 } else {
@@ -585,6 +650,9 @@ impl App<'_> {
         self.table_table = None;
         self.column_table = None;
         self.table_data = None;
+
+        // Update hotkeys for connection mode
+        self.hotkeys = CONNECTION_HOTKEYS.to_vec();
     }
 
     /// Get the title for the database view based on current state
@@ -599,6 +667,9 @@ impl App<'_> {
             }
             Some(DatabaseExplorerState::TableData(schema, table)) => {
                 format!(" Data in {schema}.{table} ")
+            }
+            Some(DatabaseExplorerState::SqlExecutor) => {
+                " SQL Executor ".to_string()
             }
             None => " Database Explorer ".to_string(),
         }
@@ -642,6 +713,9 @@ impl App<'_> {
                         &mut table_data.table_state.clone(),
                     );
                 }
+            }
+            Some(DatabaseExplorerState::SqlExecutor) => {
+                frame.render_widget(self.sql_executor.clone(), area);
             }
             None => {
                 // Show schemas by default
@@ -773,6 +847,34 @@ impl App<'_> {
                     table_name.clone(),
                 ));
             }
+            Some(DatabaseExplorerState::SqlExecutor) => {
+                // Execute SQL query
+                if !self.sql_executor.sql_input.trim().is_empty() {
+                    if let Some(database) = &self.active_database {
+                        match database
+                            .execute_sql(&self.sql_executor.sql_input)
+                            .await
+                        {
+                            Ok(results) => {
+                                let data: Vec<Vec<String>> = results
+                                    .iter()
+                                    .map(|row| row.values.clone())
+                                    .collect();
+                                let column_names = if !results.is_empty() {
+                                    results[0].column_names.clone()
+                                } else {
+                                    vec!["Result".to_string()]
+                                };
+                                self.sql_executor
+                                    .set_results(data, column_names);
+                            }
+                            Err(e) => {
+                                self.sql_executor.set_error(e.to_string());
+                            }
+                        }
+                    }
+                }
+            }
             None => {
                 // Load schemas if not loaded yet
                 self.load_schemas().await?;
@@ -809,6 +911,12 @@ impl App<'_> {
                     }
                 }
             }
+            Some(DatabaseExplorerState::SqlExecutor) => {
+                // Go back to schemas
+                if self.schema_table.is_some() {
+                    self.explorer_state = Some(DatabaseExplorerState::Schemas);
+                }
+            }
             Some(DatabaseExplorerState::Schemas) | None => {
                 // Go back to connection list (disconnect)
                 self.disconnect_from_database();
@@ -830,6 +938,15 @@ impl App<'_> {
             }
             Some(DatabaseExplorerState::TableData(_, _)) => {
                 self.handle_table_data_navigation(key);
+            }
+            Some(DatabaseExplorerState::SqlExecutor) => {
+                // If we have results, handle table navigation
+                if self.sql_executor.table_widget.is_some() {
+                    self.handle_sql_results_navigation(key);
+                } else {
+                    // Otherwise handle SQL input navigation
+                    self.handle_sql_executor_navigation(key);
+                }
             }
             None => {}
         }
@@ -955,6 +1072,54 @@ impl App<'_> {
         }
     }
 
+    fn handle_sql_executor_navigation(&mut self, key: KeyCode) {
+        match key {
+            KeyCode::Char(ch) if !ch.is_control() => {
+                self.sql_executor.add_char(ch);
+            }
+            KeyCode::Backspace => {
+                self.sql_executor.delete_char();
+            }
+            KeyCode::Left => {
+                self.sql_executor.move_cursor_left();
+            }
+            KeyCode::Right => {
+                self.sql_executor.move_cursor_right();
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_sql_results_navigation(&mut self, key: KeyCode) {
+        if let Some(table_widget) = &mut self.sql_executor.table_widget {
+            match key {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    table_widget.table_state.select_next();
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    table_widget.table_state.select_previous();
+                }
+                KeyCode::Char('h' | 'b') | KeyCode::Left => {
+                    table_widget.table_state.select_previous_column();
+                }
+                KeyCode::Char('l' | 'w') | KeyCode::Right => {
+                    table_widget.table_state.select_next_column();
+                }
+                KeyCode::Char('g') => {
+                    table_widget.table_state.select(Some(1));
+                }
+                KeyCode::Char('G') => {
+                    if !table_widget.items.is_empty() {
+                        table_widget
+                            .table_state
+                            .select(Some(table_widget.items.len()));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// Load table data for a table
     async fn load_table_data(
         &mut self,
@@ -1019,6 +1184,9 @@ impl App<'_> {
                         table_data.items = filtered_items;
                     }
                 }
+                Some(DatabaseExplorerState::SqlExecutor) => {
+                    // No filtering for SQL executor
+                }
                 None => {}
             },
         }
@@ -1050,6 +1218,9 @@ impl App<'_> {
                     if let Some(table_data) = &mut self.table_data {
                         table_data.items.clone_from(&self.original_table_data);
                     }
+                }
+                Some(DatabaseExplorerState::SqlExecutor) => {
+                    // No filtering for SQL executor
                 }
                 None => {}
             },
