@@ -51,7 +51,7 @@ pub struct TopBarView<'a> {
     pub hotkeys: &'a [Hotkey<'a>],
 }
 
-impl<'a> Widget for TopBarView<'a> {
+impl Widget for TopBarView<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let col_constraints = [
             Constraint::Percentage(30),

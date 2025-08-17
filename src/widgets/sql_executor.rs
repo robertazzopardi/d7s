@@ -5,7 +5,7 @@ use ratatui::{
 
 use crate::widgets::table::TableDataWidget;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SqlExecutor {
     pub sql_input: String,
     pub cursor_position: usize,
@@ -16,30 +16,16 @@ pub struct SqlExecutor {
     pub table_widget: Option<TableDataWidget>,
 }
 
-impl Default for SqlExecutor {
-    fn default() -> Self {
-        Self {
-            sql_input: String::new(),
-            cursor_position: 0,
-            results: None,
-            column_names: Vec::new(),
-            error_message: None,
-            is_active: false,
-            table_widget: None,
-        }
-    }
-}
-
 impl SqlExecutor {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn activate(&mut self) {
+    pub const fn activate(&mut self) {
         self.is_active = true;
     }
 
-    pub fn deactivate(&mut self) {
+    pub const fn deactivate(&mut self) {
         self.is_active = false;
     }
 
@@ -57,23 +43,23 @@ impl SqlExecutor {
         }
     }
 
-    pub fn move_cursor_left(&mut self) {
+    pub const fn move_cursor_left(&mut self) {
         if self.cursor_position > 0 {
             self.cursor_position -= 1;
         }
     }
 
-    pub fn move_cursor_right(&mut self) {
+    pub const fn move_cursor_right(&mut self) {
         if self.cursor_position < self.sql_input.len() {
             self.cursor_position += 1;
         }
     }
 
-    pub fn move_cursor_to_start(&mut self) {
+    pub const fn move_cursor_to_start(&mut self) {
         self.cursor_position = 0;
     }
 
-    pub fn move_cursor_to_end(&mut self) {
+    pub const fn move_cursor_to_end(&mut self) {
         self.cursor_position = self.sql_input.len();
     }
 
@@ -90,7 +76,7 @@ impl SqlExecutor {
         column_names: Vec<String>,
     ) {
         self.results = Some(results.clone());
-        self.column_names = column_names.clone();
+        self.column_names.clone_from(&column_names);
         self.error_message = None;
         self.table_widget = Some(TableDataWidget::new(results, column_names));
     }
