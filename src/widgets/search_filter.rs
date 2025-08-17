@@ -6,21 +6,11 @@ use ratatui::{
 };
 
 /// A search filter widget that appears above the main table
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SearchFilter {
     pub query: String,
     pub is_active: bool,
     pub cursor_position: usize,
-}
-
-impl Default for SearchFilter {
-    fn default() -> Self {
-        Self {
-            query: String::new(),
-            is_active: false,
-            cursor_position: 0,
-        }
-    }
 }
 
 impl SearchFilter {
@@ -28,7 +18,7 @@ impl SearchFilter {
         Self::default()
     }
 
-    pub fn activate(&mut self) {
+    pub const fn activate(&mut self) {
         self.is_active = true;
         self.cursor_position = self.query.len();
     }
@@ -51,23 +41,23 @@ impl SearchFilter {
         }
     }
 
-    pub fn move_cursor_left(&mut self) {
+    pub const fn move_cursor_left(&mut self) {
         if self.cursor_position > 0 {
             self.cursor_position -= 1;
         }
     }
 
-    pub fn move_cursor_right(&mut self) {
+    pub const fn move_cursor_right(&mut self) {
         if self.cursor_position < self.query.len() {
             self.cursor_position += 1;
         }
     }
 
-    pub fn move_cursor_to_start(&mut self) {
+    pub const fn move_cursor_to_start(&mut self) {
         self.cursor_position = 0;
     }
 
-    pub fn move_cursor_to_end(&mut self) {
+    pub const fn move_cursor_to_end(&mut self) {
         self.cursor_position = self.query.len();
     }
 

@@ -288,14 +288,10 @@ impl App<'_> {
 
         // Handle modal events first
         if self.modal_manager.is_any_modal_open() {
-            // Initialize keyring if not already available
-            if self.keyring.is_none() {
-                self.keyring = Some(Keyring::new("d7s"));
-            }
-
-            if let Some(keyring) = self.keyring.as_ref() {
-                self.modal_manager.handle_key_events(key, keyring).await?;
-            }
+            // Handle modal events - pass keyring if available
+            self.modal_manager
+                .handle_key_events(key, self.keyring.as_ref())
+                .await?;
 
             // Handle confirmation modal results
             if let Some(connection) =
@@ -336,10 +332,7 @@ impl App<'_> {
                 if self.state == AppState::ConnectionList
                     && !self.modal_manager.is_any_modal_open()
                 {
-                    // Initialize keyring if not already available
-                    if self.keyring.is_none() {
-                        self.keyring = Some(Keyring::new("d7s"));
-                    }
+                    // Don't initialize keyring yet - it will be initialized when the user fills in the form
                     self.modal_manager.open_new_connection_modal();
                 }
             }
@@ -381,10 +374,8 @@ impl App<'_> {
                         && let Some(connection) =
                             self.table_widget.items.get(data_index)
                     {
-                        // Initialize keyring if not already available
-                        if self.keyring.is_none() {
-                            self.keyring = Some(Keyring::new("d7s"));
-                        }
+                        // Initialize keyring with the connection's user
+                        self.keyring = Keyring::new(&connection.user).ok();
 
                         if let Err(e) =
                             self.modal_manager.open_edit_connection_modal(
@@ -535,7 +526,7 @@ impl App<'_> {
     /// Refresh the table data from the database
     fn refresh_connections(&mut self) {
         if let Ok(connections) = d7s_db::sqlite::get_connections() {
-            self.original_connections = connections.clone();
+            self.original_connections.clone_from(&connections);
             self.table_widget.items = connections;
         }
     }
@@ -554,7 +545,7 @@ impl App<'_> {
                 && let Some(connection) =
                     self.table_widget.items.get(data_index)
             {
-                let entry = Keyring::new(&connection.user);
+                let entry = Keyring::new(&connection.user)?;
                 let password = entry.get_password()?;
                 self.keyring = Some(entry);
 
@@ -671,7 +662,7 @@ impl App<'_> {
             match database.get_schemas().await {
                 Ok(schemas) => {
                     // Store original data for filtering
-                    self.original_schemas = schemas.clone();
+                    self.original_schemas.clone_from(&schemas);
                     self.schema_table = Some(DataTable::new(schemas));
                     self.explorer_state = Some(DatabaseExplorerState::Schemas);
                 }
@@ -689,7 +680,7 @@ impl App<'_> {
             match database.get_tables(schema_name).await {
                 Ok(tables) => {
                     // Store original data for filtering
-                    self.original_tables = tables.clone();
+                    self.original_tables.clone_from(&tables);
                     self.table_table = Some(DataTable::new(tables));
                     self.explorer_state = Some(DatabaseExplorerState::Tables(
                         schema_name.to_string(),
@@ -713,7 +704,7 @@ impl App<'_> {
             match database.get_columns(schema_name, table_name).await {
                 Ok(columns) => {
                     // Store original data for filtering
-                    self.original_columns = columns.clone();
+                    self.original_columns.clone_from(&columns);
                     self.column_table = Some(DataTable::new(columns));
                     self.explorer_state = Some(DatabaseExplorerState::Columns(
                         schema_name.to_string(),
@@ -977,7 +968,7 @@ impl App<'_> {
             {
                 Ok((data, column_names)) => {
                     // Store original data for filtering
-                    self.original_table_data = data.clone();
+                    self.original_table_data.clone_from(&data);
                     self.table_data =
                         Some(TableDataWidget::new(data, column_names));
                     self.explorer_state =
@@ -1042,22 +1033,22 @@ impl App<'_> {
             AppState::DatabaseConnected => match &self.explorer_state {
                 Some(DatabaseExplorerState::Schemas) => {
                     if let Some(schema_table) = &mut self.schema_table {
-                        schema_table.items = self.original_schemas.clone();
+                        schema_table.items.clone_from(&self.original_schemas);
                     }
                 }
                 Some(DatabaseExplorerState::Tables(_)) => {
                     if let Some(table_table) = &mut self.table_table {
-                        table_table.items = self.original_tables.clone();
+                        table_table.items.clone_from(&self.original_tables);
                     }
                 }
                 Some(DatabaseExplorerState::Columns(_, _)) => {
                     if let Some(column_table) = &mut self.column_table {
-                        column_table.items = self.original_columns.clone();
+                        column_table.items.clone_from(&self.original_columns);
                     }
                 }
                 Some(DatabaseExplorerState::TableData(_, _)) => {
                     if let Some(table_data) = &mut self.table_data {
-                        table_data.items = self.original_table_data.clone();
+                        table_data.items.clone_from(&self.original_table_data);
                     }
                 }
                 None => {}
