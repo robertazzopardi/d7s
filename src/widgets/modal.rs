@@ -49,7 +49,7 @@ impl ModalField {
         }
     }
 
-    pub fn set_focus(&mut self, focused: bool) {
+    pub const fn set_focus(&mut self, focused: bool) {
         self.is_focused = focused;
     }
 
@@ -147,7 +147,7 @@ impl<T: TableData> Modal<T> {
         }
     }
 
-    pub fn close(&mut self) {
+    pub const fn close(&mut self) {
         self.is_open = false;
     }
 
@@ -320,6 +320,21 @@ impl<T: TableData> Modal<T> {
         key: KeyEvent,
         keyring: &Keyring,
     ) -> Result<()> {
+        self.handle_key_events_internal(key, Some(keyring)).await
+    }
+
+    pub async fn handle_key_events_without_keyring(
+        &mut self,
+        key: KeyEvent,
+    ) -> Result<()> {
+        self.handle_key_events_internal(key, None).await
+    }
+
+    async fn handle_key_events_internal(
+        &mut self,
+        key: KeyEvent,
+        keyring: Option<&Keyring>,
+    ) -> Result<()> {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 self.close();
@@ -335,8 +350,16 @@ impl<T: TableData> Modal<T> {
                     if let Some(connection) = self.get_connection() {
                         match self.mode {
                             Mode::New => {
+                                // For new connections, create a keyring with the user from the form
                                 if let Some(password) = &connection.password {
-                                    keyring.set_password(password)?;
+                                    if let Some(keyring) = keyring {
+                                        keyring.set_password(password)?;
+                                    } else {
+                                        // Create a new keyring with the user from the form
+                                        let new_keyring =
+                                            Keyring::new(&connection.user)?;
+                                        new_keyring.set_password(password)?;
+                                    }
                                 }
 
                                 d7s_db::sqlite::save_connection(&connection)
@@ -344,7 +367,13 @@ impl<T: TableData> Modal<T> {
                             }
                             Mode::Edit => {
                                 if let Some(password) = &connection.password {
-                                    keyring.set_password(password)?;
+                                    if let Some(keyring) = keyring {
+                                        keyring.set_password(password)?;
+                                    } else {
+                                        return Err(color_eyre::eyre::eyre!(
+                                            "Keyring required for edit mode"
+                                        ));
+                                    }
                                 }
 
                                 // Use the stored original name for updating
@@ -413,23 +442,23 @@ impl ConfirmationModal {
         }
     }
 
-    pub fn close(&mut self) {
+    pub const fn close(&mut self) {
         self.is_open = false;
     }
 
-    pub fn next_button(&mut self) {
+    pub const fn next_button(&mut self) {
         self.selected_button = (self.selected_button + 1) % 2;
     }
 
-    pub fn prev_button(&mut self) {
+    pub const fn prev_button(&mut self) {
         self.selected_button = (self.selected_button + 1) % 2;
     }
 
-    pub fn confirm(&self) -> bool {
+    pub const fn confirm(&self) -> bool {
         self.selected_button == 0
     }
 
-    pub fn handle_key_events(&mut self, key: KeyEvent) {
+    pub const fn handle_key_events(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc | KeyCode::Enter) => {
                 self.close();
@@ -555,7 +584,7 @@ impl ModalManager {
     }
 
     /// Close the currently active modal
-    pub fn close_active_modal(&mut self) {
+    pub const fn close_active_modal(&mut self) {
         match self.active_modal_type {
             Some(ModalType::Connection) => {
                 if let Some(modal) = &mut self.connection_modal {
@@ -599,12 +628,31 @@ impl ModalManager {
     pub async fn handle_key_events(
         &mut self,
         key: KeyEvent,
-        keyring: &Keyring,
+        keyring: Option<&Keyring>,
     ) -> Result<()> {
         match self.active_modal_type {
             Some(ModalType::Connection) => {
                 if let Some(modal) = &mut self.connection_modal {
-                    modal.handle_key_events(key, keyring).await?;
+                    // For new connections, we need to create a keyring when the form is submitted
+                    // For edit connections, we should already have a keyring
+                    match modal.mode {
+                        Mode::New => {
+                            // Handle key events without keyring for new connections
+                            modal
+                                .handle_key_events_without_keyring(key)
+                                .await?;
+                        }
+                        Mode::Edit => {
+                            // For edit mode, we need a keyring
+                            if let Some(keyring) = keyring {
+                                modal.handle_key_events(key, keyring).await?;
+                            } else {
+                                return Err(color_eyre::eyre::eyre!(
+                                    "Keyring required for edit mode"
+                                ));
+                            }
+                        }
+                    }
 
                     // If modal was closed, clear the active type
                     if !modal.is_open {
