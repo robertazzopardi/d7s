@@ -31,11 +31,27 @@ pub const CONNECTION_HOTKEYS: [Hotkey; 4] = [
     // },
 ];
 
-pub struct TopBarView {
+pub const DATABASE_HOTKEYS: [Hotkey; 3] = [
+    Hotkey {
+        keycode: KeyCode::Char('s'),
+        description: "SQL Executor",
+    },
+    Hotkey {
+        keycode: KeyCode::Char('t'),
+        description: "Toggle View",
+    },
+    Hotkey {
+        keycode: KeyCode::Char('/'),
+        description: "Search",
+    },
+];
+
+pub struct TopBarView<'a> {
     pub current_connection: Connection,
+    pub hotkeys: &'a [Hotkey<'a>],
 }
 
-impl Widget for TopBarView {
+impl<'a> Widget for TopBarView<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let col_constraints = [
             Constraint::Percentage(30),
@@ -56,7 +72,7 @@ impl Widget for TopBarView {
         Paragraph::new(format!("{}", self.current_connection))
             .render(cells[0], buf);
         HotkeyView {
-            hotkeys: &CONNECTION_HOTKEYS,
+            hotkeys: self.hotkeys,
         }
         .render(cells[1], buf);
         Paragraph::new(APP_NAME.trim_start())

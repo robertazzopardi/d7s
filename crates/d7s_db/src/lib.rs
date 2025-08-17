@@ -20,6 +20,10 @@ pub trait TableData {
 #[allow(async_fn_in_trait)]
 pub trait Database {
     async fn test(&self) -> bool;
+    async fn execute_sql(
+        &self,
+        sql: &str,
+    ) -> Result<Vec<TableRow>, Box<dyn std::error::Error>>;
 }
 
 /// Database object types for the explorer
