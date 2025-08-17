@@ -10,7 +10,7 @@ use crate::widgets::constraint_len_calculator;
 
 /// A ratatui widget for displaying tabular data with selection and styling
 #[derive(Clone, Debug, Default)]
-pub struct DataTable<T: TableData> {
+pub struct DataTable<T: TableData + Clone> {
     pub items: Vec<T>,
     pub longest_item_lens: Vec<u16>, // order is (name, address, email)
     pub table_state: TableState,
@@ -35,6 +35,23 @@ impl TableDataWidget {
             longest_item_lens,
             table_state: TableState::default().with_selected(0),
         }
+    }
+
+    pub fn filter(&self, query: &str) -> Vec<Vec<String>> {
+        if query.is_empty() {
+            return self.items.clone();
+        }
+
+        let query_lower = query.to_lowercase();
+        self.items
+            .iter()
+            .filter(|row| {
+                // Check if any column contains the query
+                row.iter()
+                    .any(|cell| cell.to_lowercase().contains(&query_lower))
+            })
+            .cloned()
+            .collect()
     }
 }
 
@@ -95,7 +112,7 @@ impl StatefulWidget for TableDataWidget {
     }
 }
 
-impl<T: TableData> DataTable<T> {
+impl<T: TableData + Clone> DataTable<T> {
     pub fn new(items: Vec<T>) -> Self {
         let longest_item_lens = constraint_len_calculator(&items);
         Self {
@@ -104,9 +121,31 @@ impl<T: TableData> DataTable<T> {
             table_state: TableState::default().with_selected(0),
         }
     }
+
+    pub fn filter(&self, query: &str) -> Vec<T> {
+        if query.is_empty() {
+            return self.items.clone();
+        }
+
+        let query_lower = query.to_lowercase();
+        self.items
+            .iter()
+            .filter(|item| {
+                // Check if any column contains the query
+                for col_idx in 0..item.num_columns() {
+                    let col_value = item.col(col_idx);
+                    if col_value.to_lowercase().contains(&query_lower) {
+                        return true;
+                    }
+                }
+                false
+            })
+            .cloned()
+            .collect()
+    }
 }
 
-impl<T: TableData + std::fmt::Debug> StatefulWidget for DataTable<T> {
+impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
     type State = TableState;
 
     fn render(

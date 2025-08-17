@@ -15,6 +15,7 @@ use ratatui::{
 use crate::widgets::{
     hotkey::Hotkey,
     modal::ModalManager,
+    search_filter::SearchFilter,
     table::{DataTable, TableDataWidget},
     top_bar_view::{CONNECTION_HOTKEYS, TopBarView},
 };
@@ -70,6 +71,14 @@ pub struct App<'a> {
     /// Current table data (rows)
     table_data: Option<TableDataWidget>,
     keyring: Option<Keyring>,
+    /// Search filter widget
+    search_filter: SearchFilter,
+    /// Original unfiltered data for restoration
+    original_connections: Vec<Connection>,
+    original_schemas: Vec<Schema>,
+    original_tables: Vec<Table>,
+    original_columns: Vec<Column>,
+    original_table_data: Vec<Vec<String>>,
 }
 
 impl Default for App<'_> {
@@ -78,7 +87,7 @@ impl Default for App<'_> {
 
         let items = d7s_db::sqlite::get_connections().unwrap_or_default();
 
-        let table_widget = DataTable::new(items);
+        let table_widget = DataTable::new(items.clone());
 
         Self {
             running: false,
@@ -95,6 +104,12 @@ impl Default for App<'_> {
             column_table: None,
             table_data: None,
             keyring: None,
+            search_filter: SearchFilter::new(),
+            original_connections: items,
+            original_schemas: Vec::new(),
+            original_tables: Vec::new(),
+            original_columns: Vec::new(),
+            original_table_data: Vec::new(),
         }
     }
 }
@@ -129,6 +144,30 @@ impl App<'_> {
             self.active_connection.clone().unwrap_or_default();
         frame.render_widget(TopBarView { current_connection }, layout[0]);
 
+        // Create the main content area
+        let main_area = if self.search_filter.is_active {
+            // If search filter is active, create a layout with search filter at top
+            let search_layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3), // Search filter height
+                    Constraint::Min(0),    // Remaining space for table
+                ])
+                .split(layout[1]);
+
+            // Render search filter
+            frame.render_stateful_widget(
+                self.search_filter.clone(),
+                search_layout[0],
+                &mut (),
+            );
+
+            // Return the area for the table
+            search_layout[1]
+        } else {
+            layout[1]
+        };
+
         match self.state {
             AppState::ConnectionList => {
                 // Create the inner block
@@ -138,10 +177,10 @@ impl App<'_> {
                     .title_alignment(Alignment::Center);
 
                 // Get the inner area of the block (content area)
-                let inner_area = block.inner(layout[1]);
+                let inner_area = block.inner(main_area);
 
                 // Render the block itself (borders and title)
-                frame.render_widget(block, layout[1]);
+                frame.render_widget(block, main_area);
 
                 // Render content inside the block
                 // Use the data table directly
@@ -159,10 +198,10 @@ impl App<'_> {
                     .title_alignment(Alignment::Center);
 
                 // Get the inner area of the block (content area)
-                let inner_area = block.inner(layout[1]);
+                let inner_area = block.inner(main_area);
 
                 // Render the block itself (borders and title)
-                frame.render_widget(block, layout[1]);
+                frame.render_widget(block, main_area);
 
                 // Render the appropriate table based on explorer state
                 self.render_database_table(frame, inner_area);
@@ -200,6 +239,53 @@ impl App<'_> {
     /// Handles the key events and updates the state of [`App`].
     #[allow(clippy::too_many_lines)]
     async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
+        // Handle search filter input first
+        if self.search_filter.is_active {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    self.search_filter.deactivate();
+                    self.clear_filter();
+                    return Ok(());
+                }
+                (_, KeyCode::Enter) => {
+                    self.search_filter.deactivate();
+                    return Ok(());
+                }
+                (_, KeyCode::Char(ch)) if !ch.is_control() => {
+                    self.search_filter.add_char(ch);
+                    self.apply_filter();
+                    return Ok(());
+                }
+                (_, KeyCode::Backspace) => {
+                    self.search_filter.delete_char();
+                    self.apply_filter();
+                    return Ok(());
+                }
+                (_, KeyCode::Left) => {
+                    self.search_filter.move_cursor_left();
+                    return Ok(());
+                }
+                (_, KeyCode::Right) => {
+                    self.search_filter.move_cursor_right();
+                    return Ok(());
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
+                    self.search_filter.move_cursor_to_start();
+                    return Ok(());
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
+                    self.search_filter.move_cursor_to_end();
+                    return Ok(());
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
+                    self.search_filter.clear();
+                    self.apply_filter();
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+
         // Handle modal events first
         if self.modal_manager.is_any_modal_open() {
             // Initialize keyring if not already available
@@ -430,6 +516,11 @@ impl App<'_> {
                     self.handle_database_table_navigation(KeyCode::Char('G'));
                 }
             }
+            (_, KeyCode::Char('/')) => {
+                if !self.modal_manager.is_any_modal_open() {
+                    self.search_filter.activate();
+                }
+            }
             // Add other key handlers here.
             _ => {}
         }
@@ -444,6 +535,7 @@ impl App<'_> {
     /// Refresh the table data from the database
     fn refresh_connections(&mut self) {
         if let Ok(connections) = d7s_db::sqlite::get_connections() {
+            self.original_connections = connections.clone();
             self.table_widget.items = connections;
         }
     }
@@ -578,6 +670,8 @@ impl App<'_> {
         if let Some(database) = &self.active_database {
             match database.get_schemas().await {
                 Ok(schemas) => {
+                    // Store original data for filtering
+                    self.original_schemas = schemas.clone();
                     self.schema_table = Some(DataTable::new(schemas));
                     self.explorer_state = Some(DatabaseExplorerState::Schemas);
                 }
@@ -594,6 +688,8 @@ impl App<'_> {
         if let Some(database) = &self.active_database {
             match database.get_tables(schema_name).await {
                 Ok(tables) => {
+                    // Store original data for filtering
+                    self.original_tables = tables.clone();
                     self.table_table = Some(DataTable::new(tables));
                     self.explorer_state = Some(DatabaseExplorerState::Tables(
                         schema_name.to_string(),
@@ -616,6 +712,8 @@ impl App<'_> {
         if let Some(database) = &self.active_database {
             match database.get_columns(schema_name, table_name).await {
                 Ok(columns) => {
+                    // Store original data for filtering
+                    self.original_columns = columns.clone();
                     self.column_table = Some(DataTable::new(columns));
                     self.explorer_state = Some(DatabaseExplorerState::Columns(
                         schema_name.to_string(),
@@ -878,6 +976,8 @@ impl App<'_> {
                 .await
             {
                 Ok((data, column_names)) => {
+                    // Store original data for filtering
+                    self.original_table_data = data.clone();
                     self.table_data =
                         Some(TableDataWidget::new(data, column_names));
                     self.explorer_state =
@@ -892,5 +992,76 @@ impl App<'_> {
             }
         }
         Ok(())
+    }
+
+    /// Apply the current search filter to the active table
+    fn apply_filter(&mut self) {
+        let query = self.search_filter.get_filter_query();
+
+        match self.state {
+            AppState::ConnectionList => {
+                let filtered_items = self.table_widget.filter(query);
+                self.table_widget.items = filtered_items;
+            }
+            AppState::DatabaseConnected => match &self.explorer_state {
+                Some(DatabaseExplorerState::Schemas) => {
+                    if let Some(schema_table) = &mut self.schema_table {
+                        let filtered_items = schema_table.filter(query);
+                        schema_table.items = filtered_items;
+                    }
+                }
+                Some(DatabaseExplorerState::Tables(_)) => {
+                    if let Some(table_table) = &mut self.table_table {
+                        let filtered_items = table_table.filter(query);
+                        table_table.items = filtered_items;
+                    }
+                }
+                Some(DatabaseExplorerState::Columns(_, _)) => {
+                    if let Some(column_table) = &mut self.column_table {
+                        let filtered_items = column_table.filter(query);
+                        column_table.items = filtered_items;
+                    }
+                }
+                Some(DatabaseExplorerState::TableData(_, _)) => {
+                    if let Some(table_data) = &mut self.table_data {
+                        let filtered_items = table_data.filter(query);
+                        table_data.items = filtered_items;
+                    }
+                }
+                None => {}
+            },
+        }
+    }
+
+    /// Clear the current filter and restore original data
+    fn clear_filter(&mut self) {
+        match self.state {
+            AppState::ConnectionList => {
+                self.table_widget.items = self.original_connections.clone();
+            }
+            AppState::DatabaseConnected => match &self.explorer_state {
+                Some(DatabaseExplorerState::Schemas) => {
+                    if let Some(schema_table) = &mut self.schema_table {
+                        schema_table.items = self.original_schemas.clone();
+                    }
+                }
+                Some(DatabaseExplorerState::Tables(_)) => {
+                    if let Some(table_table) = &mut self.table_table {
+                        table_table.items = self.original_tables.clone();
+                    }
+                }
+                Some(DatabaseExplorerState::Columns(_, _)) => {
+                    if let Some(column_table) = &mut self.column_table {
+                        column_table.items = self.original_columns.clone();
+                    }
+                }
+                Some(DatabaseExplorerState::TableData(_, _)) => {
+                    if let Some(table_data) = &mut self.table_data {
+                        table_data.items = self.original_table_data.clone();
+                    }
+                }
+                None => {}
+            },
+        }
     }
 }
