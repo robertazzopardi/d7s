@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+d7s_auth = { path = "../d7s_auth" }
 d7s_db = { path = "../d7s_db" }
 ratatui = { version = "0.29.0", features = [
     "crossterm",
 ], default-features = false }
 crossterm = { version = "0.28.1", default-features = false }
 unicode-width = { version = "0.2", default-features = false }
-

@@ -1,0 +1,147 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use d7s_db::TableData;
+use crate::widgets::{
+    search_filter::SearchFilter,
+    sql_executor::SqlExecutor,
+    table::DataTable,
+};
+
+use super::navigation::TableNavigationHandler;
+
+/// Handles search filter key events
+pub fn handle_search_filter_input(
+    key: KeyEvent,
+    search_filter: &mut SearchFilter,
+    on_filter_change: &mut dyn FnMut(),
+) -> bool {
+    match (key.modifiers, key.code) {
+        (_, KeyCode::Esc) => {
+            search_filter.deactivate();
+            return true;
+        }
+        (_, KeyCode::Enter) => {
+            search_filter.deactivate();
+            return true;
+        }
+        (_, KeyCode::Char(ch)) if !ch.is_control() => {
+            search_filter.add_char(ch);
+            on_filter_change();
+            return true;
+        }
+        (_, KeyCode::Backspace) => {
+            search_filter.delete_char();
+            on_filter_change();
+            return true;
+        }
+        (_, KeyCode::Left) => {
+            search_filter.move_cursor_left();
+            return true;
+        }
+        (_, KeyCode::Right) => {
+            search_filter.move_cursor_right();
+            return true;
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
+            search_filter.move_cursor_to_start();
+            return true;
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
+            search_filter.move_cursor_to_end();
+            return true;
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
+            search_filter.clear();
+            on_filter_change();
+            return true;
+        }
+        _ => false,
+    }
+}
+
+/// Handles SQL executor key events
+pub fn handle_sql_executor_input(
+    key: KeyEvent,
+    sql_executor: &mut SqlExecutor,
+) -> bool {
+    match (key.modifiers, key.code) {
+        (_, KeyCode::Char(ch)) if !ch.is_control() => {
+            sql_executor.add_char(ch);
+            true
+        }
+        (_, KeyCode::Backspace) => {
+            sql_executor.delete_char();
+            true
+        }
+        (_, KeyCode::Left) => {
+            sql_executor.move_cursor_left();
+            true
+        }
+        (_, KeyCode::Right) => {
+            sql_executor.move_cursor_right();
+            true
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
+            sql_executor.move_cursor_to_start();
+            true
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
+            sql_executor.move_cursor_to_end();
+            true
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
+            sql_executor.clear();
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Handles connection list navigation keys
+pub fn handle_connection_list_navigation<T: TableData + Clone>(
+    key: KeyCode,
+    table_widget: &mut DataTable<T>,
+) {
+    match key {
+        KeyCode::Char('j') | KeyCode::Down => {
+            table_widget.table_state.select_next();
+            TableNavigationHandler::clamp_data_table_selection(table_widget);
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            table_widget.table_state.select_previous();
+            TableNavigationHandler::clamp_data_table_selection(table_widget);
+        }
+        KeyCode::Char('h' | 'b') | KeyCode::Left => {
+            table_widget.table_state.select_previous_column();
+        }
+        KeyCode::Char('l' | 'w') | KeyCode::Right => {
+            table_widget.table_state.select_next_column();
+        }
+        KeyCode::Char('0') => {
+            table_widget.table_state.select_column(Some(0));
+        }
+        KeyCode::Char('$') => {
+            if let Some(num_cols) = table_widget
+                .items
+                .first()
+                .map(d7s_db::TableData::num_columns)
+            {
+                table_widget
+                    .table_state
+                    .select_column(Some(num_cols.saturating_sub(1)));
+            }
+        }
+        KeyCode::Char('g') => {
+            table_widget.table_state.select(Some(1));
+            TableNavigationHandler::clamp_data_table_selection(table_widget);
+        }
+        KeyCode::Char('G') => {
+            if !table_widget.items.is_empty() {
+                table_widget
+                    .table_state
+                    .select(Some(table_widget.items.len() - 1));
+            }
+        }
+        _ => {}
+    }
+}
+
