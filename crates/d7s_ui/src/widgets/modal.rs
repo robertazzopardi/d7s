@@ -1,7 +1,5 @@
-use color_eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent};
-use d7s_auth::Keyring;
-use d7s_db::{Database, TableData, connection::Connection};
+use d7s_db::{TableData, connection::Connection};
 use ratatui::{
     prelude::{Alignment, Buffer, Constraint, Direction, Layout, Rect, Widget},
     style::{Color, Style},
@@ -207,6 +205,62 @@ impl<T: TableData> Modal<T> {
     pub fn is_valid(&self) -> bool {
         !self.fields.iter().any(|f| f.value.trim().is_empty())
     }
+
+    /// Handle key events for UI navigation only
+    /// Returns an enum indicating what action was triggered
+    pub fn handle_key_events_ui(&mut self, key: KeyEvent) -> ModalAction {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                self.close();
+                ModalAction::Cancel
+            }
+            (_, KeyCode::BackTab | KeyCode::Up) => {
+                self.prev_field();
+                ModalAction::None
+            }
+            (_, KeyCode::Tab | KeyCode::Down) => {
+                self.next_field();
+                ModalAction::None
+            }
+            (_, KeyCode::Enter) => {
+                if self.selected_button == 0 && self.is_valid() {
+                    ModalAction::Save
+                } else if self.selected_button == 1 {
+                    ModalAction::Test
+                } else if self.selected_button == 2 {
+                    self.close();
+                    ModalAction::Cancel
+                } else {
+                    ModalAction::None
+                }
+            }
+            (_, KeyCode::Char(c)) => {
+                self.add_char(c);
+                ModalAction::None
+            }
+            (_, KeyCode::Backspace) => {
+                self.remove_char();
+                ModalAction::None
+            }
+            (_, KeyCode::Left) => {
+                self.selected_button = (self.selected_button + 2) % 3;
+                ModalAction::None
+            }
+            (_, KeyCode::Right) => {
+                self.selected_button = (self.selected_button + 1) % 3;
+                ModalAction::None
+            }
+            _ => ModalAction::None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModalAction {
+    None,
+    Save,
+    Test,
+    Cancel,
 }
 
 impl<T: TableData> Widget for Modal<T> {
@@ -322,174 +376,6 @@ impl<T: TableData> Modal<T> {
             .alignment(Alignment::Center)
             .render(area, buf);
     }
-
-    pub async fn handle_key_events(
-        &mut self,
-        key: KeyEvent,
-        keyring: &Keyring,
-    ) -> Result<()> {
-        self.handle_key_events_internal(key, Some(keyring)).await
-    }
-
-    pub async fn handle_key_events_without_keyring(
-        &mut self,
-        key: KeyEvent,
-    ) -> Result<()> {
-        self.handle_key_events_internal(key, None).await
-    }
-
-    async fn handle_key_events_internal(
-        &mut self,
-        key: KeyEvent,
-        keyring: Option<&Keyring>,
-    ) -> Result<()> {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
-                self.close();
-            }
-            (_, KeyCode::BackTab | KeyCode::Up) => {
-                self.prev_field();
-            }
-            (_, KeyCode::Tab | KeyCode::Down) => {
-                self.next_field();
-            }
-            (_, KeyCode::Enter) => {
-                if self.selected_button == 0 && self.is_valid() {
-                    if let Some(connection) = self.get_connection() {
-                        match self.mode {
-                            Mode::New => {
-                                // For new connections, create a keyring with the user from the form
-                                if let Some(password) = &connection.password {
-                                    let keyring_result =
-                                        if let Some(keyring) = keyring {
-                                            keyring.set_password(password)
-                                        } else {
-                                            // Create a new keyring with the user from the form
-                                            let new_keyring =
-                                                Keyring::new(&connection.user)?;
-                                            new_keyring.set_password(password)
-                                        };
-
-                                    // Handle keyring errors gracefully
-                                    if let Err(e) = keyring_result {
-                                        let error_msg = e.to_string();
-                                        // Check if it's a locked collection error
-                                        if error_msg
-                                            .contains("locked collection")
-                                        {
-                                            return Err(
-                                                color_eyre::eyre::eyre!(
-                                                    "Keyring is locked. Please unlock your keyring first.\n\n\
-                                                On Linux, you can unlock it using:\n\
-                                                - seahorse (GUI: search for 'Passwords and Keys')\n\
-                                                - Or unlock it when prompted by your desktop environment\n\n\
-                                                Alternatively, you can save the connection without storing the password in the keyring."
-                                                ),
-                                            );
-                                        }
-                                        // For other keyring errors, still fail but with a clearer message
-                                        return Err(color_eyre::eyre::eyre!(
-                                            "Failed to store password in keyring: {}\n\n\
-                                            Hint: If your keyring is locked, unlock it first using your system's keyring manager.",
-                                            error_msg
-                                        ));
-                                    }
-                                }
-
-                                d7s_db::sqlite::save_connection(&connection)
-                                    .unwrap();
-                            }
-                            Mode::Edit => {
-                                if let Some(password) = &connection.password {
-                                    if let Some(keyring) = keyring {
-                                        let keyring_result =
-                                            keyring.set_password(password);
-                                        // Handle keyring errors gracefully
-                                        if let Err(e) = keyring_result {
-                                            let error_msg = e.to_string();
-                                            // Check if it's a locked collection error
-                                            if error_msg
-                                                .contains("locked collection")
-                                            {
-                                                return Err(
-                                                    color_eyre::eyre::eyre!(
-                                                        "Keyring is locked. Please unlock your keyring first.\n\n\
-                                                    On Linux, you can unlock it using:\n\
-                                                    - seahorse (GUI: search for 'Passwords and Keys')\n\
-                                                    - Or unlock it when prompted by your desktop environment"
-                                                    ),
-                                                );
-                                            }
-                                            // For other keyring errors, still fail but with a clearer message
-                                            return Err(
-                                                color_eyre::eyre::eyre!(
-                                                    "Failed to update password in keyring: {}\n\n\
-                                                Hint: If your keyring is locked, unlock it first using your system's keyring manager.",
-                                                    error_msg
-                                                ),
-                                            );
-                                        }
-                                    } else {
-                                        return Err(color_eyre::eyre::eyre!(
-                                            "Keyring required for edit mode"
-                                        ));
-                                    }
-                                }
-
-                                // Use the stored original name for updating
-                                if let Some(original_name) = &self.original_name
-                                {
-                                    d7s_db::sqlite::update_connection(
-                                        original_name,
-                                        &connection,
-                                    )
-                                    .unwrap();
-                                }
-                            }
-                        }
-
-                        self.close();
-                    }
-                } else if self.selected_button == 1 {
-                    // Test button - handle test in a blocking way
-                    if let Some(connection) = self.get_connection() {
-                        let postgres = connection.to_postgres();
-                        self.test_result = TestResult::Testing;
-
-                        // Use block_on to run the async test in a blocking context
-                        let result = postgres.test().await;
-                        self.test_result = if result {
-                            TestResult::Success
-                        } else {
-                            TestResult::Failed("Connection failed".to_string())
-                        };
-                    } else {
-                        self.test_result = TestResult::Failed(
-                            "Please fill in all fields".to_string(),
-                        );
-                    }
-                } else if self.selected_button == 2 {
-                    self.close();
-                }
-            }
-            (_, KeyCode::Char(c)) => {
-                self.add_char(c);
-            }
-            (_, KeyCode::Backspace) => {
-                self.remove_char();
-            }
-
-            (_, KeyCode::Left) => {
-                self.selected_button = (self.selected_button + 2) % 3;
-            }
-            (_, KeyCode::Right) => {
-                self.selected_button = (self.selected_button + 1) % 3;
-            }
-            _ => {}
-        }
-
-        Ok(())
-    }
 }
 
 impl ConfirmationModal {
@@ -518,7 +404,7 @@ impl ConfirmationModal {
         self.selected_button == 0
     }
 
-    pub const fn handle_key_events(&mut self, key: KeyEvent) {
+    pub fn handle_key_events(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc | KeyCode::Enter) => {
                 self.close();
@@ -652,13 +538,6 @@ impl Widget for CellValueModal {
             .margin(1)
             .split(modal_area);
 
-        // Render column name
-        // let column_text = format!("Column: {}", self.column_name);
-        // Paragraph::new(column_text)
-        //     .style(Style::default().fg(Color::Yellow))
-        //     .alignment(Alignment::Left)
-        //     .render(inner_layout[0], buf);
-
         // Render cell value with word wrapping
         Paragraph::new(self.cell_value.clone())
             .style(Style::default().fg(Color::White))
@@ -684,7 +563,6 @@ pub struct ModalManager {
     active_modal_type: Option<ModalType>,
 }
 
-// #[allow(dead_code)]
 impl ModalManager {
     /// Create a new modal manager
     pub const fn new() -> Self {
@@ -715,18 +593,16 @@ impl ModalManager {
     pub fn open_edit_connection_modal(
         &mut self,
         connection: &Connection,
-        entry: &Keyring,
-    ) -> Result<()> {
+        password: String,
+    ) {
         let mut connection_with_password = connection.clone();
-        connection_with_password.password = Some(entry.get_password()?);
+        connection_with_password.password = Some(password);
 
         let mut modal =
             Modal::new(connection_with_password.clone(), Mode::Edit);
         modal.open_for_edit(&connection_with_password);
         self.connection_modal = Some(modal);
         self.active_modal_type = Some(ModalType::Connection);
-
-        Ok(())
     }
 
     /// Open a confirmation modal
@@ -774,93 +650,62 @@ impl ModalManager {
         self.active_modal_type = None;
     }
 
-    // /// Check if a specific modal type is open
-    // pub fn is_modal_open(&self, modal_type: &ModalType) -> bool {
-    //     match modal_type {
-    //         ModalType::Connection => {
-    //             self.connection_modal.as_ref().is_some_and(|m| m.is_open)
-    //         }
-    //         ModalType::Confirmation => {
-    //             self.confirmation_modal.as_ref().is_some_and(|m| m.is_open)
-    //         }
-    //     }
-    // }
-
-    // /// Close all modals
-    // pub const fn close_all_modals(&mut self) {
-    //     if let Some(modal) = &mut self.connection_modal {
-    //         modal.close();
-    //     }
-    //     if let Some(modal) = &mut self.confirmation_modal {
-    //         modal.close();
-    //     }
-    //     self.active_modal_type = None;
-    // }
-
-    /// Handle key events for the currently active modal
-    pub async fn handle_key_events(
-        &mut self,
-        key: KeyEvent,
-        keyring: Option<&Keyring>,
-    ) -> Result<()> {
+    /// Handle key events for the currently active modal (UI only)
+    /// Returns the action that was triggered
+    pub fn handle_key_events_ui(&mut self, key: KeyEvent) -> ModalAction {
         match self.active_modal_type {
             Some(ModalType::Connection) => {
                 if let Some(modal) = &mut self.connection_modal {
-                    // For new connections, we need to create a keyring when the form is submitted
-                    // For edit connections, we should already have a keyring
-                    match modal.mode {
-                        Mode::New => {
-                            // Handle key events without keyring for new connections
-                            modal
-                                .handle_key_events_without_keyring(key)
-                                .await?;
-                        }
-                        Mode::Edit => {
-                            // For edit mode, we need a keyring
-                            if let Some(keyring) = keyring {
-                                modal.handle_key_events(key, keyring).await?;
-                            } else {
-                                return Err(color_eyre::eyre::eyre!(
-                                    "Keyring required for edit mode"
-                                ));
-                            }
-                        }
-                    }
-
+                    let action = modal.handle_key_events_ui(key);
                     // If modal was closed, clear the active type
                     if !modal.is_open {
                         self.active_modal_type = None;
                     }
+                    action
+                } else {
+                    ModalAction::None
                 }
             }
             Some(ModalType::Confirmation) => {
                 if let Some(modal) = &mut self.confirmation_modal {
                     modal.handle_key_events(key);
-
                     // If modal was closed, clear the active type
                     if !modal.is_open {
                         self.active_modal_type = None;
                     }
+                    if modal.confirm() {
+                        ModalAction::Save
+                    } else {
+                        ModalAction::Cancel
+                    }
+                } else {
+                    ModalAction::None
                 }
             }
             Some(ModalType::CellValue) => {
                 if let Some(modal) = &mut self.cell_value_modal {
                     modal.handle_key_events(key);
-
                     // If modal was closed, clear the active type
                     if !modal.is_open {
                         self.active_modal_type = None;
                     }
+                    ModalAction::Cancel
+                } else {
+                    ModalAction::None
                 }
             }
-            None => {}
+            None => ModalAction::None,
         }
-        Ok(())
     }
 
     /// Get a reference to the connection modal
     pub const fn get_connection_modal(&self) -> Option<&Modal<Connection>> {
         self.connection_modal.as_ref()
+    }
+
+    /// Get a mutable reference to the connection modal
+    pub fn get_connection_modal_mut(&mut self) -> Option<&mut Modal<Connection>> {
+        self.connection_modal.as_mut()
     }
 
     /// Get a reference to the confirmation modal
@@ -911,3 +756,4 @@ impl ModalManager {
         self.cell_value_modal.as_ref()
     }
 }
+

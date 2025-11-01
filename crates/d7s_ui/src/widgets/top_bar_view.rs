@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 use super::hotkey_view::HotkeyView;
-use crate::{app::APP_NAME, widgets::hotkey::Hotkey};
+use super::hotkey::Hotkey;
 
 pub const CONNECTION_HOTKEYS: [Hotkey; 4] = [
     Hotkey {
@@ -25,10 +25,6 @@ pub const CONNECTION_HOTKEYS: [Hotkey; 4] = [
         keycode: KeyCode::Char('o'),
         description: "Open Connection",
     },
-    // Hotkey {
-    //     keycode: KeyCode::Char('t'),
-    //     description: "Test Connection",
-    // },
 ];
 
 pub const DATABASE_HOTKEYS: [Hotkey; 3] = [
@@ -49,6 +45,7 @@ pub const DATABASE_HOTKEYS: [Hotkey; 3] = [
 pub struct TopBarView<'a> {
     pub current_connection: Connection,
     pub hotkeys: &'a [Hotkey<'a>],
+    pub app_name: &'a str,
 }
 
 impl Widget for TopBarView<'_> {
@@ -75,8 +72,9 @@ impl Widget for TopBarView<'_> {
             hotkeys: self.hotkeys,
         }
         .render(cells[1], buf);
-        Paragraph::new(APP_NAME.trim_start())
+        Paragraph::new(self.app_name.trim_start())
             .alignment(Alignment::Right)
             .render(cells[2], buf);
     }
 }
+

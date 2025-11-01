@@ -6,19 +6,18 @@ use d7s_auth::Keyring;
 use d7s_db::{
     Column, Database, Schema, Table, connection::Connection, postgres::Postgres,
 };
-use ratatui::{
-    DefaultTerminal, Frame,
-    prelude::*,
-    widgets::{Block, Borders},
-};
-
-use crate::widgets::{
+use d7s_ui::widgets::{
     hotkey::Hotkey,
-    modal::ModalManager,
+    modal::{ModalAction, ModalManager},
     search_filter::SearchFilter,
     sql_executor::SqlExecutor,
     table::{DataTable, TableDataWidget},
     top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS, TopBarView},
+};
+use ratatui::{
+    DefaultTerminal, Frame,
+    prelude::*,
+    widgets::{Block, Borders},
 };
 
 pub const APP_NAME: &str = r"
@@ -151,6 +150,7 @@ impl App<'_> {
             TopBarView {
                 current_connection,
                 hotkeys: &self.hotkeys,
+                app_name: APP_NAME,
             },
             layout[0],
         );
@@ -343,15 +343,149 @@ impl App<'_> {
 
         // Handle modal events first
         if self.modal_manager.is_any_modal_open() {
-            // Handle modal events - pass keyring if available
-            self.modal_manager
-                .handle_key_events(key, self.keyring.as_ref())
-                .await?;
+            // Handle modal events (UI only)
+            let action = self.modal_manager.handle_key_events_ui(key);
+
+            // Handle business logic based on modal actions
+            match action {
+                ModalAction::Save => {
+                    // Handle save action for connection modal
+                    if let Some(modal) = self.modal_manager.get_connection_modal_mut() {
+                        if let Some(connection) = modal.get_connection() {
+                            match modal.mode {
+                                d7s_ui::widgets::modal::Mode::New => {
+                                    // For new connections, create a keyring with the user from the form
+                                    if let Some(password) = &connection.password {
+                                        let keyring_result = if let Some(keyring) = &self.keyring {
+                                            keyring.set_password(password)
+                                        } else {
+                                            // Create a new keyring with the user from the form
+                                            match Keyring::new(&connection.user) {
+                                                Ok(new_keyring) => {
+                                                    let result = new_keyring.set_password(password);
+                                                    self.keyring = Some(new_keyring);
+                                                    result
+                                                }
+                                                Err(e) => {
+                                                    modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
+                                                        format!("Failed to create keyring: {e}")
+                                                    );
+                                                    return Ok(());
+                                                }
+                                            }
+                                        };
+
+                                        // Handle keyring errors gracefully
+                                        if let Err(e) = keyring_result {
+                                            let error_msg = e.to_string();
+                                            // Check if it's a locked collection error
+                                            if error_msg.contains("locked collection") {
+                                                modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
+                                                    "Keyring is locked. Please unlock your keyring first.\n\n\
+                                                    On Linux, you can unlock it using:\n\
+                                                    - seahorse (GUI: search for 'Passwords and Keys')\n\
+                                                    - Or unlock it when prompted by your desktop environment\n\n\
+                                                    Alternatively, you can save the connection without storing the password in the keyring.".to_string()
+                                                );
+                                                return Ok(());
+                                            }
+                                            // For other keyring errors, still fail but with a clearer message
+                                            modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
+                                                format!("Failed to store password in keyring: {}\n\n\
+                                                Hint: If your keyring is locked, unlock it first using your system's keyring manager.", error_msg)
+                                            );
+                                            return Ok(());
+                                        }
+                                    }
+
+                                    if let Err(e) = d7s_db::sqlite::save_connection(&connection) {
+                                        modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
+                                            format!("Failed to save connection: {e}")
+                                        );
+                                        return Ok(());
+                                    }
+                                }
+                                d7s_ui::widgets::modal::Mode::Edit => {
+                                    if let Some(password) = &connection.password {
+                                        if let Some(keyring) = &self.keyring {
+                                            let keyring_result = keyring.set_password(password);
+                                            // Handle keyring errors gracefully
+                                            if let Err(e) = keyring_result {
+                                                let error_msg = e.to_string();
+                                                // Check if it's a locked collection error
+                                                if error_msg.contains("locked collection") {
+                                                    modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
+                                                        "Keyring is locked. Please unlock your keyring first.\n\n\
+                                                        On Linux, you can unlock it using:\n\
+                                                        - seahorse (GUI: search for 'Passwords and Keys')\n\
+                                                        - Or unlock it when prompted by your desktop environment".to_string()
+                                                    );
+                                                    return Ok(());
+                                                }
+                                                // For other keyring errors, still fail but with a clearer message
+                                                modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
+                                                    format!("Failed to update password in keyring: {}\n\n\
+                                                    Hint: If your keyring is locked, unlock it first using your system's keyring manager.", error_msg)
+                                                );
+                                                return Ok(());
+                                            }
+                                        } else {
+                                            modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
+                                                "Keyring required for edit mode".to_string()
+                                            );
+                                            return Ok(());
+                                        }
+                                    }
+
+                                    // Use the stored original name for updating
+                                    if let Some(original_name) = &modal.original_name {
+                                        if let Err(e) = d7s_db::sqlite::update_connection(original_name, &connection) {
+                                            modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
+                                                format!("Failed to update connection: {e}")
+                                            );
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+
+                            modal.close();
+                            self.refresh_connections();
+                        }
+                    }
+                }
+                ModalAction::Test => {
+                    // Handle test action
+                    if let Some(modal) = self.modal_manager.get_connection_modal_mut() {
+                        if let Some(connection) = modal.get_connection() {
+                            let postgres = connection.to_postgres();
+                            modal.test_result = d7s_ui::widgets::modal::TestResult::Testing;
+
+                            // Test the connection
+                            let result = postgres.test().await;
+                            modal.test_result = if result {
+                                d7s_ui::widgets::modal::TestResult::Success
+                            } else {
+                                d7s_ui::widgets::modal::TestResult::Failed("Connection failed".to_string())
+                            };
+                        } else {
+                            modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
+                                "Please fill in all fields".to_string()
+                            );
+                        }
+                    }
+                }
+                ModalAction::Cancel => {
+                    // Modal was canceled, refresh connections if needed
+                    if self.modal_manager.was_connection_modal_closed() {
+                        self.refresh_connections();
+                    }
+                }
+                ModalAction::None => {}
+            }
 
             // Handle confirmation modal results
-            if let Some(connection) =
-                self.modal_manager.was_confirmation_modal_confirmed()
-            {
+            if let Some(connection) = self.modal_manager.was_confirmation_modal_confirmed() {
                 // Delete the keyring credential using the user
                 if let Some(keyring) = &self.keyring {
                     let _ = keyring.delete_password();
@@ -360,18 +494,11 @@ impl App<'_> {
                 }
 
                 // Delete from database
-                if let Err(e) =
-                    d7s_db::sqlite::delete_connection(&connection.name)
-                {
+                if let Err(e) = d7s_db::sqlite::delete_connection(&connection.name) {
                     eprintln!("Failed to delete connection: {e}");
                 } else {
                     self.refresh_connections();
                 }
-            }
-
-            // Handle connection modal closure
-            if self.modal_manager.was_connection_modal_closed() {
-                self.refresh_connections();
             }
 
             // Clean up closed modals
@@ -432,13 +559,20 @@ impl App<'_> {
                         // Initialize keyring with the connection's user
                         self.keyring = Keyring::new(&connection.user).ok();
 
-                        if let Err(e) =
-                            self.modal_manager.open_edit_connection_modal(
-                                connection,
-                                self.keyring.as_ref().unwrap(),
-                            )
-                        {
-                            eprintln!("Failed to open edit modal: {e}");
+                        if let Some(keyring) = &self.keyring {
+                            match keyring.get_password() {
+                                Ok(password) => {
+                                    self.modal_manager.open_edit_connection_modal(
+                                        connection,
+                                        password,
+                                    );
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to get password from keyring: {e}");
+                                }
+                            }
+                        } else {
+                            eprintln!("Failed to initialize keyring");
                         }
                         return Ok(()); // Return early to prevent key propagation
                     }

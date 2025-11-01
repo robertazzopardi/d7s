@@ -15,8 +15,8 @@
           inherit system overlays;
         };
 
-        # Use Rust stable toolchain
-        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+        # Use Rust stable toolchain - pinned to version 1.91.0
+        rustToolchain = pkgs.rust-bin.stable."1.91.0".default.override {
           extensions = [ "rustfmt" "clippy" "rust-src" ];
         };
 
@@ -47,9 +47,11 @@
         ];
 
         # Native build inputs (rustToolchain already includes cargo, rustfmt, clippy)
+        # Pin rust-analyzer to match Rust version
+        rustAnalyzer = pkgs.rust-bin.stable."1.91.0".rust-analyzer;
         nativeBuildInputs = with pkgs; [
           rustToolchain
-          rust-analyzer
+          rustAnalyzer
         ];
       in
       {

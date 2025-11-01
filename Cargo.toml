@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/d7s_auth", "crates/d7s_db"]
+members = ["crates/d7s_auth", "crates/d7s_db", "crates/d7s_ui"]
 
 [package]
 name = "d7s"
@@ -17,11 +17,11 @@ d7s_auth = { path = "crates/d7s_auth", version = "*" }
 
 [dependencies]
 d7s_db = { path = "crates/d7s_db" }
+d7s_ui = { path = "crates/d7s_ui" }
 crossterm = { version = "0.28.1", default-features = false }
 ratatui = { version = "0.29.0", features = [
     "crossterm",
 ], default-features = false }
 color-eyre = "0.6.3"
-unicode-width = { version = "0.2", default-features = false }
 tokio = "1.47.0"
 d7s_auth.workspace = true
