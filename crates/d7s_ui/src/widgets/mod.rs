@@ -32,3 +32,4 @@ pub fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<u16> {
     }
     result
 }
+
