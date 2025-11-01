@@ -229,6 +229,12 @@ impl App<'_> {
         {
             frame.render_widget(confirmation_modal.clone(), frame.area());
         }
+
+        if let Some(cell_value_modal) =
+            self.modal_manager.get_cell_value_modal()
+        {
+            frame.render_widget(cell_value_modal.clone(), frame.area());
+        }
     }
 
     /// Reads the crossterm events and updates the state of [`App`].
@@ -510,6 +516,7 @@ impl App<'_> {
             (_, KeyCode::Char('j') | KeyCode::Down) => {
                 if self.state == AppState::ConnectionList {
                     self.table_widget.table_state.select_next();
+                    Self::clamp_data_table_selection(&mut self.table_widget);
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Down);
                 }
@@ -517,6 +524,7 @@ impl App<'_> {
             (_, KeyCode::Char('k') | KeyCode::Up) => {
                 if self.state == AppState::ConnectionList {
                     self.table_widget.table_state.select_previous();
+                    Self::clamp_data_table_selection(&mut self.table_widget);
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Up);
                 }
@@ -557,6 +565,7 @@ impl App<'_> {
             (_, KeyCode::Char('g')) => {
                 if self.state == AppState::ConnectionList {
                     self.table_widget.table_state.select(Some(1)); // First data row
+                    Self::clamp_data_table_selection(&mut self.table_widget);
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Char('g'));
                 }
@@ -567,7 +576,7 @@ impl App<'_> {
                 {
                     self.table_widget
                         .table_state
-                        .select(Some(self.table_widget.items.len()));
+                        .select(Some(self.table_widget.items.len() - 1));
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Char('G'));
                 }
@@ -844,7 +853,39 @@ impl App<'_> {
                 self.load_table_data(&schema_name, &table_name).await?;
             }
             Some(DatabaseExplorerState::TableData(schema_name, table_name)) => {
-                // Toggle back to columns view
+                // Show cell value in dialog if a cell is selected
+                if let Some(table_data) = &self.table_data {
+                    if let Some(selected_row) =
+                        table_data.table_state.selected()
+                    {
+                        if selected_row < table_data.items.len() {
+                            let selected_col = table_data
+                                .table_state
+                                .selected_column()
+                                .unwrap_or(0);
+
+                            if selected_col < table_data.column_names.len()
+                                && selected_col
+                                    < table_data.items[selected_row].len()
+                            {
+                                let column_name = table_data.column_names
+                                    [selected_col]
+                                    .clone();
+                                let cell_value = table_data.items[selected_row]
+                                    [selected_col]
+                                    .clone();
+
+                                self.modal_manager.open_cell_value_modal(
+                                    column_name,
+                                    cell_value,
+                                );
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+
+                // If no cell selected or invalid, toggle back to columns view
                 self.explorer_state = Some(DatabaseExplorerState::Columns(
                     schema_name.clone(),
                     table_name.clone(),
@@ -959,9 +1000,11 @@ impl App<'_> {
             match key {
                 KeyCode::Char('j') | KeyCode::Down => {
                     table_data.table_state.select_next();
+                    Self::clamp_table_data_selection(table_data);
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
                     table_data.table_state.select_previous();
+                    Self::clamp_table_data_selection(table_data);
                 }
                 KeyCode::Char('h' | 'b') | KeyCode::Left => {
                     table_data.table_state.select_previous_column();
@@ -971,15 +1014,30 @@ impl App<'_> {
                 }
                 KeyCode::Char('g') => {
                     table_data.table_state.select(Some(1));
+                    Self::clamp_table_data_selection(table_data);
                 }
                 KeyCode::Char('G') => {
                     if !table_data.items.is_empty() {
                         table_data
                             .table_state
-                            .select(Some(table_data.items.len()));
+                            .select(Some(table_data.items.len() - 1));
                     }
                 }
                 _ => {}
+            }
+        }
+    }
+
+    fn clamp_table_data_selection(table_data: &mut TableDataWidget) {
+        if let Some(selected) = table_data.table_state.selected() {
+            if selected >= table_data.items.len() {
+                if table_data.items.is_empty() {
+                    table_data.table_state.select(None);
+                } else {
+                    table_data
+                        .table_state
+                        .select(Some(table_data.items.len() - 1));
+                }
             }
         }
     }
@@ -989,9 +1047,11 @@ impl App<'_> {
             match key {
                 KeyCode::Char('j') | KeyCode::Down => {
                     column_table.table_state.select_next();
+                    Self::clamp_data_table_selection(column_table);
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
                     column_table.table_state.select_previous();
+                    Self::clamp_data_table_selection(column_table);
                 }
                 KeyCode::Char('h' | 'b') | KeyCode::Left => {
                     column_table.table_state.select_previous_column();
@@ -1001,15 +1061,30 @@ impl App<'_> {
                 }
                 KeyCode::Char('g') => {
                     column_table.table_state.select(Some(1));
+                    Self::clamp_data_table_selection(column_table);
                 }
                 KeyCode::Char('G') => {
                     if !column_table.items.is_empty() {
                         column_table
                             .table_state
-                            .select(Some(column_table.items.len()));
+                            .select(Some(column_table.items.len() - 1));
                     }
                 }
                 _ => {}
+            }
+        }
+    }
+
+    fn clamp_data_table_selection<T: d7s_db::TableData + Clone>(
+        table: &mut DataTable<T>,
+    ) {
+        if let Some(selected) = table.table_state.selected() {
+            if selected >= table.items.len() {
+                if table.items.is_empty() {
+                    table.table_state.select(None);
+                } else {
+                    table.table_state.select(Some(table.items.len() - 1));
+                }
             }
         }
     }
@@ -1019,9 +1094,11 @@ impl App<'_> {
             match key {
                 KeyCode::Char('j') | KeyCode::Down => {
                     table_table.table_state.select_next();
+                    Self::clamp_data_table_selection(table_table);
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
                     table_table.table_state.select_previous();
+                    Self::clamp_data_table_selection(table_table);
                 }
                 KeyCode::Char('h' | 'b') | KeyCode::Left => {
                     table_table.table_state.select_previous_column();
@@ -1031,12 +1108,13 @@ impl App<'_> {
                 }
                 KeyCode::Char('g') => {
                     table_table.table_state.select(Some(1));
+                    Self::clamp_data_table_selection(table_table);
                 }
                 KeyCode::Char('G') => {
                     if !table_table.items.is_empty() {
                         table_table
                             .table_state
-                            .select(Some(table_table.items.len()));
+                            .select(Some(table_table.items.len() - 1));
                     }
                 }
                 _ => {}
@@ -1049,9 +1127,11 @@ impl App<'_> {
             match key {
                 KeyCode::Char('j') | KeyCode::Down => {
                     schema_table.table_state.select_next();
+                    Self::clamp_data_table_selection(schema_table);
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
                     schema_table.table_state.select_previous();
+                    Self::clamp_data_table_selection(schema_table);
                 }
                 KeyCode::Char('h' | 'b') | KeyCode::Left => {
                     schema_table.table_state.select_previous_column();
@@ -1061,12 +1141,13 @@ impl App<'_> {
                 }
                 KeyCode::Char('g') => {
                     schema_table.table_state.select(Some(1));
+                    Self::clamp_data_table_selection(schema_table);
                 }
                 KeyCode::Char('G') => {
                     if !schema_table.items.is_empty() {
                         schema_table
                             .table_state
-                            .select(Some(schema_table.items.len()));
+                            .select(Some(schema_table.items.len() - 1));
                     }
                 }
                 _ => {}
@@ -1097,9 +1178,11 @@ impl App<'_> {
             match key {
                 KeyCode::Char('j') | KeyCode::Down => {
                     table_widget.table_state.select_next();
+                    Self::clamp_table_data_selection(table_widget);
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
                     table_widget.table_state.select_previous();
+                    Self::clamp_table_data_selection(table_widget);
                 }
                 KeyCode::Char('h' | 'b') | KeyCode::Left => {
                     table_widget.table_state.select_previous_column();
@@ -1109,12 +1192,13 @@ impl App<'_> {
                 }
                 KeyCode::Char('g') => {
                     table_widget.table_state.select(Some(1));
+                    Self::clamp_table_data_selection(table_widget);
                 }
                 KeyCode::Char('G') => {
                     if !table_widget.items.is_empty() {
                         table_widget
                             .table_state
-                            .select(Some(table_widget.items.len()));
+                            .select(Some(table_widget.items.len() - 1));
                     }
                 }
                 _ => {}
@@ -1160,30 +1244,35 @@ impl App<'_> {
             AppState::ConnectionList => {
                 let filtered_items = self.table_widget.filter(query);
                 self.table_widget.items = filtered_items;
+                Self::clamp_data_table_selection(&mut self.table_widget);
             }
             AppState::DatabaseConnected => match &self.explorer_state {
                 Some(DatabaseExplorerState::Schemas) => {
                     if let Some(schema_table) = &mut self.schema_table {
                         let filtered_items = schema_table.filter(query);
                         schema_table.items = filtered_items;
+                        Self::clamp_data_table_selection(schema_table);
                     }
                 }
                 Some(DatabaseExplorerState::Tables(_)) => {
                     if let Some(table_table) = &mut self.table_table {
                         let filtered_items = table_table.filter(query);
                         table_table.items = filtered_items;
+                        Self::clamp_data_table_selection(table_table);
                     }
                 }
                 Some(DatabaseExplorerState::Columns(_, _)) => {
                     if let Some(column_table) = &mut self.column_table {
                         let filtered_items = column_table.filter(query);
                         column_table.items = filtered_items;
+                        Self::clamp_data_table_selection(column_table);
                     }
                 }
                 Some(DatabaseExplorerState::TableData(_, _)) => {
                     if let Some(table_data) = &mut self.table_data {
                         let filtered_items = table_data.filter(query);
                         table_data.items = filtered_items;
+                        Self::clamp_table_data_selection(table_data);
                     }
                 }
                 Some(DatabaseExplorerState::SqlExecutor) | None => {
@@ -1198,26 +1287,31 @@ impl App<'_> {
         match self.state {
             AppState::ConnectionList => {
                 self.table_widget.items = self.original_connections.clone();
+                Self::clamp_data_table_selection(&mut self.table_widget);
             }
             AppState::DatabaseConnected => match &self.explorer_state {
                 Some(DatabaseExplorerState::Schemas) => {
                     if let Some(schema_table) = &mut self.schema_table {
                         schema_table.items.clone_from(&self.original_schemas);
+                        Self::clamp_data_table_selection(schema_table);
                     }
                 }
                 Some(DatabaseExplorerState::Tables(_)) => {
                     if let Some(table_table) = &mut self.table_table {
                         table_table.items.clone_from(&self.original_tables);
+                        Self::clamp_data_table_selection(table_table);
                     }
                 }
                 Some(DatabaseExplorerState::Columns(_, _)) => {
                     if let Some(column_table) = &mut self.column_table {
                         column_table.items.clone_from(&self.original_columns);
+                        Self::clamp_data_table_selection(column_table);
                     }
                 }
                 Some(DatabaseExplorerState::TableData(_, _)) => {
                     if let Some(table_data) = &mut self.table_data {
                         table_data.items.clone_from(&self.original_table_data);
+                        Self::clamp_table_data_selection(table_data);
                     }
                 }
                 Some(DatabaseExplorerState::SqlExecutor) | None => {
