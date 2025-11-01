@@ -6,13 +6,20 @@ use d7s_auth::Keyring;
 use d7s_db::{
     Column, Database, Schema, Table, connection::Connection, postgres::Postgres,
 };
-use d7s_ui::widgets::{
-    hotkey::Hotkey,
-    modal::{ModalAction, ModalManager},
-    search_filter::SearchFilter,
-    sql_executor::SqlExecutor,
-    table::{DataTable, TableDataWidget},
-    top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS, TopBarView},
+use d7s_ui::{
+    handlers::{
+        handle_connection_list_navigation, handle_search_filter_input,
+        handle_sql_executor_input, test_connection, handle_save_connection,
+        TableNavigationHandler,
+    },
+    widgets::{
+        hotkey::Hotkey,
+        modal::{ModalAction, ModalManager},
+        search_filter::SearchFilter,
+        sql_executor::SqlExecutor,
+        table::{DataTable, TableDataWidget},
+        top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS, TopBarView},
+    },
 };
 use ratatui::{
     DefaultTerminal, Frame,
@@ -254,52 +261,29 @@ impl App<'_> {
     }
 
     /// Handles the key events and updates the state of [`App`].
-    #[allow(clippy::too_many_lines)]
     async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Handle search filter input first
         if self.search_filter.is_active {
-            match (key.modifiers, key.code) {
-                (_, KeyCode::Esc) => {
-                    self.search_filter.deactivate();
+            let mut should_clear = false;
+            let mut should_apply = false;
+            let filter_handled = handle_search_filter_input(
+                key,
+                &mut self.search_filter,
+                &mut || {
+                    if key.code == KeyCode::Esc {
+                        should_clear = true;
+                    } else {
+                        should_apply = true;
+                    }
+                },
+            );
+            if filter_handled {
+                if should_clear {
                     self.clear_filter();
-                    return Ok(());
-                }
-                (_, KeyCode::Enter) => {
-                    self.search_filter.deactivate();
-                    return Ok(());
-                }
-                (_, KeyCode::Char(ch)) if !ch.is_control() => {
-                    self.search_filter.add_char(ch);
+                } else if should_apply {
                     self.apply_filter();
-                    return Ok(());
                 }
-                (_, KeyCode::Backspace) => {
-                    self.search_filter.delete_char();
-                    self.apply_filter();
-                    return Ok(());
-                }
-                (_, KeyCode::Left) => {
-                    self.search_filter.move_cursor_left();
-                    return Ok(());
-                }
-                (_, KeyCode::Right) => {
-                    self.search_filter.move_cursor_right();
-                    return Ok(());
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
-                    self.search_filter.move_cursor_to_start();
-                    return Ok(());
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
-                    self.search_filter.move_cursor_to_end();
-                    return Ok(());
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
-                    self.search_filter.clear();
-                    self.apply_filter();
-                    return Ok(());
-                }
-                _ => {}
+                return Ok(());
             }
         }
 
@@ -308,203 +292,14 @@ impl App<'_> {
             &self.explorer_state,
             Some(DatabaseExplorerState::SqlExecutor)
         ) {
-            match (key.modifiers, key.code) {
-                (_, KeyCode::Char(ch)) if !ch.is_control() => {
-                    self.sql_executor.add_char(ch);
-                    return Ok(());
-                }
-                (_, KeyCode::Backspace) => {
-                    self.sql_executor.delete_char();
-                    return Ok(());
-                }
-                (_, KeyCode::Left) => {
-                    self.sql_executor.move_cursor_left();
-                    return Ok(());
-                }
-                (_, KeyCode::Right) => {
-                    self.sql_executor.move_cursor_right();
-                    return Ok(());
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
-                    self.sql_executor.move_cursor_to_start();
-                    return Ok(());
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
-                    self.sql_executor.move_cursor_to_end();
-                    return Ok(());
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
-                    self.sql_executor.clear();
-                    return Ok(());
-                }
-                _ => {}
+            if handle_sql_executor_input(key, &mut self.sql_executor) {
+                return Ok(());
             }
         }
 
         // Handle modal events first
         if self.modal_manager.is_any_modal_open() {
-            // Handle modal events (UI only)
-            let action = self.modal_manager.handle_key_events_ui(key);
-
-            // Handle business logic based on modal actions
-            match action {
-                ModalAction::Save => {
-                    // Handle save action for connection modal
-                    if let Some(modal) = self.modal_manager.get_connection_modal_mut() {
-                        if let Some(connection) = modal.get_connection() {
-                            match modal.mode {
-                                d7s_ui::widgets::modal::Mode::New => {
-                                    // For new connections, create a keyring with the user from the form
-                                    if let Some(password) = &connection.password {
-                                        let keyring_result = if let Some(keyring) = &self.keyring {
-                                            keyring.set_password(password)
-                                        } else {
-                                            // Create a new keyring with the user from the form
-                                            match Keyring::new(&connection.user) {
-                                                Ok(new_keyring) => {
-                                                    let result = new_keyring.set_password(password);
-                                                    self.keyring = Some(new_keyring);
-                                                    result
-                                                }
-                                                Err(e) => {
-                                                    modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
-                                                        format!("Failed to create keyring: {e}")
-                                                    );
-                                                    return Ok(());
-                                                }
-                                            }
-                                        };
-
-                                        // Handle keyring errors gracefully
-                                        if let Err(e) = keyring_result {
-                                            let error_msg = e.to_string();
-                                            // Check if it's a locked collection error
-                                            if error_msg.contains("locked collection") {
-                                                modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
-                                                    "Keyring is locked. Please unlock your keyring first.\n\n\
-                                                    On Linux, you can unlock it using:\n\
-                                                    - seahorse (GUI: search for 'Passwords and Keys')\n\
-                                                    - Or unlock it when prompted by your desktop environment\n\n\
-                                                    Alternatively, you can save the connection without storing the password in the keyring.".to_string()
-                                                );
-                                                return Ok(());
-                                            }
-                                            // For other keyring errors, still fail but with a clearer message
-                                            modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
-                                                format!("Failed to store password in keyring: {}\n\n\
-                                                Hint: If your keyring is locked, unlock it first using your system's keyring manager.", error_msg)
-                                            );
-                                            return Ok(());
-                                        }
-                                    }
-
-                                    if let Err(e) = d7s_db::sqlite::save_connection(&connection) {
-                                        modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
-                                            format!("Failed to save connection: {e}")
-                                        );
-                                        return Ok(());
-                                    }
-                                }
-                                d7s_ui::widgets::modal::Mode::Edit => {
-                                    if let Some(password) = &connection.password {
-                                        if let Some(keyring) = &self.keyring {
-                                            let keyring_result = keyring.set_password(password);
-                                            // Handle keyring errors gracefully
-                                            if let Err(e) = keyring_result {
-                                                let error_msg = e.to_string();
-                                                // Check if it's a locked collection error
-                                                if error_msg.contains("locked collection") {
-                                                    modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
-                                                        "Keyring is locked. Please unlock your keyring first.\n\n\
-                                                        On Linux, you can unlock it using:\n\
-                                                        - seahorse (GUI: search for 'Passwords and Keys')\n\
-                                                        - Or unlock it when prompted by your desktop environment".to_string()
-                                                    );
-                                                    return Ok(());
-                                                }
-                                                // For other keyring errors, still fail but with a clearer message
-                                                modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
-                                                    format!("Failed to update password in keyring: {}\n\n\
-                                                    Hint: If your keyring is locked, unlock it first using your system's keyring manager.", error_msg)
-                                                );
-                                                return Ok(());
-                                            }
-                                        } else {
-                                            modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
-                                                "Keyring required for edit mode".to_string()
-                                            );
-                                            return Ok(());
-                                        }
-                                    }
-
-                                    // Use the stored original name for updating
-                                    if let Some(original_name) = &modal.original_name {
-                                        if let Err(e) = d7s_db::sqlite::update_connection(original_name, &connection) {
-                                            modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
-                                                format!("Failed to update connection: {e}")
-                                            );
-                                            return Ok(());
-                                        }
-                                    }
-                                }
-                            }
-
-                            modal.close();
-                            self.refresh_connections();
-                        }
-                    }
-                }
-                ModalAction::Test => {
-                    // Handle test action
-                    if let Some(modal) = self.modal_manager.get_connection_modal_mut() {
-                        if let Some(connection) = modal.get_connection() {
-                            let postgres = connection.to_postgres();
-                            modal.test_result = d7s_ui::widgets::modal::TestResult::Testing;
-
-                            // Test the connection
-                            let result = postgres.test().await;
-                            modal.test_result = if result {
-                                d7s_ui::widgets::modal::TestResult::Success
-                            } else {
-                                d7s_ui::widgets::modal::TestResult::Failed("Connection failed".to_string())
-                            };
-                        } else {
-                            modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
-                                "Please fill in all fields".to_string()
-                            );
-                        }
-                    }
-                }
-                ModalAction::Cancel => {
-                    // Modal was canceled, refresh connections if needed
-                    if self.modal_manager.was_connection_modal_closed() {
-                        self.refresh_connections();
-                    }
-                }
-                ModalAction::None => {}
-            }
-
-            // Handle confirmation modal results
-            if let Some(connection) = self.modal_manager.was_confirmation_modal_confirmed() {
-                // Delete the keyring credential using the user
-                if let Some(keyring) = &self.keyring {
-                    let _ = keyring.delete_password();
-                } else {
-                    eprintln!("No keyring found");
-                }
-
-                // Delete from database
-                if let Err(e) = d7s_db::sqlite::delete_connection(&connection.name) {
-                    eprintln!("Failed to delete connection: {e}");
-                } else {
-                    self.refresh_connections();
-                }
-            }
-
-            // Clean up closed modals
-            self.modal_manager.cleanup_closed_modals();
-
-            return Ok(());
+            return self.handle_modal_events(key).await;
         }
 
         match (key.modifiers, key.code) {
@@ -649,30 +444,28 @@ impl App<'_> {
             // Vim keybindings for table navigation
             (_, KeyCode::Char('j') | KeyCode::Down) => {
                 if self.state == AppState::ConnectionList {
-                    self.table_widget.table_state.select_next();
-                    Self::clamp_data_table_selection(&mut self.table_widget);
+                    handle_connection_list_navigation(KeyCode::Down, &mut self.table_widget);
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Down);
                 }
             }
             (_, KeyCode::Char('k') | KeyCode::Up) => {
                 if self.state == AppState::ConnectionList {
-                    self.table_widget.table_state.select_previous();
-                    Self::clamp_data_table_selection(&mut self.table_widget);
+                    handle_connection_list_navigation(KeyCode::Up, &mut self.table_widget);
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Up);
                 }
             }
             (_, KeyCode::Char('h' | 'b') | KeyCode::Left) => {
                 if self.state == AppState::ConnectionList {
-                    self.table_widget.table_state.select_previous_column();
+                    handle_connection_list_navigation(KeyCode::Left, &mut self.table_widget);
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Left);
                 }
             }
             (_, KeyCode::Char('l' | 'w') | KeyCode::Right) => {
                 if self.state == AppState::ConnectionList {
-                    self.table_widget.table_state.select_next_column();
+                    handle_connection_list_navigation(KeyCode::Right, &mut self.table_widget);
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Right);
                 }
@@ -680,37 +473,24 @@ impl App<'_> {
             // Jump to edges
             (_, KeyCode::Char('0')) => {
                 if self.state == AppState::ConnectionList {
-                    self.table_widget.table_state.select_column(Some(0));
+                    handle_connection_list_navigation(KeyCode::Char('0'), &mut self.table_widget);
                 }
             }
             (_, KeyCode::Char('$')) => {
-                if self.state == AppState::ConnectionList
-                    && let Some(num_cols) = self
-                        .table_widget
-                        .items
-                        .first()
-                        .map(d7s_db::TableData::num_columns)
-                {
-                    self.table_widget
-                        .table_state
-                        .select_column(Some(num_cols.saturating_sub(1)));
+                if self.state == AppState::ConnectionList {
+                    handle_connection_list_navigation(KeyCode::Char('$'), &mut self.table_widget);
                 }
             }
             (_, KeyCode::Char('g')) => {
                 if self.state == AppState::ConnectionList {
-                    self.table_widget.table_state.select(Some(1)); // First data row
-                    Self::clamp_data_table_selection(&mut self.table_widget);
+                    handle_connection_list_navigation(KeyCode::Char('g'), &mut self.table_widget);
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Char('g'));
                 }
             }
             (_, KeyCode::Char('G')) => {
-                if self.state == AppState::ConnectionList
-                    && !self.table_widget.items.is_empty()
-                {
-                    self.table_widget
-                        .table_state
-                        .select(Some(self.table_widget.items.len() - 1));
+                if self.state == AppState::ConnectionList {
+                    handle_connection_list_navigation(KeyCode::Char('G'), &mut self.table_widget);
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Char('G'));
                 }
@@ -1120,224 +900,100 @@ impl App<'_> {
                 // If we have results, handle table navigation
                 if self.sql_executor.table_widget.is_some() {
                     self.handle_sql_results_navigation(key);
-                } else {
-                    // Otherwise handle SQL input navigation
-                    self.handle_sql_executor_navigation(key);
                 }
             }
             None => {}
         }
     }
 
-    fn handle_table_data_navigation(&mut self, key: KeyCode) {
-        if let Some(table_data) = &mut self.table_data {
-            match key {
-                KeyCode::Char('j') | KeyCode::Down => {
-                    table_data.table_state.select_next();
-                    Self::clamp_table_data_selection(table_data);
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    table_data.table_state.select_previous();
-                    Self::clamp_table_data_selection(table_data);
-                }
-                KeyCode::Char('h' | 'b') | KeyCode::Left => {
-                    table_data.table_state.select_previous_column();
-                }
-                KeyCode::Char('l' | 'w') | KeyCode::Right => {
-                    table_data.table_state.select_next_column();
-                }
-                KeyCode::Char('g') => {
-                    table_data.table_state.select(Some(1));
-                    Self::clamp_table_data_selection(table_data);
-                }
-                KeyCode::Char('G') => {
-                    if !table_data.items.is_empty() {
-                        table_data
-                            .table_state
-                            .select(Some(table_data.items.len() - 1));
+    /// Handle modal events
+    async fn handle_modal_events(&mut self, key: KeyEvent) -> Result<()> {
+        // Handle modal events (UI only)
+        let action = self.modal_manager.handle_key_events_ui(key);
+
+        // Handle business logic based on modal actions
+        match action {
+            ModalAction::Save => {
+                if let Some(modal) = self.modal_manager.get_connection_modal_mut() {
+                    if let Some(connection) = modal.get_connection() {
+                        let original_name = modal.original_name.clone();
+                        let mode = modal.mode.clone();
+                        match handle_save_connection(
+                            &mut self.keyring,
+                            connection.clone(),
+                            mode,
+                            original_name,
+                        ) {
+                            Ok(()) => {
+                                modal.close();
+                                self.refresh_connections();
+                            }
+                            Err(error_msg) => {
+                                modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(error_msg);
+                            }
+                        }
                     }
                 }
-                _ => {}
             }
-        }
-    }
-
-    fn clamp_table_data_selection(table_data: &mut TableDataWidget) {
-        if let Some(selected) = table_data.table_state.selected() {
-            if selected >= table_data.items.len() {
-                if table_data.items.is_empty() {
-                    table_data.table_state.select(None);
-                } else {
-                    table_data
-                        .table_state
-                        .select(Some(table_data.items.len() - 1));
+            ModalAction::Test => {
+                if let Some(modal) = self.modal_manager.get_connection_modal_mut() {
+                    if let Some(connection) = modal.get_connection() {
+                        modal.test_result = d7s_ui::widgets::modal::TestResult::Testing;
+                        modal.test_result = test_connection(&connection).await;
+                    } else {
+                        modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
+                            "Please fill in all fields".to_string()
+                        );
+                    }
                 }
             }
+            ModalAction::Cancel => {
+                if self.modal_manager.was_connection_modal_closed() {
+                    self.refresh_connections();
+                }
+            }
+            ModalAction::None => {}
         }
+
+        // Handle confirmation modal results
+        if let Some(connection) = self.modal_manager.was_confirmation_modal_confirmed() {
+            if let Some(keyring) = &self.keyring {
+                let _ = keyring.delete_password();
+            } else {
+                eprintln!("No keyring found");
+            }
+
+            if let Err(e) = d7s_db::sqlite::delete_connection(&connection.name) {
+                eprintln!("Failed to delete connection: {e}");
+            } else {
+                self.refresh_connections();
+            }
+        }
+
+        // Clean up closed modals
+        self.modal_manager.cleanup_closed_modals();
+
+        Ok(())
+    }
+
+    fn handle_table_data_navigation(&mut self, key: KeyCode) {
+        TableNavigationHandler::handle_table_data_navigation(&mut self.table_data, key);
     }
 
     fn handle_column_table_navigation(&mut self, key: KeyCode) {
-        if let Some(column_table) = &mut self.column_table {
-            match key {
-                KeyCode::Char('j') | KeyCode::Down => {
-                    column_table.table_state.select_next();
-                    Self::clamp_data_table_selection(column_table);
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    column_table.table_state.select_previous();
-                    Self::clamp_data_table_selection(column_table);
-                }
-                KeyCode::Char('h' | 'b') | KeyCode::Left => {
-                    column_table.table_state.select_previous_column();
-                }
-                KeyCode::Char('l' | 'w') | KeyCode::Right => {
-                    column_table.table_state.select_next_column();
-                }
-                KeyCode::Char('g') => {
-                    column_table.table_state.select(Some(1));
-                    Self::clamp_data_table_selection(column_table);
-                }
-                KeyCode::Char('G') => {
-                    if !column_table.items.is_empty() {
-                        column_table
-                            .table_state
-                            .select(Some(column_table.items.len() - 1));
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn clamp_data_table_selection<T: d7s_db::TableData + Clone>(
-        table: &mut DataTable<T>,
-    ) {
-        if let Some(selected) = table.table_state.selected() {
-            if selected >= table.items.len() {
-                if table.items.is_empty() {
-                    table.table_state.select(None);
-                } else {
-                    table.table_state.select(Some(table.items.len() - 1));
-                }
-            }
-        }
+        TableNavigationHandler::handle_column_table_navigation(&mut self.column_table, key);
     }
 
     fn handle_table_table_navigation(&mut self, key: KeyCode) {
-        if let Some(table_table) = &mut self.table_table {
-            match key {
-                KeyCode::Char('j') | KeyCode::Down => {
-                    table_table.table_state.select_next();
-                    Self::clamp_data_table_selection(table_table);
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    table_table.table_state.select_previous();
-                    Self::clamp_data_table_selection(table_table);
-                }
-                KeyCode::Char('h' | 'b') | KeyCode::Left => {
-                    table_table.table_state.select_previous_column();
-                }
-                KeyCode::Char('l' | 'w') | KeyCode::Right => {
-                    table_table.table_state.select_next_column();
-                }
-                KeyCode::Char('g') => {
-                    table_table.table_state.select(Some(1));
-                    Self::clamp_data_table_selection(table_table);
-                }
-                KeyCode::Char('G') => {
-                    if !table_table.items.is_empty() {
-                        table_table
-                            .table_state
-                            .select(Some(table_table.items.len() - 1));
-                    }
-                }
-                _ => {}
-            }
-        }
+        TableNavigationHandler::handle_table_table_navigation(&mut self.table_table, key);
     }
 
     fn handle_schema_table_navigation(&mut self, key: KeyCode) {
-        if let Some(schema_table) = &mut self.schema_table {
-            match key {
-                KeyCode::Char('j') | KeyCode::Down => {
-                    schema_table.table_state.select_next();
-                    Self::clamp_data_table_selection(schema_table);
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    schema_table.table_state.select_previous();
-                    Self::clamp_data_table_selection(schema_table);
-                }
-                KeyCode::Char('h' | 'b') | KeyCode::Left => {
-                    schema_table.table_state.select_previous_column();
-                }
-                KeyCode::Char('l' | 'w') | KeyCode::Right => {
-                    schema_table.table_state.select_next_column();
-                }
-                KeyCode::Char('g') => {
-                    schema_table.table_state.select(Some(1));
-                    Self::clamp_data_table_selection(schema_table);
-                }
-                KeyCode::Char('G') => {
-                    if !schema_table.items.is_empty() {
-                        schema_table
-                            .table_state
-                            .select(Some(schema_table.items.len() - 1));
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn handle_sql_executor_navigation(&mut self, key: KeyCode) {
-        match key {
-            KeyCode::Char(ch) if !ch.is_control() => {
-                self.sql_executor.add_char(ch);
-            }
-            KeyCode::Backspace => {
-                self.sql_executor.delete_char();
-            }
-            KeyCode::Left => {
-                self.sql_executor.move_cursor_left();
-            }
-            KeyCode::Right => {
-                self.sql_executor.move_cursor_right();
-            }
-            _ => {}
-        }
+        TableNavigationHandler::handle_schema_table_navigation(&mut self.schema_table, key);
     }
 
     fn handle_sql_results_navigation(&mut self, key: KeyCode) {
-        if let Some(table_widget) = &mut self.sql_executor.table_widget {
-            match key {
-                KeyCode::Char('j') | KeyCode::Down => {
-                    table_widget.table_state.select_next();
-                    Self::clamp_table_data_selection(table_widget);
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    table_widget.table_state.select_previous();
-                    Self::clamp_table_data_selection(table_widget);
-                }
-                KeyCode::Char('h' | 'b') | KeyCode::Left => {
-                    table_widget.table_state.select_previous_column();
-                }
-                KeyCode::Char('l' | 'w') | KeyCode::Right => {
-                    table_widget.table_state.select_next_column();
-                }
-                KeyCode::Char('g') => {
-                    table_widget.table_state.select(Some(1));
-                    Self::clamp_table_data_selection(table_widget);
-                }
-                KeyCode::Char('G') => {
-                    if !table_widget.items.is_empty() {
-                        table_widget
-                            .table_state
-                            .select(Some(table_widget.items.len() - 1));
-                    }
-                }
-                _ => {}
-            }
-        }
+        TableNavigationHandler::handle_sql_results_navigation(&mut self.sql_executor, key);
     }
 
     /// Load table data for a table
@@ -1376,42 +1032,42 @@ impl App<'_> {
 
         match self.state {
             AppState::ConnectionList => {
-                let filtered_items = self.table_widget.filter(query);
+                let filtered_items = self.table_widget.filter(&query);
                 self.table_widget.items = filtered_items;
-                Self::clamp_data_table_selection(&mut self.table_widget);
+                TableNavigationHandler::clamp_data_table_selection(&mut self.table_widget);
             }
             AppState::DatabaseConnected => match &self.explorer_state {
                 Some(DatabaseExplorerState::Schemas) => {
                     if let Some(schema_table) = &mut self.schema_table {
-                        let filtered_items = schema_table.filter(query);
+                        let filtered_items = schema_table.filter(&query);
                         schema_table.items = filtered_items;
-                        Self::clamp_data_table_selection(schema_table);
+                        TableNavigationHandler::clamp_data_table_selection(schema_table);
                     }
                 }
                 Some(DatabaseExplorerState::Tables(_)) => {
                     if let Some(table_table) = &mut self.table_table {
-                        let filtered_items = table_table.filter(query);
+                        let filtered_items = table_table.filter(&query);
                         table_table.items = filtered_items;
-                        Self::clamp_data_table_selection(table_table);
+                        TableNavigationHandler::clamp_data_table_selection(table_table);
                     }
                 }
                 Some(DatabaseExplorerState::Columns(_, _)) => {
                     if let Some(column_table) = &mut self.column_table {
-                        let filtered_items = column_table.filter(query);
+                        let filtered_items = column_table.filter(&query);
                         column_table.items = filtered_items;
-                        Self::clamp_data_table_selection(column_table);
+                        TableNavigationHandler::clamp_data_table_selection(column_table);
                     }
                 }
                 Some(DatabaseExplorerState::TableData(_, _)) => {
                     if let Some(table_data) = &mut self.table_data {
-                        let filtered_items = table_data.filter(query);
+                        let filtered_items = table_data.filter(&query);
                         table_data.items = filtered_items;
-                        Self::clamp_table_data_selection(table_data);
+                        TableNavigationHandler::clamp_table_data_selection(table_data);
                     }
                 }
                 Some(DatabaseExplorerState::SqlExecutor) | None => {
                     // No filtering for SQL executor
-                } // None => {}
+                }
             },
         }
     }
@@ -1421,36 +1077,36 @@ impl App<'_> {
         match self.state {
             AppState::ConnectionList => {
                 self.table_widget.items = self.original_connections.clone();
-                Self::clamp_data_table_selection(&mut self.table_widget);
+                TableNavigationHandler::clamp_data_table_selection(&mut self.table_widget);
             }
             AppState::DatabaseConnected => match &self.explorer_state {
                 Some(DatabaseExplorerState::Schemas) => {
                     if let Some(schema_table) = &mut self.schema_table {
                         schema_table.items.clone_from(&self.original_schemas);
-                        Self::clamp_data_table_selection(schema_table);
+                        TableNavigationHandler::clamp_data_table_selection(schema_table);
                     }
                 }
                 Some(DatabaseExplorerState::Tables(_)) => {
                     if let Some(table_table) = &mut self.table_table {
                         table_table.items.clone_from(&self.original_tables);
-                        Self::clamp_data_table_selection(table_table);
+                        TableNavigationHandler::clamp_data_table_selection(table_table);
                     }
                 }
                 Some(DatabaseExplorerState::Columns(_, _)) => {
                     if let Some(column_table) = &mut self.column_table {
                         column_table.items.clone_from(&self.original_columns);
-                        Self::clamp_data_table_selection(column_table);
+                        TableNavigationHandler::clamp_data_table_selection(column_table);
                     }
                 }
                 Some(DatabaseExplorerState::TableData(_, _)) => {
                     if let Some(table_data) = &mut self.table_data {
                         table_data.items.clone_from(&self.original_table_data);
-                        Self::clamp_table_data_selection(table_data);
+                        TableNavigationHandler::clamp_table_data_selection(table_data);
                     }
                 }
                 Some(DatabaseExplorerState::SqlExecutor) | None => {
                     // No filtering for SQL executor
-                } // None => {}
+                }
             },
         }
     }
