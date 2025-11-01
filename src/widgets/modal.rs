@@ -22,6 +22,7 @@ pub enum ModalType {
     #[default]
     Connection,
     Confirmation,
+    CellValue,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -81,6 +82,13 @@ pub struct ConfirmationModal {
     pub selected_button: usize,
     pub message: String,
     pub connection: Option<Connection>,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct CellValueModal {
+    pub is_open: bool,
+    pub column_name: String,
+    pub cell_value: String,
 }
 
 impl<T: TableData> Modal<T> {
@@ -352,13 +360,39 @@ impl<T: TableData> Modal<T> {
                             Mode::New => {
                                 // For new connections, create a keyring with the user from the form
                                 if let Some(password) = &connection.password {
-                                    if let Some(keyring) = keyring {
-                                        keyring.set_password(password)?;
-                                    } else {
-                                        // Create a new keyring with the user from the form
-                                        let new_keyring =
-                                            Keyring::new(&connection.user)?;
-                                        new_keyring.set_password(password)?;
+                                    let keyring_result =
+                                        if let Some(keyring) = keyring {
+                                            keyring.set_password(password)
+                                        } else {
+                                            // Create a new keyring with the user from the form
+                                            let new_keyring =
+                                                Keyring::new(&connection.user)?;
+                                            new_keyring.set_password(password)
+                                        };
+
+                                    // Handle keyring errors gracefully
+                                    if let Err(e) = keyring_result {
+                                        let error_msg = e.to_string();
+                                        // Check if it's a locked collection error
+                                        if error_msg
+                                            .contains("locked collection")
+                                        {
+                                            return Err(
+                                                color_eyre::eyre::eyre!(
+                                                    "Keyring is locked. Please unlock your keyring first.\n\n\
+                                                On Linux, you can unlock it using:\n\
+                                                - seahorse (GUI: search for 'Passwords and Keys')\n\
+                                                - Or unlock it when prompted by your desktop environment\n\n\
+                                                Alternatively, you can save the connection without storing the password in the keyring."
+                                                ),
+                                            );
+                                        }
+                                        // For other keyring errors, still fail but with a clearer message
+                                        return Err(color_eyre::eyre::eyre!(
+                                            "Failed to store password in keyring: {}\n\n\
+                                            Hint: If your keyring is locked, unlock it first using your system's keyring manager.",
+                                            error_msg
+                                        ));
                                     }
                                 }
 
@@ -368,7 +402,33 @@ impl<T: TableData> Modal<T> {
                             Mode::Edit => {
                                 if let Some(password) = &connection.password {
                                     if let Some(keyring) = keyring {
-                                        keyring.set_password(password)?;
+                                        let keyring_result =
+                                            keyring.set_password(password);
+                                        // Handle keyring errors gracefully
+                                        if let Err(e) = keyring_result {
+                                            let error_msg = e.to_string();
+                                            // Check if it's a locked collection error
+                                            if error_msg
+                                                .contains("locked collection")
+                                            {
+                                                return Err(
+                                                    color_eyre::eyre::eyre!(
+                                                        "Keyring is locked. Please unlock your keyring first.\n\n\
+                                                    On Linux, you can unlock it using:\n\
+                                                    - seahorse (GUI: search for 'Passwords and Keys')\n\
+                                                    - Or unlock it when prompted by your desktop environment"
+                                                    ),
+                                                );
+                                            }
+                                            // For other keyring errors, still fail but with a clearer message
+                                            return Err(
+                                                color_eyre::eyre::eyre!(
+                                                    "Failed to update password in keyring: {}\n\n\
+                                                Hint: If your keyring is locked, unlock it first using your system's keyring manager.",
+                                                    error_msg
+                                                ),
+                                            );
+                                        }
                                     } else {
                                         return Err(color_eyre::eyre::eyre!(
                                             "Keyring required for edit mode"
@@ -521,11 +581,106 @@ impl Widget for ConfirmationModal {
     }
 }
 
+impl CellValueModal {
+    pub fn new(column_name: String, cell_value: String) -> Self {
+        Self {
+            is_open: true,
+            column_name,
+            cell_value,
+        }
+    }
+
+    pub fn close(&mut self) {
+        self.is_open = false;
+    }
+
+    pub fn handle_key_events(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc | KeyCode::Enter) => {
+                self.close();
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Widget for CellValueModal {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if !self.is_open {
+            return;
+        }
+
+        // Calculate modal size based on content
+        let max_width = 80u16;
+        let value_width = self.cell_value.len().min((max_width - 4) as usize);
+        let modal_width =
+            ((value_width + 4).max(40).min(max_width as usize)) as u16;
+
+        // Calculate height: title + column name + value (with wrapping) + buttons
+        // Estimate lines needed: ceil(cell_value.len() / (modal_width - 4))
+        let content_width = (modal_width.saturating_sub(4)).max(1) as usize;
+        let value_lines = if self.cell_value.is_empty() {
+            1u16
+        } else {
+            ((self.cell_value.len() + content_width - 1) / content_width) as u16
+        };
+        let modal_height = (3u16.saturating_add(value_lines).saturating_add(1))
+            .min(area.height.saturating_sub(4))
+            .max(8);
+
+        let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
+        let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
+        let modal_area = Rect::new(x, y, modal_width, modal_height);
+
+        let block = Block::default()
+            .title(self.column_name)
+            .title_alignment(Alignment::Center)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .style(Style::default().bg(Color::Black));
+        Clear.render(modal_area, buf);
+        block.render(modal_area, buf);
+
+        // Layout inside the modal: Column name, Value, Button
+        let inner_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // Column name
+                Constraint::Min(3),    // Value (with wrapping)
+                Constraint::Length(1), // Button
+            ])
+            .margin(1)
+            .split(modal_area);
+
+        // Render column name
+        // let column_text = format!("Column: {}", self.column_name);
+        // Paragraph::new(column_text)
+        //     .style(Style::default().fg(Color::Yellow))
+        //     .alignment(Alignment::Left)
+        //     .render(inner_layout[0], buf);
+
+        // Render cell value with word wrapping
+        Paragraph::new(self.cell_value.clone())
+            .style(Style::default().fg(Color::White))
+            .alignment(Alignment::Left)
+            .wrap(ratatui::widgets::Wrap { trim: false })
+            .render(inner_layout[1], buf);
+
+        // Render button
+        let buttons = Buttons {
+            buttons: vec!["OK"],
+            selected: 0,
+        };
+        buttons.render(inner_layout[2], buf);
+    }
+}
+
 /// Manager for handling multiple modals in the application
 #[derive(Default, Debug)]
 pub struct ModalManager {
     connection_modal: Option<Modal<Connection>>,
     confirmation_modal: Option<ConfirmationModal>,
+    cell_value_modal: Option<CellValueModal>,
     active_modal_type: Option<ModalType>,
 }
 
@@ -536,6 +691,7 @@ impl ModalManager {
         Self {
             connection_modal: None,
             confirmation_modal: None,
+            cell_value_modal: None,
             active_modal_type: None,
         }
     }
@@ -544,6 +700,7 @@ impl ModalManager {
     pub fn is_any_modal_open(&self) -> bool {
         self.connection_modal.as_ref().is_some_and(|m| m.is_open)
             || self.confirmation_modal.as_ref().is_some_and(|m| m.is_open)
+            || self.cell_value_modal.as_ref().is_some_and(|m| m.is_open)
     }
 
     /// Open a new connection modal
@@ -583,8 +740,19 @@ impl ModalManager {
         self.active_modal_type = Some(ModalType::Confirmation);
     }
 
+    /// Open a cell value display modal
+    pub fn open_cell_value_modal(
+        &mut self,
+        column_name: String,
+        cell_value: String,
+    ) {
+        let modal = CellValueModal::new(column_name, cell_value);
+        self.cell_value_modal = Some(modal);
+        self.active_modal_type = Some(ModalType::CellValue);
+    }
+
     /// Close the currently active modal
-    pub const fn close_active_modal(&mut self) {
+    pub fn close_active_modal(&mut self) {
         match self.active_modal_type {
             Some(ModalType::Connection) => {
                 if let Some(modal) = &mut self.connection_modal {
@@ -593,6 +761,11 @@ impl ModalManager {
             }
             Some(ModalType::Confirmation) => {
                 if let Some(modal) = &mut self.confirmation_modal {
+                    modal.close();
+                }
+            }
+            Some(ModalType::CellValue) => {
+                if let Some(modal) = &mut self.cell_value_modal {
                     modal.close();
                 }
             }
@@ -670,6 +843,16 @@ impl ModalManager {
                     }
                 }
             }
+            Some(ModalType::CellValue) => {
+                if let Some(modal) = &mut self.cell_value_modal {
+                    modal.handle_key_events(key);
+
+                    // If modal was closed, clear the active type
+                    if !modal.is_open {
+                        self.active_modal_type = None;
+                    }
+                }
+            }
             None => {}
         }
         Ok(())
@@ -715,5 +898,16 @@ impl ModalManager {
         {
             self.confirmation_modal = None;
         }
+
+        if let Some(modal) = &self.cell_value_modal
+            && !modal.is_open
+        {
+            self.cell_value_modal = None;
+        }
+    }
+
+    /// Get a reference to the cell value modal
+    pub const fn get_cell_value_modal(&self) -> Option<&CellValueModal> {
+        self.cell_value_modal.as_ref()
     }
 }
