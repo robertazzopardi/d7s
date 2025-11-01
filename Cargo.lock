@@ -302,6 +302,7 @@ name = "d7s_ui"
 version = "0.1.0"
 dependencies = [
  "crossterm",
+ "d7s_auth",
  "d7s_db",
  "ratatui",
  "unicode-width 0.2.0",
