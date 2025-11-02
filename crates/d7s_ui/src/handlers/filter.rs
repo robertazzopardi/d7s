@@ -9,4 +9,3 @@ pub enum FilterState {
     Columns,
     TableData,
 }
-
