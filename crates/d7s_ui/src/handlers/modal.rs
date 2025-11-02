@@ -40,9 +40,8 @@ pub fn handle_save_connection(
                     );
                 }
                 return Err(format!(
-                    "Failed to store password in keyring: {}\n\n\
-                    Hint: If your keyring is locked, unlock it first using your system's keyring manager.",
-                    error_msg
+                    "Failed to store password in keyring: {error_msg}\n\n\
+                    Hint: If your keyring is locked, unlock it first using your system's keyring manager."
                 ));
             }
         }
@@ -64,9 +63,8 @@ pub fn handle_save_connection(
                         );
                     }
                     return Err(format!(
-                        "Failed to update password in keyring: {}\n\n\
-                        Hint: If your keyring is locked, unlock it first using your system's keyring manager.",
-                        error_msg
+                        "Failed to update password in keyring: {error_msg}\n\n\
+                        Hint: If your keyring is locked, unlock it first using your system's keyring manager."
                     ));
                 }
             } else {

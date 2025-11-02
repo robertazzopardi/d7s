@@ -5,8 +5,8 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use super::hotkey_view::HotkeyView;
 use super::hotkey::Hotkey;
+use super::hotkey_view::HotkeyView;
 
 pub const CONNECTION_HOTKEYS: [Hotkey; 4] = [
     Hotkey {
@@ -77,4 +77,3 @@ impl Widget for TopBarView<'_> {
             .render(cells[2], buf);
     }
 }
-

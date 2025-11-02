@@ -8,9 +8,9 @@ use d7s_db::{
 };
 use d7s_ui::{
     handlers::{
-        handle_connection_list_navigation, handle_search_filter_input,
-        handle_sql_executor_input, test_connection, handle_save_connection,
-        TableNavigationHandler,
+        TableNavigationHandler, handle_connection_list_navigation,
+        handle_save_connection, handle_search_filter_input,
+        handle_sql_executor_input, test_connection,
     },
     widgets::{
         hotkey::Hotkey,
@@ -291,10 +291,9 @@ impl App<'_> {
         if matches!(
             &self.explorer_state,
             Some(DatabaseExplorerState::SqlExecutor)
-        ) {
-            if handle_sql_executor_input(key, &mut self.sql_executor) {
-                return Ok(());
-            }
+        ) && handle_sql_executor_input(key, &mut self.sql_executor)
+        {
+            return Ok(());
         }
 
         // Handle modal events first
@@ -357,13 +356,15 @@ impl App<'_> {
                         if let Some(keyring) = &self.keyring {
                             match keyring.get_password() {
                                 Ok(password) => {
-                                    self.modal_manager.open_edit_connection_modal(
-                                        connection,
-                                        password,
-                                    );
+                                    self.modal_manager
+                                        .open_edit_connection_modal(
+                                            connection, password,
+                                        );
                                 }
                                 Err(e) => {
-                                    eprintln!("Failed to get password from keyring: {e}");
+                                    eprintln!(
+                                        "Failed to get password from keyring: {e}"
+                                    );
                                 }
                             }
                         } else {
@@ -444,28 +445,40 @@ impl App<'_> {
             // Vim keybindings for table navigation
             (_, KeyCode::Char('j') | KeyCode::Down) => {
                 if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(KeyCode::Down, &mut self.table_widget);
+                    handle_connection_list_navigation(
+                        KeyCode::Down,
+                        &mut self.table_widget,
+                    );
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Down);
                 }
             }
             (_, KeyCode::Char('k') | KeyCode::Up) => {
                 if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(KeyCode::Up, &mut self.table_widget);
+                    handle_connection_list_navigation(
+                        KeyCode::Up,
+                        &mut self.table_widget,
+                    );
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Up);
                 }
             }
             (_, KeyCode::Char('h' | 'b') | KeyCode::Left) => {
                 if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(KeyCode::Left, &mut self.table_widget);
+                    handle_connection_list_navigation(
+                        KeyCode::Left,
+                        &mut self.table_widget,
+                    );
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Left);
                 }
             }
             (_, KeyCode::Char('l' | 'w') | KeyCode::Right) => {
                 if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(KeyCode::Right, &mut self.table_widget);
+                    handle_connection_list_navigation(
+                        KeyCode::Right,
+                        &mut self.table_widget,
+                    );
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Right);
                 }
@@ -473,24 +486,36 @@ impl App<'_> {
             // Jump to edges
             (_, KeyCode::Char('0')) => {
                 if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(KeyCode::Char('0'), &mut self.table_widget);
+                    handle_connection_list_navigation(
+                        KeyCode::Char('0'),
+                        &mut self.table_widget,
+                    );
                 }
             }
             (_, KeyCode::Char('$')) => {
                 if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(KeyCode::Char('$'), &mut self.table_widget);
+                    handle_connection_list_navigation(
+                        KeyCode::Char('$'),
+                        &mut self.table_widget,
+                    );
                 }
             }
             (_, KeyCode::Char('g')) => {
                 if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(KeyCode::Char('g'), &mut self.table_widget);
+                    handle_connection_list_navigation(
+                        KeyCode::Char('g'),
+                        &mut self.table_widget,
+                    );
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Char('g'));
                 }
             }
             (_, KeyCode::Char('G')) => {
                 if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(KeyCode::Char('G'), &mut self.table_widget);
+                    handle_connection_list_navigation(
+                        KeyCode::Char('G'),
+                        &mut self.table_widget,
+                    );
                 } else if self.state == AppState::DatabaseConnected {
                     self.handle_database_table_navigation(KeyCode::Char('G'));
                 }
@@ -768,34 +793,26 @@ impl App<'_> {
             }
             Some(DatabaseExplorerState::TableData(schema_name, table_name)) => {
                 // Show cell value in dialog if a cell is selected
-                if let Some(table_data) = &self.table_data {
-                    if let Some(selected_row) =
+                if let Some(table_data) = &self.table_data
+                    && let Some(selected_row) =
                         table_data.table_state.selected()
+                    && selected_row < table_data.items.len()
+                {
+                    let selected_col =
+                        table_data.table_state.selected_column().unwrap_or(0);
+
+                    if selected_col < table_data.column_names.len()
+                        && selected_col < table_data.items[selected_row].len()
                     {
-                        if selected_row < table_data.items.len() {
-                            let selected_col = table_data
-                                .table_state
-                                .selected_column()
-                                .unwrap_or(0);
+                        let column_name =
+                            table_data.column_names[selected_col].clone();
+                        let cell_value = table_data.items[selected_row]
+                            [selected_col]
+                            .clone();
 
-                            if selected_col < table_data.column_names.len()
-                                && selected_col
-                                    < table_data.items[selected_row].len()
-                            {
-                                let column_name = table_data.column_names
-                                    [selected_col]
-                                    .clone();
-                                let cell_value = table_data.items[selected_row]
-                                    [selected_col]
-                                    .clone();
-
-                                self.modal_manager.open_cell_value_modal(
-                                    column_name,
-                                    cell_value,
-                                );
-                                return Ok(());
-                            }
-                        }
+                        self.modal_manager
+                            .open_cell_value_modal(column_name, cell_value);
+                        return Ok(());
                     }
                 }
 
@@ -914,36 +931,44 @@ impl App<'_> {
         // Handle business logic based on modal actions
         match action {
             ModalAction::Save => {
-                if let Some(modal) = self.modal_manager.get_connection_modal_mut() {
-                    if let Some(connection) = modal.get_connection() {
-                        let original_name = modal.original_name.clone();
-                        let mode = modal.mode.clone();
-                        match handle_save_connection(
-                            &mut self.keyring,
-                            connection.clone(),
-                            mode,
-                            original_name,
-                        ) {
-                            Ok(()) => {
-                                modal.close();
-                                self.refresh_connections();
-                            }
-                            Err(error_msg) => {
-                                modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(error_msg);
-                            }
+                if let Some(modal) =
+                    self.modal_manager.get_connection_modal_mut()
+                    && let Some(connection) = modal.get_connection()
+                {
+                    let original_name = modal.original_name.clone();
+                    let mode = modal.mode.clone();
+                    match handle_save_connection(
+                        &mut self.keyring,
+                        connection,
+                        mode,
+                        original_name,
+                    ) {
+                        Ok(()) => {
+                            modal.close();
+                            self.refresh_connections();
+                        }
+                        Err(error_msg) => {
+                            modal.test_result =
+                                d7s_ui::widgets::modal::TestResult::Failed(
+                                    error_msg,
+                                );
                         }
                     }
                 }
             }
             ModalAction::Test => {
-                if let Some(modal) = self.modal_manager.get_connection_modal_mut() {
+                if let Some(modal) =
+                    self.modal_manager.get_connection_modal_mut()
+                {
                     if let Some(connection) = modal.get_connection() {
-                        modal.test_result = d7s_ui::widgets::modal::TestResult::Testing;
+                        modal.test_result =
+                            d7s_ui::widgets::modal::TestResult::Testing;
                         modal.test_result = test_connection(&connection).await;
                     } else {
-                        modal.test_result = d7s_ui::widgets::modal::TestResult::Failed(
-                            "Please fill in all fields".to_string()
-                        );
+                        modal.test_result =
+                            d7s_ui::widgets::modal::TestResult::Failed(
+                                "Please fill in all fields".to_string(),
+                            );
                     }
                 }
             }
@@ -956,14 +981,17 @@ impl App<'_> {
         }
 
         // Handle confirmation modal results
-        if let Some(connection) = self.modal_manager.was_confirmation_modal_confirmed() {
+        if let Some(connection) =
+            self.modal_manager.was_confirmation_modal_confirmed()
+        {
             if let Some(keyring) = &self.keyring {
                 let _ = keyring.delete_password();
             } else {
                 eprintln!("No keyring found");
             }
 
-            if let Err(e) = d7s_db::sqlite::delete_connection(&connection.name) {
+            if let Err(e) = d7s_db::sqlite::delete_connection(&connection.name)
+            {
                 eprintln!("Failed to delete connection: {e}");
             } else {
                 self.refresh_connections();
@@ -977,23 +1005,38 @@ impl App<'_> {
     }
 
     fn handle_table_data_navigation(&mut self, key: KeyCode) {
-        TableNavigationHandler::handle_table_data_navigation(&mut self.table_data, key);
+        TableNavigationHandler::handle_table_data_navigation(
+            &mut self.table_data,
+            key,
+        );
     }
 
     fn handle_column_table_navigation(&mut self, key: KeyCode) {
-        TableNavigationHandler::handle_column_table_navigation(&mut self.column_table, key);
+        TableNavigationHandler::handle_column_table_navigation(
+            &mut self.column_table,
+            key,
+        );
     }
 
     fn handle_table_table_navigation(&mut self, key: KeyCode) {
-        TableNavigationHandler::handle_table_table_navigation(&mut self.table_table, key);
+        TableNavigationHandler::handle_table_table_navigation(
+            &mut self.table_table,
+            key,
+        );
     }
 
     fn handle_schema_table_navigation(&mut self, key: KeyCode) {
-        TableNavigationHandler::handle_schema_table_navigation(&mut self.schema_table, key);
+        TableNavigationHandler::handle_schema_table_navigation(
+            &mut self.schema_table,
+            key,
+        );
     }
 
     fn handle_sql_results_navigation(&mut self, key: KeyCode) {
-        TableNavigationHandler::handle_sql_results_navigation(&mut self.sql_executor, key);
+        TableNavigationHandler::handle_sql_results_navigation(
+            &mut self.sql_executor,
+            key,
+        );
     }
 
     /// Load table data for a table
@@ -1032,37 +1075,47 @@ impl App<'_> {
 
         match self.state {
             AppState::ConnectionList => {
-                let filtered_items = self.table_widget.filter(&query);
+                let filtered_items = self.table_widget.filter(query);
                 self.table_widget.items = filtered_items;
-                TableNavigationHandler::clamp_data_table_selection(&mut self.table_widget);
+                TableNavigationHandler::clamp_data_table_selection(
+                    &mut self.table_widget,
+                );
             }
             AppState::DatabaseConnected => match &self.explorer_state {
                 Some(DatabaseExplorerState::Schemas) => {
                     if let Some(schema_table) = &mut self.schema_table {
-                        let filtered_items = schema_table.filter(&query);
+                        let filtered_items = schema_table.filter(query);
                         schema_table.items = filtered_items;
-                        TableNavigationHandler::clamp_data_table_selection(schema_table);
+                        TableNavigationHandler::clamp_data_table_selection(
+                            schema_table,
+                        );
                     }
                 }
                 Some(DatabaseExplorerState::Tables(_)) => {
                     if let Some(table_table) = &mut self.table_table {
-                        let filtered_items = table_table.filter(&query);
+                        let filtered_items = table_table.filter(query);
                         table_table.items = filtered_items;
-                        TableNavigationHandler::clamp_data_table_selection(table_table);
+                        TableNavigationHandler::clamp_data_table_selection(
+                            table_table,
+                        );
                     }
                 }
                 Some(DatabaseExplorerState::Columns(_, _)) => {
                     if let Some(column_table) = &mut self.column_table {
-                        let filtered_items = column_table.filter(&query);
+                        let filtered_items = column_table.filter(query);
                         column_table.items = filtered_items;
-                        TableNavigationHandler::clamp_data_table_selection(column_table);
+                        TableNavigationHandler::clamp_data_table_selection(
+                            column_table,
+                        );
                     }
                 }
                 Some(DatabaseExplorerState::TableData(_, _)) => {
                     if let Some(table_data) = &mut self.table_data {
-                        let filtered_items = table_data.filter(&query);
+                        let filtered_items = table_data.filter(query);
                         table_data.items = filtered_items;
-                        TableNavigationHandler::clamp_table_data_selection(table_data);
+                        TableNavigationHandler::clamp_table_data_selection(
+                            table_data,
+                        );
                     }
                 }
                 Some(DatabaseExplorerState::SqlExecutor) | None => {
@@ -1077,31 +1130,41 @@ impl App<'_> {
         match self.state {
             AppState::ConnectionList => {
                 self.table_widget.items = self.original_connections.clone();
-                TableNavigationHandler::clamp_data_table_selection(&mut self.table_widget);
+                TableNavigationHandler::clamp_data_table_selection(
+                    &mut self.table_widget,
+                );
             }
             AppState::DatabaseConnected => match &self.explorer_state {
                 Some(DatabaseExplorerState::Schemas) => {
                     if let Some(schema_table) = &mut self.schema_table {
                         schema_table.items.clone_from(&self.original_schemas);
-                        TableNavigationHandler::clamp_data_table_selection(schema_table);
+                        TableNavigationHandler::clamp_data_table_selection(
+                            schema_table,
+                        );
                     }
                 }
                 Some(DatabaseExplorerState::Tables(_)) => {
                     if let Some(table_table) = &mut self.table_table {
                         table_table.items.clone_from(&self.original_tables);
-                        TableNavigationHandler::clamp_data_table_selection(table_table);
+                        TableNavigationHandler::clamp_data_table_selection(
+                            table_table,
+                        );
                     }
                 }
                 Some(DatabaseExplorerState::Columns(_, _)) => {
                     if let Some(column_table) = &mut self.column_table {
                         column_table.items.clone_from(&self.original_columns);
-                        TableNavigationHandler::clamp_data_table_selection(column_table);
+                        TableNavigationHandler::clamp_data_table_selection(
+                            column_table,
+                        );
                     }
                 }
                 Some(DatabaseExplorerState::TableData(_, _)) => {
                     if let Some(table_data) = &mut self.table_data {
                         table_data.items.clone_from(&self.original_table_data);
-                        TableNavigationHandler::clamp_table_data_selection(table_data);
+                        TableNavigationHandler::clamp_table_data_selection(
+                            table_data,
+                        );
                     }
                 }
                 Some(DatabaseExplorerState::SqlExecutor) | None => {

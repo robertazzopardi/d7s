@@ -26,6 +26,7 @@ pub struct TableDataWidget {
 }
 
 impl TableDataWidget {
+    #[must_use]
     pub fn new(items: Vec<Vec<String>>, column_names: Vec<String>) -> Self {
         let longest_item_lens =
             constraint_len_calculator_for_data(&items, &column_names);
@@ -37,6 +38,7 @@ impl TableDataWidget {
         }
     }
 
+    #[must_use]
     pub fn filter(&self, query: &str) -> Vec<Vec<String>> {
         if query.is_empty() {
             return self.items.clone();
@@ -113,6 +115,7 @@ impl StatefulWidget for TableDataWidget {
 }
 
 impl<T: TableData + Clone> DataTable<T> {
+    #[must_use]
     pub fn new(items: Vec<T>) -> Self {
         let longest_item_lens = constraint_len_calculator(&items);
         Self {
@@ -122,6 +125,7 @@ impl<T: TableData + Clone> DataTable<T> {
         }
     }
 
+    #[must_use]
     pub fn filter(&self, query: &str) -> Vec<T> {
         if query.is_empty() {
             return self.items.clone();

@@ -40,6 +40,7 @@ pub struct ModalField {
 }
 
 impl ModalField {
+    #[must_use]
     pub const fn new(label: &'static str) -> Self {
         Self {
             label,
@@ -379,6 +380,7 @@ impl<T: TableData> Modal<T> {
 }
 
 impl ConfirmationModal {
+    #[must_use]
     pub const fn new(message: String, connection: Connection) -> Self {
         Self {
             is_open: true,
@@ -400,11 +402,12 @@ impl ConfirmationModal {
         self.selected_button = (self.selected_button + 1) % 2;
     }
 
+    #[must_use]
     pub const fn confirm(&self) -> bool {
         self.selected_button == 0
     }
 
-    pub fn handle_key_events(&mut self, key: KeyEvent) {
+    pub const fn handle_key_events(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc | KeyCode::Enter) => {
                 self.close();
@@ -468,7 +471,8 @@ impl Widget for ConfirmationModal {
 }
 
 impl CellValueModal {
-    pub fn new(column_name: String, cell_value: String) -> Self {
+    #[must_use]
+    pub const fn new(column_name: String, cell_value: String) -> Self {
         Self {
             is_open: true,
             column_name,
@@ -476,16 +480,13 @@ impl CellValueModal {
         }
     }
 
-    pub fn close(&mut self) {
+    pub const fn close(&mut self) {
         self.is_open = false;
     }
 
-    pub fn handle_key_events(&mut self, key: KeyEvent) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc | KeyCode::Enter) => {
-                self.close();
-            }
-            _ => {}
+    pub const fn handle_key_events(&mut self, key: KeyEvent) {
+        if let (_, KeyCode::Esc | KeyCode::Enter) = (key.modifiers, key.code) {
+            self.close();
         }
     }
 }
@@ -508,7 +509,7 @@ impl Widget for CellValueModal {
         let value_lines = if self.cell_value.is_empty() {
             1u16
         } else {
-            ((self.cell_value.len() + content_width - 1) / content_width) as u16
+            self.cell_value.len().div_ceil(content_width) as u16
         };
         let modal_height = (3u16.saturating_add(value_lines).saturating_add(1))
             .min(area.height.saturating_sub(4))
@@ -539,7 +540,7 @@ impl Widget for CellValueModal {
             .split(modal_area);
 
         // Render cell value with word wrapping
-        Paragraph::new(self.cell_value.clone())
+        Paragraph::new(self.cell_value)
             .style(Style::default().fg(Color::White))
             .alignment(Alignment::Left)
             .wrap(ratatui::widgets::Wrap { trim: false })
@@ -565,6 +566,7 @@ pub struct ModalManager {
 
 impl ModalManager {
     /// Create a new modal manager
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             connection_modal: None,
@@ -575,6 +577,7 @@ impl ModalManager {
     }
 
     /// Check if any modal is currently open
+    #[must_use]
     pub fn is_any_modal_open(&self) -> bool {
         self.connection_modal.as_ref().is_some_and(|m| m.is_open)
             || self.confirmation_modal.as_ref().is_some_and(|m| m.is_open)
@@ -628,7 +631,7 @@ impl ModalManager {
     }
 
     /// Close the currently active modal
-    pub fn close_active_modal(&mut self) {
+    pub const fn close_active_modal(&mut self) {
         match self.active_modal_type {
             Some(ModalType::Connection) => {
                 if let Some(modal) = &mut self.connection_modal {
@@ -699,26 +702,32 @@ impl ModalManager {
     }
 
     /// Get a reference to the connection modal
+    #[must_use]
     pub const fn get_connection_modal(&self) -> Option<&Modal<Connection>> {
         self.connection_modal.as_ref()
     }
 
     /// Get a mutable reference to the connection modal
-    pub fn get_connection_modal_mut(&mut self) -> Option<&mut Modal<Connection>> {
+    pub const fn get_connection_modal_mut(
+        &mut self,
+    ) -> Option<&mut Modal<Connection>> {
         self.connection_modal.as_mut()
     }
 
     /// Get a reference to the confirmation modal
+    #[must_use]
     pub const fn get_confirmation_modal(&self) -> Option<&ConfirmationModal> {
         self.confirmation_modal.as_ref()
     }
 
     /// Check if the connection modal was just closed and needs a refresh
+    #[must_use]
     pub fn was_connection_modal_closed(&self) -> bool {
         self.connection_modal.as_ref().is_some_and(|m| !m.is_open)
     }
 
     /// Check if the confirmation modal was just closed and confirmed
+    #[must_use]
     pub fn was_confirmation_modal_confirmed(&self) -> Option<Connection> {
         if let Some(modal) = &self.confirmation_modal
             && !modal.is_open
@@ -752,8 +761,8 @@ impl ModalManager {
     }
 
     /// Get a reference to the cell value modal
+    #[must_use]
     pub const fn get_cell_value_modal(&self) -> Option<&CellValueModal> {
         self.cell_value_modal.as_ref()
     }
 }
-

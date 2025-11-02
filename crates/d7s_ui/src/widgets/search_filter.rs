@@ -14,6 +14,7 @@ pub struct SearchFilter {
 }
 
 impl SearchFilter {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -66,6 +67,7 @@ impl SearchFilter {
         self.cursor_position = 0;
     }
 
+    #[must_use]
     pub fn get_filter_query(&self) -> &str {
         self.query.trim()
     }
