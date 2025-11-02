@@ -1,40 +1,40 @@
-use crossterm::event::KeyCode;
-use d7s_db::{Column, Schema, Table, TableData};
 use crate::widgets::{
     sql_executor::SqlExecutor,
     table::{DataTable, TableDataWidget},
 };
+use crossterm::event::KeyCode;
+use d7s_db::{Column, Schema, Table, TableData};
 
 /// Helper for table navigation operations
 pub struct TableNavigationHandler;
 
 impl TableNavigationHandler {
-    /// Clamps the selection for a DataTable to valid bounds
+    /// Clamps the selection for a `DataTable` to valid bounds
     pub fn clamp_data_table_selection<T: TableData + Clone>(
         table: &mut DataTable<T>,
     ) {
-        if let Some(selected) = table.table_state.selected() {
-            if selected >= table.items.len() {
-                if table.items.is_empty() {
-                    table.table_state.select(None);
-                } else {
-                    table.table_state.select(Some(table.items.len() - 1));
-                }
+        if let Some(selected) = table.table_state.selected()
+            && selected >= table.items.len()
+        {
+            if table.items.is_empty() {
+                table.table_state.select(None);
+            } else {
+                table.table_state.select(Some(table.items.len() - 1));
             }
         }
     }
 
-    /// Clamps the selection for a TableDataWidget to valid bounds
+    /// Clamps the selection for a `TableDataWidget` to valid bounds
     pub fn clamp_table_data_selection(table_data: &mut TableDataWidget) {
-        if let Some(selected) = table_data.table_state.selected() {
-            if selected >= table_data.items.len() {
-                if table_data.items.is_empty() {
-                    table_data.table_state.select(None);
-                } else {
-                    table_data
-                        .table_state
-                        .select(Some(table_data.items.len() - 1));
-                }
+        if let Some(selected) = table_data.table_state.selected()
+            && selected >= table_data.items.len()
+        {
+            if table_data.items.is_empty() {
+                table_data.table_state.select(None);
+            } else {
+                table_data
+                    .table_state
+                    .select(Some(table_data.items.len() - 1));
             }
         }
     }
@@ -143,7 +143,7 @@ impl TableNavigationHandler {
         }
     }
 
-    /// Generic handler for DataTable navigation
+    /// Generic handler for `DataTable` navigation
     fn handle_data_table_navigation<T: TableData + Clone>(
         table: &mut DataTable<T>,
         key: KeyCode,
@@ -176,4 +176,3 @@ impl TableNavigationHandler {
         }
     }
 }
-

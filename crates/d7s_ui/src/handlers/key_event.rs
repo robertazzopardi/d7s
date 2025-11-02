@@ -1,10 +1,8 @@
+use crate::widgets::{
+    search_filter::SearchFilter, sql_executor::SqlExecutor, table::DataTable,
+};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use d7s_db::TableData;
-use crate::widgets::{
-    search_filter::SearchFilter,
-    sql_executor::SqlExecutor,
-    table::DataTable,
-};
 
 use super::navigation::TableNavigationHandler;
 
@@ -17,42 +15,42 @@ pub fn handle_search_filter_input(
     match (key.modifiers, key.code) {
         (_, KeyCode::Esc) => {
             search_filter.deactivate();
-            return true;
+            true
         }
         (_, KeyCode::Enter) => {
             search_filter.deactivate();
-            return true;
+            true
         }
         (_, KeyCode::Char(ch)) if !ch.is_control() => {
             search_filter.add_char(ch);
             on_filter_change();
-            return true;
+            true
         }
         (_, KeyCode::Backspace) => {
             search_filter.delete_char();
             on_filter_change();
-            return true;
+            true
         }
         (_, KeyCode::Left) => {
             search_filter.move_cursor_left();
-            return true;
+            true
         }
         (_, KeyCode::Right) => {
             search_filter.move_cursor_right();
-            return true;
+            true
         }
         (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
             search_filter.move_cursor_to_start();
-            return true;
+            true
         }
         (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
             search_filter.move_cursor_to_end();
-            return true;
+            true
         }
         (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
             search_filter.clear();
             on_filter_change();
-            return true;
+            true
         }
         _ => false,
     }
@@ -144,4 +142,3 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
         _ => {}
     }
 }
-
