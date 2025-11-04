@@ -1,10 +1,10 @@
-use crate::widgets::{
-    search_filter::SearchFilter, sql_executor::SqlExecutor, table::DataTable,
-};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use d7s_db::TableData;
 
 use super::navigation::TableNavigationHandler;
+use crate::widgets::{
+    search_filter::SearchFilter, sql_executor::SqlExecutor, table::DataTable,
+};
 
 /// Handles search filter key events
 pub fn handle_search_filter_input(
@@ -109,13 +109,53 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
             TableNavigationHandler::clamp_data_table_selection(table_widget);
         }
         KeyCode::Char('h' | 'b') | KeyCode::Left => {
-            table_widget.table_state.select_previous_column();
+            // If no column is selected, start with the last column, otherwise navigate
+            if table_widget.table_state.selected_column().is_none() {
+                let num_cols = table_widget
+                    .items
+                    .first()
+                    .map(d7s_db::TableData::num_columns)
+                    .unwrap_or(0);
+                if num_cols > 0 {
+                    table_widget
+                        .table_state
+                        .select_column(Some(num_cols.saturating_sub(1)));
+                }
+            } else {
+                table_widget.table_state.select_previous_column();
+            }
+            TableNavigationHandler::clamp_data_table_columns(table_widget);
+            // Adjust offset to ensure selected column is visible
+            if let Some(selected_col) =
+                table_widget.table_state.selected_column()
+            {
+                // Use a reasonable default area width (will be refined in render)
+                table_widget
+                    .adjust_offset_for_selected_column(selected_col, 80);
+            }
         }
         KeyCode::Char('l' | 'w') | KeyCode::Right => {
-            table_widget.table_state.select_next_column();
+            // If no column is selected, start with the first column, otherwise navigate
+            if table_widget.table_state.selected_column().is_none() {
+                table_widget.table_state.select_column(Some(0));
+            } else {
+                table_widget.table_state.select_next_column();
+            }
+            TableNavigationHandler::clamp_data_table_columns(table_widget);
+            // Adjust offset to ensure selected column is visible
+            if let Some(selected_col) =
+                table_widget.table_state.selected_column()
+            {
+                // Use a reasonable default area width (will be refined in render)
+                table_widget
+                    .adjust_offset_for_selected_column(selected_col, 80);
+            }
         }
         KeyCode::Char('0') => {
             table_widget.table_state.select_column(Some(0));
+            TableNavigationHandler::clamp_data_table_columns(table_widget);
+            // Reset offset when going to first column
+            table_widget.column_offset = 0;
         }
         KeyCode::Char('$') => {
             if let Some(num_cols) = table_widget
@@ -123,9 +163,11 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
                 .first()
                 .map(d7s_db::TableData::num_columns)
             {
-                table_widget
-                    .table_state
-                    .select_column(Some(num_cols.saturating_sub(1)));
+                let last_col = num_cols.saturating_sub(1);
+                table_widget.table_state.select_column(Some(last_col));
+                TableNavigationHandler::clamp_data_table_columns(table_widget);
+                // Adjust offset to ensure last column is visible
+                table_widget.adjust_offset_for_selected_column(last_col, 80);
             }
         }
         KeyCode::Char('g') => {
