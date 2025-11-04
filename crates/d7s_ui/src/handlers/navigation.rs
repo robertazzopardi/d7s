@@ -1,9 +1,10 @@
+use crossterm::event::KeyCode;
+use d7s_db::{Column, Schema, Table, TableData};
+
 use crate::widgets::{
     sql_executor::SqlExecutor,
     table::{DataTable, TableDataWidget},
 };
-use crossterm::event::KeyCode;
-use d7s_db::{Column, Schema, Table, TableData};
 
 /// Helper for table navigation operations
 pub struct TableNavigationHandler;
@@ -36,6 +37,62 @@ impl TableNavigationHandler {
                     .table_state
                     .select(Some(table_data.items.len() - 1));
             }
+        }
+    }
+
+    /// Clamps the column selection and offset for a `DataTable` to valid bounds
+    pub fn clamp_data_table_columns<T: TableData + Clone>(
+        table: &mut DataTable<T>,
+    ) {
+        let num_columns = table
+            .items
+            .first()
+            .map(|item| item.num_columns())
+            .unwrap_or(0);
+
+        // Clamp selected column
+        if let Some(selected_col) = table.table_state.selected_column() {
+            if selected_col >= num_columns {
+                if num_columns == 0 {
+                    table.table_state.select_column(None);
+                } else {
+                    table
+                        .table_state
+                        .select_column(Some(num_columns.saturating_sub(1)));
+                }
+            }
+        }
+
+        // Clamp column offset
+        if num_columns == 0 {
+            table.column_offset = 0;
+        } else if table.column_offset >= num_columns {
+            table.column_offset = num_columns.saturating_sub(1);
+        }
+    }
+
+    /// Clamps the column selection and offset for a `TableDataWidget` to valid bounds
+    pub fn clamp_table_data_columns(table_data: &mut TableDataWidget) {
+        let num_columns = table_data.column_names.len();
+
+        // Clamp selected column
+        if let Some(selected_col) = table_data.table_state.selected_column() {
+            if selected_col >= num_columns {
+                if num_columns == 0 {
+                    table_data.table_state.select_column(None);
+                } else {
+                    table_data
+                        .table_state
+                        .select_column(Some(num_columns.saturating_sub(1)));
+                }
+            }
+        }
+
+        // Clamp column offset
+        if num_columns == 0 {
+            table_data.column_offset = 0;
+        } else if table_data.column_offset >= num_columns {
+            table_data.column_offset = num_columns.saturating_sub(1);
         }
     }
 
@@ -85,14 +142,53 @@ impl TableNavigationHandler {
                     Self::clamp_table_data_selection(table_data);
                 }
                 KeyCode::Char('h' | 'b') | KeyCode::Left => {
-                    table_data.table_state.select_previous_column();
+                    // If no column is selected, start with the last column, otherwise navigate
+                    if table_data.table_state.selected_column().is_none() {
+                        let num_cols = table_data.column_names.len();
+                        if num_cols > 0 {
+                            table_data.table_state.select_column(Some(
+                                num_cols.saturating_sub(1),
+                            ));
+                        }
+                    } else {
+                        table_data.table_state.select_previous_column();
+                    }
+                    Self::clamp_table_data_columns(table_data);
+                    // Adjust offset to ensure selected column is visible
+                    if let Some(selected_col) =
+                        table_data.table_state.selected_column()
+                    {
+                        // Use a reasonable default area width (will be refined in render)
+                        table_data.adjust_offset_for_selected_column(
+                            selected_col,
+                            80,
+                        );
+                    }
                 }
                 KeyCode::Char('l' | 'w') | KeyCode::Right => {
-                    table_data.table_state.select_next_column();
+                    // If no column is selected, start with the first column, otherwise navigate
+                    if table_data.table_state.selected_column().is_none() {
+                        table_data.table_state.select_column(Some(0));
+                    } else {
+                        table_data.table_state.select_next_column();
+                    }
+                    Self::clamp_table_data_columns(table_data);
+                    // Adjust offset to ensure selected column is visible
+                    if let Some(selected_col) =
+                        table_data.table_state.selected_column()
+                    {
+                        // Use a reasonable default area width (will be refined in render)
+                        table_data.adjust_offset_for_selected_column(
+                            selected_col,
+                            80,
+                        );
+                    }
                 }
                 KeyCode::Char('g') => {
-                    table_data.table_state.select(Some(1));
+                    table_data.table_state.select(Some(0));
                     Self::clamp_table_data_selection(table_data);
+                    // Reset offset when going to first row
+                    table_data.column_offset = 0;
                 }
                 KeyCode::Char('G') => {
                     if !table_data.items.is_empty() {
@@ -122,14 +218,53 @@ impl TableNavigationHandler {
                     Self::clamp_table_data_selection(table_widget);
                 }
                 KeyCode::Char('h' | 'b') | KeyCode::Left => {
-                    table_widget.table_state.select_previous_column();
+                    // If no column is selected, start with the last column, otherwise navigate
+                    if table_widget.table_state.selected_column().is_none() {
+                        let num_cols = table_widget.column_names.len();
+                        if num_cols > 0 {
+                            table_widget.table_state.select_column(Some(
+                                num_cols.saturating_sub(1),
+                            ));
+                        }
+                    } else {
+                        table_widget.table_state.select_previous_column();
+                    }
+                    Self::clamp_table_data_columns(table_widget);
+                    // Adjust offset to ensure selected column is visible
+                    if let Some(selected_col) =
+                        table_widget.table_state.selected_column()
+                    {
+                        // Use a reasonable default area width (will be refined in render)
+                        table_widget.adjust_offset_for_selected_column(
+                            selected_col,
+                            80,
+                        );
+                    }
                 }
                 KeyCode::Char('l' | 'w') | KeyCode::Right => {
-                    table_widget.table_state.select_next_column();
+                    // If no column is selected, start with the first column, otherwise navigate
+                    if table_widget.table_state.selected_column().is_none() {
+                        table_widget.table_state.select_column(Some(0));
+                    } else {
+                        table_widget.table_state.select_next_column();
+                    }
+                    Self::clamp_table_data_columns(table_widget);
+                    // Adjust offset to ensure selected column is visible
+                    if let Some(selected_col) =
+                        table_widget.table_state.selected_column()
+                    {
+                        // Use a reasonable default area width (will be refined in render)
+                        table_widget.adjust_offset_for_selected_column(
+                            selected_col,
+                            80,
+                        );
+                    }
                 }
                 KeyCode::Char('g') => {
-                    table_widget.table_state.select(Some(1));
+                    table_widget.table_state.select(Some(0));
                     Self::clamp_table_data_selection(table_widget);
+                    // Reset offset when going to first row
+                    table_widget.column_offset = 0;
                 }
                 KeyCode::Char('G') => {
                     if !table_widget.items.is_empty() {
@@ -158,14 +293,49 @@ impl TableNavigationHandler {
                 Self::clamp_data_table_selection(table);
             }
             KeyCode::Char('h' | 'b') | KeyCode::Left => {
-                table.table_state.select_previous_column();
+                // If no column is selected, start with the last column, otherwise navigate
+                if table.table_state.selected_column().is_none() {
+                    let num_cols = table
+                        .items
+                        .first()
+                        .map(|item| item.num_columns())
+                        .unwrap_or(0);
+                    if num_cols > 0 {
+                        table
+                            .table_state
+                            .select_column(Some(num_cols.saturating_sub(1)));
+                    }
+                } else {
+                    table.table_state.select_previous_column();
+                }
+                Self::clamp_data_table_columns(table);
+                // Adjust offset to ensure selected column is visible
+                if let Some(selected_col) = table.table_state.selected_column()
+                {
+                    // Use a reasonable default area width (will be refined in render)
+                    table.adjust_offset_for_selected_column(selected_col, 80);
+                }
             }
             KeyCode::Char('l' | 'w') | KeyCode::Right => {
-                table.table_state.select_next_column();
+                // If no column is selected, start with the first column, otherwise navigate
+                if table.table_state.selected_column().is_none() {
+                    table.table_state.select_column(Some(0));
+                } else {
+                    table.table_state.select_next_column();
+                }
+                Self::clamp_data_table_columns(table);
+                // Adjust offset to ensure selected column is visible
+                if let Some(selected_col) = table.table_state.selected_column()
+                {
+                    // Use a reasonable default area width (will be refined in render)
+                    table.adjust_offset_for_selected_column(selected_col, 80);
+                }
             }
             KeyCode::Char('g') => {
-                table.table_state.select(Some(1));
+                table.table_state.select(Some(0));
                 Self::clamp_data_table_selection(table);
+                // Reset offset when going to first row
+                table.column_offset = 0;
             }
             KeyCode::Char('G') => {
                 if !table.items.is_empty() {
