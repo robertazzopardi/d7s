@@ -1,6 +1,7 @@
-use crate::widgets::modal::TestResult;
 use d7s_auth::Keyring;
 use d7s_db::{Database, connection::Connection};
+
+use crate::widgets::modal::TestResult;
 
 /// Handles saving a connection from the modal
 pub fn handle_save_connection(

@@ -18,7 +18,7 @@ need_stdout = false
 
 # Run clippy on the default target
 [jobs.clippy]
-command = ["cargo", "clippy"]
+command = ["cargo", "clippy", "--workspace", "--", "-Dwarnings", "-Dclippy::pedantic", "-Dclippy::nursery"]
 need_stdout = false
 
 # Run clippy on all targets
@@ -111,4 +111,4 @@ allow_warnings = true
 # should go in your personal global prefs.toml file instead.
 [keybindings]
 # alt-m = "job:my-job"
-c = "job:clippy-all" # comment this to have 'c' run clippy on only the default target
+c = "job:clippy" # comment this to have 'c' run clippy on only the default target

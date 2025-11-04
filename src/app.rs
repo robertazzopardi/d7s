@@ -606,18 +606,19 @@ impl App<'_> {
         self.hotkeys = CONNECTION_HOTKEYS.to_vec();
     }
 
+    // TODO use an impl for this
     /// Get the title for the database view based on current state
     fn get_database_title(&self) -> String {
         match &self.explorer_state {
             Some(DatabaseExplorerState::Schemas) => " Schemas ".to_string(),
             Some(DatabaseExplorerState::Tables(schema)) => {
-                format!(" Tables in {schema} ")
+                format!(" {schema} ")
             }
             Some(DatabaseExplorerState::Columns(schema, table)) => {
-                format!(" Columns in {schema}.{table} ")
+                format!(" {schema}.{table} ")
             }
             Some(DatabaseExplorerState::TableData(schema, table)) => {
-                format!(" Data in {schema}.{table} ")
+                format!(" {schema}.{table} ")
             }
             Some(DatabaseExplorerState::SqlExecutor) => {
                 " SQL Executor ".to_string()
