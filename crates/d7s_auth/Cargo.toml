@@ -9,8 +9,8 @@ dev = []
 
 [dependencies]
 keyring = { version = "3.6.3", features = [
-    "apple-native",           # macOS and iOS
-    "windows-native",         # Windows
-    "linux-native-sync-persistent",  # Linux (keyutils + secret-service)
-    "sync-secret-service",    # Linux, FreeBSD, OpenBSD (DBus Secret Service)
-]}
+    "apple-native",                 # macOS and iOS
+    "windows-native",               # Windows
+    "linux-native-sync-persistent", # Linux (keyutils + secret-service)
+    "sync-secret-service",          # Linux, FreeBSD, OpenBSD (DBus Secret Service)
+] }
