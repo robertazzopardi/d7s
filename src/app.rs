@@ -242,6 +242,10 @@ impl App<'_> {
         {
             frame.render_widget(cell_value_modal.clone(), frame.area());
         }
+
+        if let Some(password_modal) = self.modal_manager.get_password_modal() {
+            frame.render_widget(password_modal.clone(), frame.area());
+        }
     }
 
     /// Reads the crossterm events and updates the state of [`App`].
@@ -353,23 +357,14 @@ impl App<'_> {
                         // Initialize keyring with the connection's user
                         self.keyring = Keyring::new(&connection.user).ok();
 
-                        if let Some(keyring) = &self.keyring {
-                            match keyring.get_password() {
-                                Ok(password) => {
-                                    self.modal_manager
-                                        .open_edit_connection_modal(
-                                            connection, password,
-                                        );
-                                }
-                                Err(e) => {
-                                    eprintln!(
-                                        "Failed to get password from keyring: {e}"
-                                    );
-                                }
-                            }
-                        } else {
-                            eprintln!("Failed to initialize keyring");
-                        }
+                        // Open edit connection modal - password field will be empty if not found
+                        let password = self
+                            .keyring
+                            .as_ref()
+                            .and_then(|keyring| keyring.get_password().ok())
+                            .unwrap_or_default();
+                        self.modal_manager
+                            .open_edit_connection_modal(connection, password);
                         return Ok(()); // Return early to prevent key propagation
                     }
                 }
@@ -559,34 +554,56 @@ impl App<'_> {
                     self.table_widget.items.get(data_index)
             {
                 let entry = Keyring::new(&connection.user)?;
-                let password = entry.get_password()?;
-                self.keyring = Some(entry);
-
-                // Create connection with password
-                let mut connection_with_password = connection.clone();
-                connection_with_password.password = Some(password);
-
-                // Test the connection first
-                let postgres = connection_with_password.to_postgres();
-                if postgres.test().await {
-                    // Connection successful, update state
-                    self.active_connection =
-                        Some(connection_with_password.clone());
-                    self.active_database = Some(postgres);
-                    self.state = AppState::DatabaseConnected;
-
-                    // Update hotkeys for database mode
-                    self.hotkeys = DATABASE_HOTKEYS.to_vec();
-
-                    // Load schemas after successful connection
-                    self.load_schemas().await?;
-                } else {
-                    eprintln!(
-                        "Failed to connect to database: {}",
-                        connection.name
-                    );
+                match entry.get_password() {
+                    Ok(password) => {
+                        self.keyring = Some(entry);
+                        self.connect_with_password(
+                            connection.clone(),
+                            password,
+                        )
+                        .await?;
+                    }
+                    Err(_) => {
+                        // Password not found - show password modal
+                        let prompt = format!(
+                            "Password not found for user '{}'.\nPlease enter password:",
+                            connection.user
+                        );
+                        self.modal_manager
+                            .open_password_modal(connection.clone(), prompt);
+                        self.keyring = Some(entry);
+                    }
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Connect to database with the provided password
+    async fn connect_with_password(
+        &mut self,
+        connection: Connection,
+        password: String,
+    ) -> Result<()> {
+        // Create connection with password
+        let mut connection_with_password = connection.clone();
+        connection_with_password.password = Some(password);
+
+        // Test the connection first
+        let postgres = connection_with_password.to_postgres();
+        if postgres.test().await {
+            // Connection successful, update state
+            self.active_connection = Some(connection_with_password.clone());
+            self.active_database = Some(postgres);
+            self.state = AppState::DatabaseConnected;
+
+            // Update hotkeys for database mode
+            self.hotkeys = DATABASE_HOTKEYS.to_vec();
+
+            // Load schemas after successful connection
+            self.load_schemas().await?;
+        } else {
+            eprintln!("Failed to connect to database: {}", connection.name);
         }
         Ok(())
     }
@@ -932,7 +949,45 @@ impl App<'_> {
         // Handle business logic based on modal actions
         match action {
             ModalAction::Save => {
-                if let Some(modal) =
+                // Handle password modal save
+                if let Some(password_modal) =
+                    self.modal_manager.get_password_modal_mut()
+                    && let Some(connection) = &password_modal.connection.clone()
+                {
+                    let password = password_modal.password.clone();
+                    let save_password = password_modal.save_password;
+                    password_modal.close();
+
+                    // Store password in keyring only if user chose to save it
+                    // In dev mode, don't save passwords to keyring
+                    if save_password {
+                        #[cfg(not(debug_assertions))]
+                        {
+                            if let Some(keyring) = &mut self.keyring
+                                && let Err(e) = keyring.set_password(&password)
+                            {
+                                eprintln!(
+                                    "Warning: Failed to store password in keyring: {e}"
+                                );
+                            }
+                        }
+                        #[cfg(debug_assertions)]
+                        {
+                            // In dev mode, passwords are not saved to keyring
+                            // The checkbox is ignored
+                        }
+                    }
+
+                    // Connect with the provided password
+                    if let Err(e) = self
+                        .connect_with_password(connection.clone(), password)
+                        .await
+                    {
+                        eprintln!("Failed to connect: {e}");
+                    }
+                }
+                // Handle connection modal save
+                else if let Some(modal) =
                     self.modal_manager.get_connection_modal_mut()
                     && let Some(connection) = modal.get_connection()
                 {
