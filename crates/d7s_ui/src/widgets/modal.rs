@@ -21,6 +21,7 @@ pub enum ModalType {
     Connection,
     Confirmation,
     CellValue,
+    Password,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -88,6 +89,15 @@ pub struct CellValueModal {
     pub is_open: bool,
     pub column_name: String,
     pub cell_value: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PasswordModal {
+    pub is_open: bool,
+    pub password: String,
+    pub connection: Option<Connection>,
+    pub prompt: String,
+    pub save_password: bool,
 }
 
 impl<T: TableData> Modal<T> {
@@ -555,12 +565,139 @@ impl Widget for CellValueModal {
     }
 }
 
+impl PasswordModal {
+    pub fn new(connection: Connection, prompt: String) -> Self {
+        Self {
+            is_open: true,
+            password: String::new(),
+            connection: Some(connection),
+            prompt,
+            save_password: false, // Default to not saving password
+        }
+    }
+
+    pub fn toggle_save_password(&mut self) {
+        self.save_password = !self.save_password;
+    }
+
+    pub const fn close(&mut self) {
+        self.is_open = false;
+    }
+
+    pub fn add_char(&mut self, c: char) {
+        self.password.push(c);
+    }
+
+    pub fn remove_char(&mut self) {
+        self.password.pop();
+    }
+
+    pub fn handle_key_events(&mut self, key: KeyEvent) -> ModalAction {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                self.close();
+                ModalAction::Cancel
+            }
+            (_, KeyCode::Enter) => {
+                if !self.password.is_empty() {
+                    self.close();
+                    ModalAction::Save
+                } else {
+                    ModalAction::None
+                }
+            }
+            (_, KeyCode::Char(' ')) => {
+                // Space toggles save password checkbox (don't add space to password)
+                self.toggle_save_password();
+                ModalAction::None
+            }
+            (_, KeyCode::Char(c)) if !c.is_control() => {
+                self.add_char(c);
+                ModalAction::None
+            }
+            (_, KeyCode::Backspace) => {
+                self.remove_char();
+                ModalAction::None
+            }
+            _ => ModalAction::None,
+        }
+    }
+}
+
+impl Widget for PasswordModal {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if !self.is_open {
+            return;
+        }
+
+        // Center a fixed-size modal
+        let modal_width = 50;
+        let modal_height = 8;
+        let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
+        let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
+        let modal_area = Rect::new(x, y, modal_width, modal_height);
+
+        let block = Block::default()
+            .title("Enter Password")
+            .title_alignment(Alignment::Center)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow))
+            .style(Style::default().bg(Color::Black));
+        Clear.render(modal_area, buf);
+        block.render(modal_area, buf);
+
+        // Layout inside the modal: Prompt, Password input, Save checkbox, Buttons
+        let inner_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(2), // Prompt
+                Constraint::Length(1), // Password input
+                Constraint::Length(2), // Save password checkbox
+                Constraint::Length(1), // Buttons
+            ])
+            .margin(1)
+            .split(modal_area);
+
+        // Render prompt
+        Paragraph::new(self.prompt)
+            .style(Style::default().fg(Color::White))
+            .alignment(Alignment::Left)
+            .render(inner_layout[0], buf);
+
+        // Render password input (masked)
+        let masked_password = "•".repeat(self.password.len());
+        Paragraph::new(masked_password)
+            .style(Style::default().fg(Color::Yellow))
+            .alignment(Alignment::Left)
+            .render(inner_layout[1], buf);
+
+        // Render save password checkbox
+        let checkbox_text = if self.save_password {
+            "[x] Save password in keyring"
+        } else {
+            "[ ] Save password in keyring"
+        };
+        Paragraph::new(checkbox_text)
+            .style(Style::default().fg(Color::Cyan))
+            .alignment(Alignment::Left)
+            .render(inner_layout[2], buf);
+
+        // Render buttons
+        let buttons = Buttons {
+            buttons: vec!["OK", "Cancel"],
+            selected: if self.password.is_empty() { 1 } else { 0 },
+        };
+        buttons.render(inner_layout[3], buf);
+    }
+}
+
 /// Manager for handling multiple modals in the application
 #[derive(Default, Debug)]
 pub struct ModalManager {
     connection_modal: Option<Modal<Connection>>,
     confirmation_modal: Option<ConfirmationModal>,
     cell_value_modal: Option<CellValueModal>,
+    password_modal: Option<PasswordModal>,
     active_modal_type: Option<ModalType>,
 }
 
@@ -572,6 +709,7 @@ impl ModalManager {
             connection_modal: None,
             confirmation_modal: None,
             cell_value_modal: None,
+            password_modal: None,
             active_modal_type: None,
         }
     }
@@ -582,6 +720,7 @@ impl ModalManager {
         self.connection_modal.as_ref().is_some_and(|m| m.is_open)
             || self.confirmation_modal.as_ref().is_some_and(|m| m.is_open)
             || self.cell_value_modal.as_ref().is_some_and(|m| m.is_open)
+            || self.password_modal.as_ref().is_some_and(|m| m.is_open)
     }
 
     /// Open a new connection modal
@@ -630,6 +769,17 @@ impl ModalManager {
         self.active_modal_type = Some(ModalType::CellValue);
     }
 
+    /// Open a password input modal
+    pub fn open_password_modal(
+        &mut self,
+        connection: Connection,
+        prompt: String,
+    ) {
+        let modal = PasswordModal::new(connection, prompt);
+        self.password_modal = Some(modal);
+        self.active_modal_type = Some(ModalType::Password);
+    }
+
     /// Close the currently active modal
     pub const fn close_active_modal(&mut self) {
         match self.active_modal_type {
@@ -645,6 +795,11 @@ impl ModalManager {
             }
             Some(ModalType::CellValue) => {
                 if let Some(modal) = &mut self.cell_value_modal {
+                    modal.close();
+                }
+            }
+            Some(ModalType::Password) => {
+                if let Some(modal) = &mut self.password_modal {
                     modal.close();
                 }
             }
@@ -693,6 +848,18 @@ impl ModalManager {
                         self.active_modal_type = None;
                     }
                     ModalAction::Cancel
+                } else {
+                    ModalAction::None
+                }
+            }
+            Some(ModalType::Password) => {
+                if let Some(modal) = &mut self.password_modal {
+                    let action = modal.handle_key_events(key);
+                    // If modal was closed, clear the active type
+                    if !modal.is_open {
+                        self.active_modal_type = None;
+                    }
+                    action
                 } else {
                     ModalAction::None
                 }
@@ -758,6 +925,23 @@ impl ModalManager {
         {
             self.cell_value_modal = None;
         }
+
+        if let Some(modal) = &self.password_modal
+            && !modal.is_open
+        {
+            self.password_modal = None;
+        }
+    }
+
+    /// Get a reference to the password modal
+    #[must_use]
+    pub const fn get_password_modal(&self) -> Option<&PasswordModal> {
+        self.password_modal.as_ref()
+    }
+
+    /// Get a mutable reference to the password modal
+    pub fn get_password_modal_mut(&mut self) -> Option<&mut PasswordModal> {
+        self.password_modal.as_mut()
     }
 
     /// Get a reference to the cell value modal
