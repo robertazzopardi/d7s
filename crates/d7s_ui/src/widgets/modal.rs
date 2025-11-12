@@ -63,7 +63,36 @@ impl ModalField {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasswordStorageType {
+    Keyring,
+    DontSave,
+}
+
+impl Default for PasswordStorageType {
+    fn default() -> Self {
+        Self::Keyring
+    }
+}
+
+impl PasswordStorageType {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "keyring" => Self::Keyring,
+            "dont_save" => Self::DontSave,
+            _ => Self::Keyring, // Default fallback
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            Self::Keyring => "keyring".to_string(),
+            Self::DontSave => "dont_save".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Modal<T: TableData> {
     pub fields: Vec<ModalField>,
     pub current_field: usize,
@@ -74,6 +103,26 @@ pub struct Modal<T: TableData> {
     pub mode: Mode,
     pub test_result: TestResult,
     pub original_name: Option<String>,
+    pub password_storage: PasswordStorageType,
+}
+
+impl<T: TableData> Default for Modal<T>
+where
+    T: Default,
+{
+    fn default() -> Self {
+        Self {
+            fields: vec![],
+            current_field: 0,
+            is_open: false,
+            selected_button: 0,
+            data: T::default(),
+            mode: Mode::default(),
+            test_result: TestResult::default(),
+            original_name: None,
+            password_storage: PasswordStorageType::default(),
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -113,6 +162,7 @@ impl<T: TableData> Modal<T> {
             mode,
             test_result: TestResult::NotTested,
             original_name: None,
+            password_storage: PasswordStorageType::default(),
         };
 
         // Set focus on first field
@@ -121,6 +171,13 @@ impl<T: TableData> Modal<T> {
         }
 
         modal
+    }
+
+    pub fn toggle_password_storage(&mut self) {
+        self.password_storage = match self.password_storage {
+            PasswordStorageType::Keyring => PasswordStorageType::DontSave,
+            PasswordStorageType::DontSave => PasswordStorageType::Keyring,
+        };
     }
 
     pub fn open(&mut self) {
@@ -158,6 +215,13 @@ impl<T: TableData> Modal<T> {
             field.set_focus(false);
         }
 
+        // Load password storage preference from connection
+        self.password_storage = connection
+            .password_storage
+            .as_ref()
+            .map(|s| PasswordStorageType::from_str(s))
+            .unwrap_or_default();
+
         // Set focus on first field
         if !self.fields.is_empty() {
             self.fields[0].set_focus(true);
@@ -169,18 +233,28 @@ impl<T: TableData> Modal<T> {
     }
 
     pub fn next_field(&mut self) {
-        if self.current_field < self.fields.len() - 1 {
-            self.fields[self.current_field].set_focus(false);
+        let max_field = self.fields.len(); // Include storage selector
+
+        if self.current_field < max_field {
+            if self.current_field < self.fields.len() {
+                self.fields[self.current_field].set_focus(false);
+            }
             self.current_field += 1;
-            self.fields[self.current_field].set_focus(true);
+            if self.current_field < self.fields.len() {
+                self.fields[self.current_field].set_focus(true);
+            }
         }
     }
 
     pub fn prev_field(&mut self) {
         if self.current_field > 0 {
-            self.fields[self.current_field].set_focus(false);
+            if self.current_field < self.fields.len() {
+                self.fields[self.current_field].set_focus(false);
+            }
             self.current_field -= 1;
-            self.fields[self.current_field].set_focus(true);
+            if self.current_field < self.fields.len() {
+                self.fields[self.current_field].set_focus(true);
+            }
         }
     }
 
@@ -210,6 +284,7 @@ impl<T: TableData> Modal<T> {
             password: Some(self.fields[5].value.clone()),
             schema: None,
             table: None,
+            password_storage: Some(self.password_storage.to_string()),
         })
     }
 
@@ -246,6 +321,11 @@ impl<T: TableData> Modal<T> {
                 }
             }
             (_, KeyCode::Char(c)) => {
+                // If focused on storage selector, Space toggles it
+                if self.current_field == self.fields.len() && c == ' ' {
+                    self.toggle_password_storage();
+                    return ModalAction::None;
+                }
                 self.add_char(c);
                 ModalAction::None
             }
@@ -254,10 +334,20 @@ impl<T: TableData> Modal<T> {
                 ModalAction::None
             }
             (_, KeyCode::Left) => {
+                // If focused on storage selector, Left/Right toggle it
+                if self.current_field == self.fields.len() {
+                    self.toggle_password_storage();
+                    return ModalAction::None;
+                }
                 self.selected_button = (self.selected_button + 2) % 3;
                 ModalAction::None
             }
             (_, KeyCode::Right) => {
+                // If focused on storage selector, Left/Right toggle it
+                if self.current_field == self.fields.len() {
+                    self.toggle_password_storage();
+                    return ModalAction::None;
+                }
                 self.selected_button = (self.selected_button + 1) % 3;
                 ModalAction::None
             }
@@ -282,7 +372,7 @@ impl<T: TableData> Widget for Modal<T> {
 
         // Center a fixed-size modal
         let modal_width = 40;
-        let modal_height = 14;
+        let modal_height = 15; // Extra height for storage selector
         let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
         let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
         let modal_area = Rect::new(x, y, modal_width, modal_height);
@@ -301,14 +391,16 @@ impl<T: TableData> Widget for Modal<T> {
         Clear.render(modal_area, buf);
         block.render(modal_area, buf);
 
-        // Layout inside the modal: Title, Subtitle, Fields, Buttons
+        // Layout inside the modal: Title, Subtitle, Fields, Storage selector, Test result, Buttons
+        let field_height = 9; // 6 fields + storage selector + padding
+
         let inner_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1), // Title
-                Constraint::Min(8),    // Fields (6 fields + some padding)
-                Constraint::Length(1), // Test result
-                Constraint::Length(1), // Buttons
+                Constraint::Length(1),         // Title
+                Constraint::Min(field_height), // Fields
+                Constraint::Length(1),         // Test result
+                Constraint::Length(1),         // Buttons
             ])
             .margin(1)
             .split(modal_area);
@@ -327,9 +419,11 @@ impl<T: TableData> Widget for Modal<T> {
 impl<T: TableData> Modal<T> {
     fn render_fields(&self, area: Rect, buf: &mut Buffer) {
         // Each field is a row: label left, value right after colon
+        let num_rows = self.fields.len() + 1; // +1 for storage selector
+
         let field_layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(self.fields.iter().map(|_| Constraint::Length(1)))
+            .constraints((0..num_rows).map(|_| Constraint::Length(1)))
             .split(area);
 
         for (i, field) in self.fields.iter().enumerate() {
@@ -358,6 +452,22 @@ impl<T: TableData> Modal<T> {
                 .alignment(Alignment::Left)
                 .render(field_layout[i], buf);
         }
+
+        // Render password storage selector
+        let storage_text = match self.password_storage {
+            PasswordStorageType::Keyring => "Store in: [Keyring] Don't Save",
+            PasswordStorageType::DontSave => "Store in: Keyring [Don't Save]",
+        };
+        let storage_style = if self.current_field == self.fields.len() {
+            // Focused on storage selector
+            Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+        } else {
+            Style::default().fg(Color::Cyan)
+        };
+        Paragraph::new(storage_text)
+            .style(storage_style)
+            .alignment(Alignment::Left)
+            .render(field_layout[self.fields.len()], buf);
     }
 
     fn render_buttons(&self, area: Rect, buf: &mut Buffer) {

@@ -12,6 +12,7 @@ pub struct Connection {
     pub schema: Option<String>,
     pub table: Option<String>,
     pub password: Option<String>,
+    pub password_storage: Option<String>, // "keyring" or "dont_save"
 }
 
 impl Display for Connection {
