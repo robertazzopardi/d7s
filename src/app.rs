@@ -553,25 +553,47 @@ impl App<'_> {
                 && let Some(connection) =
                     self.table_widget.items.get(data_index)
             {
-                let entry = Keyring::new(&connection.user)?;
-                match entry.get_password() {
-                    Ok(password) => {
-                        self.keyring = Some(entry);
-                        self.connect_with_password(
-                            connection.clone(),
-                            password,
-                        )
-                        .await?;
-                    }
-                    Err(_) => {
-                        // Password not found - show password modal
-                        let prompt = format!(
-                            "Password not found for user '{}'.\nPlease enter password:",
-                            connection.user
-                        );
-                        self.modal_manager
-                            .open_password_modal(connection.clone(), prompt);
-                        self.keyring = Some(entry);
+                // Check if password storage is set to "dont_save" (ask every time)
+                let should_ask_every_time = connection
+                    .password_storage
+                    .as_ref()
+                    .map(|s| s == "dont_save")
+                    .unwrap_or(false);
+
+                if should_ask_every_time {
+                    // Always ask for password when "Ask every time" is enabled
+                    let prompt = format!(
+                        "Enter password for user '{}':",
+                        connection.user
+                    );
+                    let entry = Keyring::new(&connection.user)?;
+                    self.modal_manager
+                        .open_password_modal(connection.clone(), prompt);
+                    self.keyring = Some(entry);
+                } else {
+                    // Try to get password from keyring
+                    let entry = Keyring::new(&connection.user)?;
+                    match entry.get_password() {
+                        Ok(password) => {
+                            self.keyring = Some(entry);
+                            self.connect_with_password(
+                                connection.clone(),
+                                password,
+                            )
+                            .await?;
+                        }
+                        Err(_) => {
+                            // Password not found - show password modal
+                            let prompt = format!(
+                                "Password not found for user '{}'.\nPlease enter password:",
+                                connection.user
+                            );
+                            self.modal_manager.open_password_modal(
+                                connection.clone(),
+                                prompt,
+                            );
+                            self.keyring = Some(entry);
+                        }
                     }
                 }
             }
@@ -958,9 +980,18 @@ impl App<'_> {
                     let save_password = password_modal.save_password;
                     password_modal.close();
 
-                    // Store password in keyring only if user chose to save it
-                    // In dev mode, don't save passwords to keyring
-                    if save_password {
+                    // Check if connection has "Ask every time" enabled
+                    let ask_every_time = connection
+                        .password_storage
+                        .as_ref()
+                        .map(|s| s == "dont_save")
+                        .unwrap_or(false);
+
+                    // Store password in keyring only if:
+                    // 1. User chose to save it (save_password checkbox)
+                    // 2. Connection doesn't have "Ask every time" enabled
+                    // 3. Not in dev mode
+                    if save_password && !ask_every_time {
                         #[cfg(not(debug_assertions))]
                         {
                             if let Some(keyring) = &mut self.keyring
