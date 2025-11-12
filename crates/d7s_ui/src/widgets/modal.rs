@@ -232,14 +232,34 @@ impl<T: TableData> Modal<T> {
         self.is_open = false;
     }
 
-    pub fn next_field(&mut self) {
-        let max_field = self.fields.len(); // Include storage selector
+    /// Get total number of navigable items (fields + storage selector + buttons)
+    fn total_items(&self) -> usize {
+        self.fields.len() + 1 + 3 // fields + storage selector + 3 buttons
+    }
 
-        if self.current_field < max_field {
+    /// Check if current_field is on a button
+    fn is_on_button(&self) -> Option<usize> {
+        let button_start = self.fields.len() + 1;
+        if self.current_field >= button_start
+            && self.current_field < button_start + 3
+        {
+            Some(self.current_field - button_start)
+        } else {
+            None
+        }
+    }
+
+    pub fn next_field(&mut self) {
+        let total = self.total_items();
+        if self.current_field < total - 1 {
+            // Clear current focus
             if self.current_field < self.fields.len() {
                 self.fields[self.current_field].set_focus(false);
             }
+
             self.current_field += 1;
+
+            // Set focus on new item
             if self.current_field < self.fields.len() {
                 self.fields[self.current_field].set_focus(true);
             }
@@ -248,10 +268,14 @@ impl<T: TableData> Modal<T> {
 
     pub fn prev_field(&mut self) {
         if self.current_field > 0 {
+            // Clear current focus
             if self.current_field < self.fields.len() {
                 self.fields[self.current_field].set_focus(false);
             }
+
             self.current_field -= 1;
+
+            // Set focus on new item
             if self.current_field < self.fields.len() {
                 self.fields[self.current_field].set_focus(true);
             }
@@ -259,14 +283,20 @@ impl<T: TableData> Modal<T> {
     }
 
     pub fn add_char(&mut self, c: char) {
-        if let Some(field) = self.fields.get_mut(self.current_field) {
-            field.add_char(c);
+        // Only add characters when on a field, not on storage selector or buttons
+        if self.current_field < self.fields.len() {
+            if let Some(field) = self.fields.get_mut(self.current_field) {
+                field.add_char(c);
+            }
         }
     }
 
     pub fn remove_char(&mut self) {
-        if let Some(field) = self.fields.get_mut(self.current_field) {
-            field.remove_char();
+        // Only remove characters when on a field, not on storage selector or buttons
+        if self.current_field < self.fields.len() {
+            if let Some(field) = self.fields.get_mut(self.current_field) {
+                field.remove_char();
+            }
         }
     }
 
@@ -301,23 +331,40 @@ impl<T: TableData> Modal<T> {
                 ModalAction::Cancel
             }
             (_, KeyCode::BackTab | KeyCode::Up) => {
-                self.prev_field();
+                // If on buttons, go to storage selector above
+                if let Some(_) = self.is_on_button() {
+                    self.current_field = self.fields.len(); // Storage selector
+                } else {
+                    self.prev_field();
+                }
                 ModalAction::None
             }
             (_, KeyCode::Tab | KeyCode::Down) => {
-                self.next_field();
+                // If on buttons, don't navigate (nothing below buttons)
+                if self.is_on_button().is_none() {
+                    self.next_field();
+                }
                 ModalAction::None
             }
             (_, KeyCode::Enter) => {
-                if self.selected_button == 0 && self.is_valid() {
-                    ModalAction::Save
-                } else if self.selected_button == 1 {
-                    ModalAction::Test
-                } else if self.selected_button == 2 {
-                    self.close();
-                    ModalAction::Cancel
+                // Check if we're on a button
+                if let Some(button_idx) = self.is_on_button() {
+                    match button_idx {
+                        0 if self.is_valid() => ModalAction::Save,
+                        1 => ModalAction::Test,
+                        2 => {
+                            self.close();
+                            ModalAction::Cancel
+                        }
+                        _ => ModalAction::None,
+                    }
                 } else {
-                    ModalAction::None
+                    // If on a field or storage selector, treat Enter as Save if valid
+                    if self.is_valid() {
+                        ModalAction::Save
+                    } else {
+                        ModalAction::None
+                    }
                 }
             }
             (_, KeyCode::Char(c)) => {
@@ -326,7 +373,10 @@ impl<T: TableData> Modal<T> {
                     self.toggle_password_storage();
                     return ModalAction::None;
                 }
-                self.add_char(c);
+                // Only add characters when on a field (not on buttons)
+                if self.current_field < self.fields.len() {
+                    self.add_char(c);
+                }
                 ModalAction::None
             }
             (_, KeyCode::Backspace) => {
@@ -334,21 +384,25 @@ impl<T: TableData> Modal<T> {
                 ModalAction::None
             }
             (_, KeyCode::Left) => {
-                // If focused on storage selector, Left/Right toggle it
-                if self.current_field == self.fields.len() {
-                    self.toggle_password_storage();
-                    return ModalAction::None;
+                // If on buttons, navigate left between buttons
+                if let Some(button_idx) = self.is_on_button() {
+                    let new_button_idx = (button_idx + 2) % 3;
+                    self.current_field = self.fields.len() + 1 + new_button_idx;
+                } else {
+                    // Otherwise, move to previous item
+                    self.prev_field();
                 }
-                self.selected_button = (self.selected_button + 2) % 3;
                 ModalAction::None
             }
             (_, KeyCode::Right) => {
-                // If focused on storage selector, Left/Right toggle it
-                if self.current_field == self.fields.len() {
-                    self.toggle_password_storage();
-                    return ModalAction::None;
+                // If on buttons, navigate right between buttons
+                if let Some(button_idx) = self.is_on_button() {
+                    let new_button_idx = (button_idx + 1) % 3;
+                    self.current_field = self.fields.len() + 1 + new_button_idx;
+                } else {
+                    // Otherwise, move to next item
+                    self.next_field();
                 }
-                self.selected_button = (self.selected_button + 1) % 3;
                 ModalAction::None
             }
             _ => ModalAction::None,
@@ -453,10 +507,10 @@ impl<T: TableData> Modal<T> {
                 .render(field_layout[i], buf);
         }
 
-        // Render password storage selector
-        let storage_text = match self.password_storage {
-            PasswordStorageType::Keyring => "Store in: [Keyring] Don't Save",
-            PasswordStorageType::DontSave => "Store in: Keyring [Don't Save]",
+        // Render password storage selector as a checkbox toggle
+        let checkbox_text = match self.password_storage {
+            PasswordStorageType::Keyring => "[ ] Ask every time",
+            PasswordStorageType::DontSave => "[x] Ask every time",
         };
         let storage_style = if self.current_field == self.fields.len() {
             // Focused on storage selector
@@ -464,16 +518,19 @@ impl<T: TableData> Modal<T> {
         } else {
             Style::default().fg(Color::Cyan)
         };
-        Paragraph::new(storage_text)
+        Paragraph::new(checkbox_text)
             .style(storage_style)
             .alignment(Alignment::Left)
             .render(field_layout[self.fields.len()], buf);
     }
 
     fn render_buttons(&self, area: Rect, buf: &mut Buffer) {
+        // Determine which button is selected based on current_field
+        // Only select a button if we're actually on a button, otherwise use out-of-bounds index
+        let selected_button = self.is_on_button().unwrap_or(999); // 999 ensures no button is selected
         let buttons = Buttons {
             buttons: vec!["OK", "Test", "Cancel"],
-            selected: self.selected_button,
+            selected: selected_button,
         };
         buttons.render(area, buf);
     }
