@@ -73,7 +73,7 @@ impl TableDataWidget {
 }
 
 impl TableDataWidget {
-    /// Adjusts column_offset to ensure the selected column is visible
+    /// Adjusts `column_offset` to ensure the selected column is visible
     pub fn adjust_offset_for_selected_column(
         &mut self,
         selected_col: usize,
@@ -111,6 +111,118 @@ impl TableDataWidget {
     }
 }
 
+// Helper function to calculate visible columns and relative selected column
+#[allow(clippy::option_if_let_else)]
+fn calculate_visible_columns_for_data(
+    longest_item_lens: &[u16],
+    column_names: &[String],
+    column_offset: usize,
+    selected_col_opt: Option<usize>,
+    area_width: u16,
+) -> (Vec<usize>, Option<usize>) {
+    if let Some(selected_col) = selected_col_opt {
+        // Adjust offset locally to ensure selected column is visible
+        let mut eff_offset = column_offset;
+        if selected_col < eff_offset {
+            eff_offset = selected_col;
+        } else {
+            // Calculate if selected column is visible with current offset
+            let mut cumulative_width = 0u16;
+            let mut visible_end = eff_offset;
+            for (idx, &len) in longest_item_lens.iter().enumerate().skip(eff_offset) {
+                let col_width = len + 1;
+                if cumulative_width + col_width > area_width {
+                    break;
+                }
+                cumulative_width += col_width;
+                visible_end = idx + 1;
+            }
+            if selected_col >= visible_end {
+                eff_offset = selected_col;
+            }
+        }
+
+        // Clamp effective offset
+        if eff_offset >= column_names.len() {
+            eff_offset = column_names.len().saturating_sub(1);
+        }
+
+        // Calculate visible columns with effective offset
+        let mut vis_cols = Vec::new();
+        let mut cumulative_width = 0u16;
+        for (idx, &len) in longest_item_lens.iter().enumerate().skip(eff_offset) {
+            let col_width = len + 1;
+            if cumulative_width + col_width > area_width {
+                break;
+            }
+            cumulative_width += col_width;
+            vis_cols.push(idx);
+        }
+
+        if vis_cols.is_empty() && !column_names.is_empty() {
+            vis_cols.push(eff_offset.min(column_names.len() - 1));
+        }
+
+        // Find relative position of selected column in visible columns
+        let rel_selected_col = vis_cols
+            .iter()
+            .position(|&idx| idx == selected_col)
+            .unwrap_or(0);
+
+        (vis_cols, Some(rel_selected_col))
+    } else {
+        // No column selected - just calculate visible columns from current offset
+        let mut vis_cols = Vec::new();
+        let mut cumulative_width = 0u16;
+        for (idx, &len) in longest_item_lens.iter().enumerate().skip(column_offset) {
+            let col_width = len + 1;
+            if cumulative_width + col_width > area_width {
+                break;
+            }
+            cumulative_width += col_width;
+            vis_cols.push(idx);
+        }
+
+        if vis_cols.is_empty() && !column_names.is_empty() {
+            vis_cols.push(column_offset.min(column_names.len() - 1));
+        }
+
+        (vis_cols, None)
+    }
+}
+
+// Helper function to create table styles
+fn create_table_styles() -> (
+    Style,
+    Style,
+    Style,
+    Text<'static>,
+    HighlightSpacing,
+) {
+    let selected_row_style = Style::default()
+        .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+        .fg(ratatui::style::Color::Black)
+        .bg(ratatui::style::Color::Yellow);
+    let selected_col_style = Style::default().fg(ratatui::style::Color::Cyan);
+    let selected_cell_style = Style::default()
+        .add_modifier(Modifier::REVERSED)
+        .fg(ratatui::style::Color::Magenta);
+    let bar: &'static str = " █ ";
+    let highlight_symbol = Text::from(vec![
+        "".into(),
+        bar.into(),
+        bar.into(),
+        "".into(),
+    ]);
+    (
+        selected_row_style,
+        selected_col_style,
+        selected_cell_style,
+        highlight_symbol,
+        HighlightSpacing::Always,
+    )
+}
+
 impl StatefulWidget for TableDataWidget {
     type State = TableState;
 
@@ -120,107 +232,21 @@ impl StatefulWidget for TableDataWidget {
         buf: &mut ratatui::buffer::Buffer,
         state: &mut Self::State,
     ) {
-        // Get absolute selected column index (None means no column selected)
         let selected_col_opt = state.selected_column();
+        let (visible_cols, relative_selected_col) = calculate_visible_columns_for_data(
+            &self.longest_item_lens,
+            &self.column_names,
+            self.column_offset,
+            selected_col_opt,
+            area.width,
+        );
 
-        // If no column is selected, don't adjust offset or highlight columns
-        let (visible_cols, relative_selected_col) = if let Some(selected_col) =
-            selected_col_opt
-        {
-            // Adjust offset locally to ensure selected column is visible
-            let mut eff_offset = self.column_offset;
-            if selected_col < eff_offset {
-                eff_offset = selected_col;
-            } else {
-                // Calculate if selected column is visible with current offset
-                let mut cumulative_width = 0u16;
-                let mut visible_end = eff_offset;
-                for (idx, &len) in
-                    self.longest_item_lens.iter().enumerate().skip(eff_offset)
-                {
-                    let col_width = len + 1;
-                    if cumulative_width + col_width > area.width {
-                        break;
-                    }
-                    cumulative_width += col_width;
-                    visible_end = idx + 1;
-                }
-                if selected_col >= visible_end {
-                    eff_offset = selected_col;
-                }
-            }
-
-            // Clamp effective offset
-            if eff_offset >= self.column_names.len() {
-                eff_offset = self.column_names.len().saturating_sub(1);
-            }
-
-            // Calculate visible columns with effective offset
-            let mut vis_cols = Vec::new();
-            let mut cumulative_width = 0u16;
-            for (idx, &len) in
-                self.longest_item_lens.iter().enumerate().skip(eff_offset)
-            {
-                let col_width = len + 1;
-                if cumulative_width + col_width > area.width {
-                    break;
-                }
-                cumulative_width += col_width;
-                vis_cols.push(idx);
-            }
-
-            if vis_cols.is_empty() && !self.column_names.is_empty() {
-                vis_cols.push(eff_offset.min(self.column_names.len() - 1));
-            }
-
-            // Find relative position of selected column in visible columns
-            let rel_selected_col = vis_cols
-                .iter()
-                .position(|&idx| idx == selected_col)
-                .unwrap_or(0);
-
-            (vis_cols, Some(rel_selected_col))
-        } else {
-            // No column selected - just calculate visible columns from current offset
-            let mut vis_cols = Vec::new();
-            let mut cumulative_width = 0u16;
-            for (idx, &len) in self
-                .longest_item_lens
-                .iter()
-                .enumerate()
-                .skip(self.column_offset)
-            {
-                let col_width = len + 1;
-                if cumulative_width + col_width > area.width {
-                    break;
-                }
-                cumulative_width += col_width;
-                vis_cols.push(idx);
-            }
-
-            if vis_cols.is_empty() && !self.column_names.is_empty() {
-                vis_cols
-                    .push(self.column_offset.min(self.column_names.len() - 1));
-            }
-
-            (vis_cols, None)
-        };
-
-        // Temporarily set relative column for rendering (None if no column selected)
         let original_col = state.selected_column();
         state.select_column(relative_selected_col);
 
-        let selected_row_style = Style::default()
-            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
-            .fg(ratatui::style::Color::Black)
-            .bg(ratatui::style::Color::Yellow);
-        let selected_col_style =
-            Style::default().fg(ratatui::style::Color::Cyan);
-        let selected_cell_style = Style::default()
-            .add_modifier(Modifier::REVERSED)
-            .fg(ratatui::style::Color::Magenta);
+        let (selected_row_style, selected_col_style, selected_cell_style, highlight_symbol, highlight_spacing) =
+            create_table_styles();
 
-        // Only render visible columns
         let header = visible_cols
             .iter()
             .map(|&idx| Cell::from(self.column_names[idx].clone()))
@@ -239,13 +265,9 @@ impl StatefulWidget for TableDataWidget {
                 .height(1)
         });
 
-        let bar: &'static str = " █ ";
         let constraints = visible_cols
             .iter()
-            .map(|&idx| {
-                let len = self.longest_item_lens[idx];
-                Constraint::Length(len + 1) // Use Length instead of Min to prevent compression
-            })
+            .map(|&idx| Constraint::Length(self.longest_item_lens[idx] + 1))
             .collect::<Vec<_>>();
 
         let t = Table::new(rows, constraints)
@@ -253,17 +275,10 @@ impl StatefulWidget for TableDataWidget {
             .row_highlight_style(selected_row_style)
             .column_highlight_style(selected_col_style)
             .cell_highlight_style(selected_cell_style)
-            .highlight_symbol(Text::from(vec![
-                "".into(),
-                bar.into(),
-                bar.into(),
-                "".into(),
-            ]))
-            .highlight_spacing(HighlightSpacing::Always);
+            .highlight_symbol(highlight_symbol)
+            .highlight_spacing(highlight_spacing);
 
         StatefulWidget::render(t, area, buf, state);
-
-        // Restore original column selection (absolute index)
         state.select_column(original_col);
     }
 }
@@ -316,7 +331,7 @@ impl<T: TableData + Clone> DataTable<T> {
 }
 
 impl<T: TableData + Clone> DataTable<T> {
-    /// Adjusts column_offset to ensure the selected column is visible
+    /// Adjusts `column_offset` to ensure the selected column is visible
     pub fn adjust_offset_for_selected_column(
         &mut self,
         selected_col: usize,
@@ -358,6 +373,85 @@ impl<T: TableData + Clone> DataTable<T> {
     }
 }
 
+// Helper function to calculate visible columns for DataTable
+#[allow(clippy::option_if_let_else)]
+fn calculate_visible_columns_for_table(
+    longest_item_lens: &[u16],
+    column_offset: usize,
+    selected_col_opt: Option<usize>,
+    area_width: u16,
+) -> (Vec<usize>, Option<usize>) {
+    if let Some(selected_col) = selected_col_opt {
+        // Adjust offset locally to ensure selected column is visible
+        let mut eff_offset = column_offset;
+        if selected_col < eff_offset {
+            eff_offset = selected_col;
+        } else {
+            // Calculate if selected column is visible with current offset
+            let mut cumulative_width = 0u16;
+            let mut visible_end = eff_offset;
+            for (idx, &len) in longest_item_lens.iter().enumerate().skip(eff_offset) {
+                let col_width = len + 1;
+                if cumulative_width + col_width > area_width {
+                    break;
+                }
+                cumulative_width += col_width;
+                visible_end = idx + 1;
+            }
+            if selected_col >= visible_end {
+                eff_offset = selected_col;
+            }
+        }
+
+        // Clamp effective offset
+        if eff_offset >= longest_item_lens.len() {
+            eff_offset = longest_item_lens.len().saturating_sub(1);
+        }
+
+        // Calculate visible columns with effective offset
+        let mut vis_cols = Vec::new();
+        let mut cumulative_width = 0u16;
+        for (idx, &len) in longest_item_lens.iter().enumerate().skip(eff_offset) {
+            let col_width = len + 1;
+            if cumulative_width + col_width > area_width {
+                break;
+            }
+            cumulative_width += col_width;
+            vis_cols.push(idx);
+        }
+
+        if vis_cols.is_empty() {
+            vis_cols.push(eff_offset.min(longest_item_lens.len() - 1));
+        }
+
+        // Find relative position of selected column in visible columns
+        let rel_selected_col = vis_cols
+            .iter()
+            .position(|&idx| idx == selected_col)
+            .unwrap_or(0);
+
+        (vis_cols, Some(rel_selected_col))
+    } else {
+        // No column selected - just calculate visible columns from current offset
+        let mut vis_cols = Vec::new();
+        let mut cumulative_width = 0u16;
+        for (idx, &len) in longest_item_lens.iter().enumerate().skip(column_offset) {
+            let col_width = len + 1;
+            if cumulative_width + col_width > area_width {
+                break;
+            }
+            cumulative_width += col_width;
+            vis_cols.push(idx);
+        }
+
+        if vis_cols.is_empty() {
+            vis_cols.push(column_offset.min(longest_item_lens.len() - 1));
+        }
+
+        (vis_cols, None)
+    }
+}
+
 impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
     type State = TableState;
 
@@ -371,115 +465,25 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
             return;
         }
 
-        // Get absolute selected column index (None means no column selected)
         let selected_col_opt = state.selected_column();
+        let (visible_cols, relative_selected_col) = calculate_visible_columns_for_table(
+            &self.longest_item_lens,
+            self.column_offset,
+            selected_col_opt,
+            area.width,
+        );
 
-        // If no column is selected, don't adjust offset or highlight columns
-        let (visible_cols, relative_selected_col) = if let Some(selected_col) =
-            selected_col_opt
-        {
-            // Adjust offset locally to ensure selected column is visible
-            let mut eff_offset = self.column_offset;
-            if selected_col < eff_offset {
-                eff_offset = selected_col;
-            } else {
-                // Calculate if selected column is visible with current offset
-                let mut cumulative_width = 0u16;
-                let mut visible_end = eff_offset;
-                for (idx, &len) in
-                    self.longest_item_lens.iter().enumerate().skip(eff_offset)
-                {
-                    let col_width = len + 1;
-                    if cumulative_width + col_width > area.width {
-                        break;
-                    }
-                    cumulative_width += col_width;
-                    visible_end = idx + 1;
-                }
-                if selected_col >= visible_end {
-                    eff_offset = selected_col;
-                }
-            }
-
-            // Clamp effective offset
-            if eff_offset >= self.longest_item_lens.len() {
-                eff_offset = self.longest_item_lens.len().saturating_sub(1);
-            }
-
-            // Calculate visible columns with effective offset
-            let mut vis_cols = Vec::new();
-            let mut cumulative_width = 0u16;
-            for (idx, &len) in
-                self.longest_item_lens.iter().enumerate().skip(eff_offset)
-            {
-                let col_width = len + 1;
-                if cumulative_width + col_width > area.width {
-                    break;
-                }
-                cumulative_width += col_width;
-                vis_cols.push(idx);
-            }
-
-            if vis_cols.is_empty() {
-                vis_cols.push(eff_offset.min(self.longest_item_lens.len() - 1));
-            }
-
-            // Find relative position of selected column in visible columns
-            let rel_selected_col = vis_cols
-                .iter()
-                .position(|&idx| idx == selected_col)
-                .unwrap_or(0);
-
-            (vis_cols, Some(rel_selected_col))
-        } else {
-            // No column selected - just calculate visible columns from current offset
-            let mut vis_cols = Vec::new();
-            let mut cumulative_width = 0u16;
-            for (idx, &len) in self
-                .longest_item_lens
-                .iter()
-                .enumerate()
-                .skip(self.column_offset)
-            {
-                let col_width = len + 1;
-                if cumulative_width + col_width > area.width {
-                    break;
-                }
-                cumulative_width += col_width;
-                vis_cols.push(idx);
-            }
-
-            if vis_cols.is_empty() {
-                vis_cols.push(
-                    self.column_offset.min(self.longest_item_lens.len() - 1),
-                );
-            }
-
-            (vis_cols, None)
-        };
-
-        // Temporarily set relative column for rendering (None if no column selected)
         let original_col = state.selected_column();
         state.select_column(relative_selected_col);
 
-        let selected_row_style = Style::default()
-            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
-            .fg(ratatui::style::Color::Black)
-            .bg(ratatui::style::Color::Yellow);
-        let selected_col_style =
-            Style::default().fg(ratatui::style::Color::Cyan);
-        let selected_cell_style = Style::default()
-            .add_modifier(Modifier::REVERSED)
-            .fg(ratatui::style::Color::Magenta);
+        let (selected_row_style, selected_col_style, selected_cell_style, highlight_symbol, highlight_spacing) =
+            create_table_styles();
 
-        // Get column names from the trait
         let all_cols = T::cols();
-
-        // Only render visible columns
         let header = visible_cols
             .iter()
             .map(|&idx| {
-                let col_name = all_cols.get(idx).cloned().unwrap_or_default();
+                let col_name = all_cols.get(idx).copied().unwrap_or_default();
                 Cell::from(col_name)
             })
             .collect::<Row>()
@@ -498,13 +502,9 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
                 .height(1)
         });
 
-        let bar: &'static str = " █ ";
         let constraints = visible_cols
             .iter()
-            .map(|&idx| {
-                let len = self.longest_item_lens[idx];
-                Constraint::Length(len + 1) // Use Length instead of Min to prevent compression
-            })
+            .map(|&idx| Constraint::Length(self.longest_item_lens[idx] + 1))
             .collect::<Vec<_>>();
 
         let t = Table::new(rows, constraints)
@@ -512,17 +512,10 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
             .row_highlight_style(selected_row_style)
             .column_highlight_style(selected_col_style)
             .cell_highlight_style(selected_cell_style)
-            .highlight_symbol(Text::from(vec![
-                "".into(),
-                bar.into(),
-                bar.into(),
-                "".into(),
-            ]))
-            .highlight_spacing(HighlightSpacing::Always);
+            .highlight_symbol(highlight_symbol)
+            .highlight_spacing(highlight_spacing);
 
         StatefulWidget::render(t, area, buf, state);
-
-        // Restore original column selection (absolute index)
         state.select_column(original_col);
     }
 }

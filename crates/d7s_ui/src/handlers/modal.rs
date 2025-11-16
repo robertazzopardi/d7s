@@ -1,22 +1,34 @@
+use std::str::FromStr;
+
 use d7s_auth::Keyring;
 use d7s_db::{Database, connection::Connection};
 
 use crate::widgets::modal::{PasswordStorageType, TestResult};
 
 /// Handles saving a connection from the modal
+///
+/// # Errors
+///
+/// Returns an error string if:
+/// - Keyring creation fails
+/// - Keyring is locked
+/// - Password storage in keyring fails
+/// - Database save/update operations fail
 pub fn handle_save_connection(
-    keyring: &mut Option<Keyring>,
-    connection: Connection,
+    #[allow(unused_variables)] keyring: &mut Option<Keyring>,
+    connection: &Connection,
     mode: crate::widgets::modal::Mode,
     original_name: Option<String>,
 ) -> Result<(), String> {
     // Handle password storage based on connection's storage preference
+    #[allow(unused_variables)]
     if let Some(password) = &connection.password {
         let storage_type = connection
             .password_storage
             .as_ref()
-            .map(|s| PasswordStorageType::from_str(s))
-            .unwrap_or(PasswordStorageType::Keyring);
+            .map_or(PasswordStorageType::Keyring, |s| {
+                PasswordStorageType::from_str(s).unwrap_or_default()
+            });
 
         match storage_type {
             PasswordStorageType::Keyring => {
@@ -71,13 +83,13 @@ pub fn handle_save_connection(
     }
 
     if matches!(mode, crate::widgets::modal::Mode::New) {
-        d7s_db::sqlite::save_connection(&connection)
+        d7s_db::sqlite::save_connection(connection)
             .map_err(|e| format!("Failed to save connection: {e}"))?;
-    } else if matches!(mode, crate::widgets::modal::Mode::Edit) {
-        if let Some(original_name) = original_name {
-            d7s_db::sqlite::update_connection(&original_name, &connection)
-                .map_err(|e| format!("Failed to update connection: {e}"))?;
-        }
+    } else if matches!(mode, crate::widgets::modal::Mode::Edit)
+        && let Some(original_name) = original_name
+    {
+        d7s_db::sqlite::update_connection(&original_name, connection)
+            .map_err(|e| format!("Failed to update connection: {e}"))?;
     }
 
     Ok(())
