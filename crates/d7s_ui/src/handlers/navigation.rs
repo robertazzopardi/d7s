@@ -47,12 +47,11 @@ impl TableNavigationHandler {
         let num_columns = table
             .items
             .first()
-            .map(|item| item.num_columns())
-            .unwrap_or(0);
+            .map_or(0, d7s_db::TableData::num_columns);
 
         // Clamp selected column
-        if let Some(selected_col) = table.table_state.selected_column() {
-            if selected_col >= num_columns {
+        if let Some(selected_col) = table.table_state.selected_column()
+            && selected_col >= num_columns {
                 if num_columns == 0 {
                     table.table_state.select_column(None);
                 } else {
@@ -61,7 +60,6 @@ impl TableNavigationHandler {
                         .select_column(Some(num_columns.saturating_sub(1)));
                 }
             }
-        }
 
         // Clamp column offset
         if num_columns == 0 {
@@ -76,8 +74,8 @@ impl TableNavigationHandler {
         let num_columns = table_data.column_names.len();
 
         // Clamp selected column
-        if let Some(selected_col) = table_data.table_state.selected_column() {
-            if selected_col >= num_columns {
+        if let Some(selected_col) = table_data.table_state.selected_column()
+            && selected_col >= num_columns {
                 if num_columns == 0 {
                     table_data.table_state.select_column(None);
                 } else {
@@ -86,7 +84,6 @@ impl TableNavigationHandler {
                         .select_column(Some(num_columns.saturating_sub(1)));
                 }
             }
-        }
 
         // Clamp column offset
         if num_columns == 0 {
@@ -298,8 +295,7 @@ impl TableNavigationHandler {
                     let num_cols = table
                         .items
                         .first()
-                        .map(|item| item.num_columns())
-                        .unwrap_or(0);
+                        .map_or(0, d7s_db::TableData::num_columns);
                     if num_cols > 0 {
                         table
                             .table_state
