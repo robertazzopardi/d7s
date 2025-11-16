@@ -4,7 +4,10 @@ use crossterm::event::{
 };
 use d7s_auth::Keyring;
 use d7s_db::{
-    Column, Database, Schema, Table, connection::Connection, postgres::Postgres,
+    Column, Database, Schema, Table,
+    connection::Connection,
+    postgres::Postgres,
+    sqlite::{get_connections, init_db},
 };
 use d7s_ui::{
     handlers::{
@@ -93,18 +96,12 @@ pub struct App<'a> {
 
 impl Default for App<'_> {
     fn default() -> Self {
-        d7s_db::sqlite::init_db().unwrap();
-
-        let items = d7s_db::sqlite::get_connections().unwrap_or_default();
-
-        let table_widget = DataTable::new(items.clone());
-
         Self {
             running: false,
             show_popup: false,
             modal_manager: ModalManager::new(),
             hotkeys: CONNECTION_HOTKEYS.to_vec(),
-            table_widget,
+            table_widget: DataTable::default(),
             state: AppState::ConnectionList,
             active_connection: None,
             active_database: None,
@@ -116,7 +113,7 @@ impl Default for App<'_> {
             sql_executor: SqlExecutor::new(),
             keyring: None,
             search_filter: SearchFilter::new(),
-            original_connections: items,
+            original_connections: Vec::new(),
             original_schemas: Vec::new(),
             original_tables: Vec::new(),
             original_columns: Vec::new(),
@@ -126,6 +123,19 @@ impl Default for App<'_> {
 }
 
 impl App<'_> {
+    pub fn initialise(mut self) -> Result<Self> {
+        init_db()?;
+
+        let items = get_connections().unwrap_or_default();
+
+        let table_widget = DataTable::new(items.clone());
+
+        self.table_widget = table_widget;
+        self.original_connections = items;
+
+        Ok(self)
+    }
+
     /// Run the application's main loop.
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
@@ -265,6 +275,7 @@ impl App<'_> {
     }
 
     /// Handles the key events and updates the state of [`App`].
+    #[allow(clippy::too_many_lines)]
     async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Handle search filter input first
         if self.search_filter.is_active {
@@ -533,7 +544,7 @@ impl App<'_> {
 
     /// Refresh the table data from the database
     fn refresh_connections(&mut self) {
-        if let Ok(connections) = d7s_db::sqlite::get_connections() {
+        if let Ok(connections) = get_connections() {
             self.original_connections.clone_from(&connections);
             self.table_widget.items = connections;
         }
@@ -557,8 +568,7 @@ impl App<'_> {
                 let should_ask_every_time = connection
                     .password_storage
                     .as_ref()
-                    .map(|s| s == "dont_save")
-                    .unwrap_or(false);
+                    .is_some_and(|s| s == "dont_save");
 
                 if should_ask_every_time {
                     // Always ask for password when "Ask every time" is enabled
@@ -573,27 +583,22 @@ impl App<'_> {
                 } else {
                     // Try to get password from keyring
                     let entry = Keyring::new(&connection.user)?;
-                    match entry.get_password() {
-                        Ok(password) => {
-                            self.keyring = Some(entry);
-                            self.connect_with_password(
-                                connection.clone(),
-                                password,
-                            )
-                            .await?;
-                        }
-                        Err(_) => {
-                            // Password not found - show password modal
-                            let prompt = format!(
-                                "Password not found for user '{}'.\nPlease enter password:",
-                                connection.user
-                            );
-                            self.modal_manager.open_password_modal(
-                                connection.clone(),
-                                prompt,
-                            );
-                            self.keyring = Some(entry);
-                        }
+                    if let Ok(password) = entry.get_password() {
+                        self.keyring = Some(entry);
+                        self.connect_with_password(
+                            connection.clone(),
+                            password,
+                        )
+                        .await?;
+                    } else {
+                        // Password not found - show password modal
+                        let prompt = format!(
+                            "Password not found for user '{}'.\nPlease enter password:",
+                            connection.user
+                        );
+                        self.modal_manager
+                            .open_password_modal(connection.clone(), prompt);
+                        self.keyring = Some(entry);
                     }
                 }
             }
@@ -653,10 +658,10 @@ impl App<'_> {
             Some(DatabaseExplorerState::Tables(schema)) => {
                 format!(" {schema} ")
             }
-            Some(DatabaseExplorerState::Columns(schema, table)) => {
-                format!(" {schema}.{table} ")
-            }
-            Some(DatabaseExplorerState::TableData(schema, table)) => {
+            Some(
+                DatabaseExplorerState::Columns(schema, table)
+                | DatabaseExplorerState::TableData(schema, table),
+            ) => {
                 format!(" {schema}.{table} ")
             }
             Some(DatabaseExplorerState::SqlExecutor) => {
@@ -964,6 +969,7 @@ impl App<'_> {
     }
 
     /// Handle modal events
+    #[allow(clippy::too_many_lines)]
     async fn handle_modal_events(&mut self, key: KeyEvent) -> Result<()> {
         // Handle modal events (UI only)
         let action = self.modal_manager.handle_key_events_ui(key);
@@ -984,8 +990,7 @@ impl App<'_> {
                     let ask_every_time = connection
                         .password_storage
                         .as_ref()
-                        .map(|s| s == "dont_save")
-                        .unwrap_or(false);
+                        .is_some_and(|s| s == "dont_save");
 
                     // Store password in keyring only if:
                     // 1. User chose to save it (save_password checkbox)
@@ -1023,10 +1028,10 @@ impl App<'_> {
                     && let Some(connection) = modal.get_connection()
                 {
                     let original_name = modal.original_name.clone();
-                    let mode = modal.mode.clone();
+                    let mode = modal.mode;
                     match handle_save_connection(
                         &mut self.keyring,
-                        connection,
+                        &connection,
                         mode,
                         original_name,
                     ) {

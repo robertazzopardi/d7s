@@ -1,3 +1,5 @@
+use std::{fmt::Display, str::FromStr};
+
 use crossterm::event::{KeyCode, KeyEvent};
 use d7s_db::{TableData, connection::Connection};
 use ratatui::{
@@ -8,7 +10,7 @@ use ratatui::{
 
 use crate::widgets::buttons::Buttons;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum Mode {
     #[default]
     New,
@@ -63,32 +65,33 @@ impl ModalField {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PasswordStorageType {
+    #[default]
     Keyring,
     DontSave,
 }
 
-impl Default for PasswordStorageType {
-    fn default() -> Self {
-        Self::Keyring
+impl Display for PasswordStorageType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Keyring => write!(f, "keyring"),
+            Self::DontSave => write!(f, "dont_save"),
+        }
     }
 }
 
-impl PasswordStorageType {
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "keyring" => Self::Keyring,
-            "dont_save" => Self::DontSave,
-            _ => Self::Keyring, // Default fallback
-        }
-    }
+#[derive(Debug, PartialEq, Eq)]
+pub struct PasswordStorageTypeError;
 
-    pub fn to_string(&self) -> String {
-        match self {
-            Self::Keyring => "keyring".to_string(),
-            Self::DontSave => "dont_save".to_string(),
-        }
+impl FromStr for PasswordStorageType {
+    type Err = PasswordStorageTypeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "keyring" => Self::Keyring,
+            _ => Self::DontSave,
+        })
     }
 }
 
@@ -106,9 +109,9 @@ pub struct Modal<T: TableData> {
     pub password_storage: PasswordStorageType,
 }
 
-impl<T: TableData> Default for Modal<T>
+impl<T> Default for Modal<T>
 where
-    T: Default,
+    T: TableData + Default,
 {
     fn default() -> Self {
         Self {
@@ -173,7 +176,7 @@ impl<T: TableData> Modal<T> {
         modal
     }
 
-    pub fn toggle_password_storage(&mut self) {
+    pub const fn toggle_password_storage(&mut self) {
         self.password_storage = match self.password_storage {
             PasswordStorageType::Keyring => PasswordStorageType::DontSave,
             PasswordStorageType::DontSave => PasswordStorageType::Keyring,
@@ -219,7 +222,7 @@ impl<T: TableData> Modal<T> {
         self.password_storage = connection
             .password_storage
             .as_ref()
-            .map(|s| PasswordStorageType::from_str(s))
+            .map(|s| PasswordStorageType::from_str(s).unwrap_or_default())
             .unwrap_or_default();
 
         // Set focus on first field
@@ -233,12 +236,12 @@ impl<T: TableData> Modal<T> {
     }
 
     /// Get total number of navigable items (fields + storage selector + buttons)
-    fn total_items(&self) -> usize {
+    const fn total_items(&self) -> usize {
         self.fields.len() + 1 + 3 // fields + storage selector + 3 buttons
     }
 
-    /// Check if current_field is on a button
-    fn is_on_button(&self) -> Option<usize> {
+    /// Check if `current_field` is on a button
+    const fn is_on_button(&self) -> Option<usize> {
         let button_start = self.fields.len() + 1;
         if self.current_field >= button_start
             && self.current_field < button_start + 3
@@ -284,19 +287,19 @@ impl<T: TableData> Modal<T> {
 
     pub fn add_char(&mut self, c: char) {
         // Only add characters when on a field, not on storage selector or buttons
-        if self.current_field < self.fields.len() {
-            if let Some(field) = self.fields.get_mut(self.current_field) {
-                field.add_char(c);
-            }
+        if self.current_field < self.fields.len()
+            && let Some(field) = self.fields.get_mut(self.current_field)
+        {
+            field.add_char(c);
         }
     }
 
     pub fn remove_char(&mut self) {
         // Only remove characters when on a field, not on storage selector or buttons
-        if self.current_field < self.fields.len() {
-            if let Some(field) = self.fields.get_mut(self.current_field) {
-                field.remove_char();
-            }
+        if self.current_field < self.fields.len()
+            && let Some(field) = self.fields.get_mut(self.current_field)
+        {
+            field.remove_char();
         }
     }
 
@@ -332,7 +335,7 @@ impl<T: TableData> Modal<T> {
             }
             (_, KeyCode::BackTab | KeyCode::Up) => {
                 // If on buttons, go to storage selector above
-                if let Some(_) = self.is_on_button() {
+                if self.is_on_button().is_some() {
                     self.current_field = self.fields.len(); // Storage selector
                 } else {
                     self.prev_field();
@@ -678,7 +681,8 @@ impl Widget for CellValueModal {
         let max_width = 80u16;
         let value_width = self.cell_value.len().min((max_width - 4) as usize);
         let modal_width =
-            ((value_width + 4).max(40).min(max_width as usize)) as u16;
+            u16::try_from((value_width + 4).max(40).min(max_width as usize))
+                .unwrap_or(max_width);
 
         // Calculate height: title + column name + value (with wrapping) + buttons
         // Estimate lines needed: ceil(cell_value.len() / (modal_width - 4))
@@ -686,7 +690,8 @@ impl Widget for CellValueModal {
         let value_lines = if self.cell_value.is_empty() {
             1u16
         } else {
-            self.cell_value.len().div_ceil(content_width) as u16
+            u16::try_from(self.cell_value.len().div_ceil(content_width))
+                .unwrap_or(1u16)
         };
         let modal_height = (3u16.saturating_add(value_lines).saturating_add(1))
             .min(area.height.saturating_sub(4))
@@ -733,7 +738,8 @@ impl Widget for CellValueModal {
 }
 
 impl PasswordModal {
-    pub fn new(connection: Connection, prompt: String) -> Self {
+    #[must_use]
+    pub const fn new(connection: Connection, prompt: String) -> Self {
         Self {
             is_open: true,
             password: String::new(),
@@ -743,7 +749,7 @@ impl PasswordModal {
         }
     }
 
-    pub fn toggle_save_password(&mut self) {
+    pub const fn toggle_save_password(&mut self) {
         self.save_password = !self.save_password;
     }
 
@@ -766,11 +772,11 @@ impl PasswordModal {
                 ModalAction::Cancel
             }
             (_, KeyCode::Enter) => {
-                if !self.password.is_empty() {
+                if self.password.is_empty() {
+                    ModalAction::None
+                } else {
                     self.close();
                     ModalAction::Save
-                } else {
-                    ModalAction::None
                 }
             }
             (_, KeyCode::Char(' ')) => {
@@ -852,7 +858,7 @@ impl Widget for PasswordModal {
         // Render buttons
         let buttons = Buttons {
             buttons: vec!["OK", "Cancel"],
-            selected: if self.password.is_empty() { 1 } else { 0 },
+            selected: usize::from(self.password.is_empty()),
         };
         buttons.render(inner_layout[3], buf);
     }
@@ -1107,7 +1113,9 @@ impl ModalManager {
     }
 
     /// Get a mutable reference to the password modal
-    pub fn get_password_modal_mut(&mut self) -> Option<&mut PasswordModal> {
+    pub const fn get_password_modal_mut(
+        &mut self,
+    ) -> Option<&mut PasswordModal> {
         self.password_modal.as_mut()
     }
 

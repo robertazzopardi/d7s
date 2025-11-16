@@ -49,8 +49,8 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::NotFound => write!(f, "Password not found"),
-            Error::Other(msg) => write!(f, "{}", msg),
+            Self::NotFound => write!(f, "Password not found"),
+            Self::Other(msg) => write!(f, "{msg}"),
         }
     }
 }
@@ -112,8 +112,10 @@ impl Keyring {
     /// Never returns an error in dev mode
     #[cfg(debug_assertions)]
     pub fn set_password(&self, password: &str) -> Result<(), Error> {
-        let mut store = dev_store().lock().unwrap();
-        store.insert(self.user.clone(), password.to_string());
+        dev_store()
+            .lock()
+            .map_err(|err| Error::Other(err.to_string()))?
+            .insert(self.user.clone(), password.to_string());
         Ok(())
     }
 
@@ -134,8 +136,12 @@ impl Keyring {
     /// Returns an error if the password is not found
     #[cfg(debug_assertions)]
     pub fn get_password(&self) -> Result<String, Error> {
-        let store = dev_store().lock().unwrap();
-        store.get(&self.user).cloned().ok_or(Error::NotFound)
+        dev_store()
+            .lock()
+            .map_err(|err| Error::Other(err.to_string()))?
+            .get(&self.user)
+            .cloned()
+            .ok_or(Error::NotFound)
     }
 
     /// Deletes the password from the keyring
@@ -155,8 +161,10 @@ impl Keyring {
     /// Never returns an error in dev mode
     #[cfg(debug_assertions)]
     pub fn delete_password(&self) -> Result<(), Error> {
-        let mut store = dev_store().lock().unwrap();
-        store.remove(&self.user);
+        dev_store()
+            .lock()
+            .map_err(|err| Error::Other(err.to_string()))?
+            .remove(&self.user);
         Ok(())
     }
 }
