@@ -4,10 +4,12 @@ pub mod hotkey_view;
 pub mod modal;
 pub mod search_filter;
 pub mod sql_executor;
+pub mod status_line;
 pub mod table;
 pub mod top_bar_view;
 
 use d7s_db::TableData;
+pub use status_line::StatusLine;
 use unicode_width::UnicodeWidthStr;
 
 pub fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<u16> {

@@ -90,7 +90,6 @@ pub fn handle_sql_executor_input(
     }
 }
 
-/// Handles connection list navigation keys
 pub fn handle_connection_list_navigation<T: TableData + Clone>(
     key: KeyCode,
     table_widget: &mut DataTable<T>,
