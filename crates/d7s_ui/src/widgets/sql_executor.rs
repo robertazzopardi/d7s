@@ -3,7 +3,7 @@ use ratatui::{
     widgets::{Paragraph, Wrap},
 };
 
-use crate::widgets::table::TableDataWidget;
+use crate::widgets::table::{DataTable, RawTableRow};
 
 #[derive(Debug, Clone, Default)]
 pub struct SqlExecutor {
@@ -13,7 +13,7 @@ pub struct SqlExecutor {
     pub column_names: Vec<String>,
     pub error_message: Option<String>,
     pub is_active: bool,
-    pub table_widget: Option<TableDataWidget>,
+    pub table_widget: Option<DataTable<RawTableRow>>,
 }
 
 impl SqlExecutor {
@@ -79,7 +79,8 @@ impl SqlExecutor {
         self.results = Some(results.clone());
         self.column_names.clone_from(&column_names);
         self.error_message = None;
-        self.table_widget = Some(TableDataWidget::new(results, column_names));
+        self.table_widget =
+            Some(DataTable::from_raw_data(results, column_names));
     }
 
     pub fn set_error(&mut self, error: String) {
