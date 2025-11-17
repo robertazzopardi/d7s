@@ -20,6 +20,7 @@ use d7s_ui::{
         modal::{ModalAction, ModalManager},
         search_filter::SearchFilter,
         sql_executor::SqlExecutor,
+        status_line::StatusLine,
         table::{DataTable, TableDataWidget},
         top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS, TopBarView},
     },
@@ -86,6 +87,8 @@ pub struct App<'a> {
     keyring: Option<Keyring>,
     /// Search filter widget
     search_filter: SearchFilter,
+    /// Status line widget
+    status_line: StatusLine,
     /// Original unfiltered data for restoration
     original_connections: Vec<Connection>,
     original_schemas: Vec<Schema>,
@@ -113,6 +116,7 @@ impl Default for App<'_> {
             sql_executor: SqlExecutor::new(),
             keyring: None,
             search_filter: SearchFilter::new(),
+            status_line: StatusLine::new(),
             original_connections: Vec::new(),
             original_schemas: Vec::new(),
             original_tables: Vec::new(),
@@ -153,12 +157,18 @@ impl App<'_> {
     /// - <https://docs.rs/ratatui/latest/ratatui/widgets/index.html>
     /// - <https://github.com/ratatui/ratatui/tree/main/ratatui-widgets/examples>
     fn render(&mut self, frame: &mut Frame) {
+        // Split layout: top bar, main content, and status line
+        // Status line gets fixed 1 row, main content takes the rest
+        let mut main_layout =
+            vec![Constraint::Percentage(13), Constraint::Min(0)];
+
+        if !self.status_line.message().is_empty() {
+            main_layout.push(Constraint::Length(1));
+        }
+
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Percentage(13),
-                Constraint::Percentage(87),
-            ])
+            .constraints(main_layout)
             .split(frame.area());
 
         let current_connection =
@@ -172,7 +182,7 @@ impl App<'_> {
             layout[0],
         );
 
-        // Create the main content area
+        // Create the main content area (layout[1] is the middle section)
         let main_area = if self.search_filter.is_active {
             // If search filter is active, create a layout with search filter at top
             let search_layout = Layout::default()
@@ -234,6 +244,11 @@ impl App<'_> {
                 // Render the appropriate table based on explorer state
                 self.render_database_table(frame, inner_area);
             }
+        }
+
+        // Render status line at the bottom
+        if !self.status_line.message().is_empty() {
+            frame.render_widget(self.status_line.clone(), layout[2]);
         }
 
         // Render modals using the modal manager
@@ -335,10 +350,9 @@ impl App<'_> {
                         self.table_widget.table_state.selected()
                 {
                     // Account for header row - selected_index 0 is header, 1+ are data rows
-                    let data_index = selected_index.saturating_sub(1);
-                    if data_index < self.table_widget.items.len()
+                    if selected_index < self.table_widget.items.len()
                         && let Some(connection) =
-                            self.table_widget.items.get(data_index)
+                            self.table_widget.items.get(selected_index)
                     {
                         let message = format!(
                             "Are you sure you want to delete\nthe connection '{}'?\n\nThis action cannot be undone.",
@@ -359,11 +373,9 @@ impl App<'_> {
                     && let Some(selected_index) =
                         self.table_widget.table_state.selected()
                 {
-                    // Account for header row - selected_index 0 is header, 1+ are data rows
-                    let data_index = selected_index.saturating_sub(1);
-                    if data_index < self.table_widget.items.len()
+                    if selected_index < self.table_widget.items.len()
                         && let Some(connection) =
-                            self.table_widget.items.get(data_index)
+                            self.table_widget.items.get(selected_index)
                     {
                         // Initialize keyring with the connection's user
                         self.keyring = Keyring::new(&connection.user).ok();
@@ -559,10 +571,9 @@ impl App<'_> {
     async fn connect_to_database(&mut self) -> Result<()> {
         if let Some(selected_index) = self.table_widget.table_state.selected() {
             // Account for header row - selected_index 0 is header, 1+ are data rows
-            let data_index = selected_index.saturating_sub(1);
-            if data_index < self.table_widget.items.len()
+            if selected_index < self.table_widget.items.len()
                 && let Some(connection) =
-                    self.table_widget.items.get(data_index)
+                    self.table_widget.items.get(selected_index)
             {
                 // Check if password storage is set to "dont_save" (ask every time)
                 let should_ask_every_time = connection
@@ -1264,5 +1275,15 @@ impl App<'_> {
                 }
             },
         }
+    }
+
+    /// Set the status line message
+    pub fn set_status(&mut self, message: impl Into<String>) {
+        self.status_line.set_message(message);
+    }
+
+    /// Clear the status line
+    pub fn clear_status(&mut self) {
+        self.status_line.clear();
     }
 }

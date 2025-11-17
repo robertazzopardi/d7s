@@ -25,3 +25,12 @@ ratatui = { version = "0.29.0", features = [
 color-eyre = "0.6.3"
 tokio = "1.47.0"
 d7s_auth.workspace = true
+
+[lints.clippy]
+indexing_slicing = "deny"
+fallible_impl_from = "deny"
+wildcard_enum_match_arm = "deny"
+unneeded_field_pattern = "deny"
+fn_params_excessive_bools = "deny"
+must_use_candidate = "deny"
+

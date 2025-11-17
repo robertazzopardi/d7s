@@ -129,7 +129,9 @@ fn calculate_visible_columns_for_data(
             // Calculate if selected column is visible with current offset
             let mut cumulative_width = 0u16;
             let mut visible_end = eff_offset;
-            for (idx, &len) in longest_item_lens.iter().enumerate().skip(eff_offset) {
+            for (idx, &len) in
+                longest_item_lens.iter().enumerate().skip(eff_offset)
+            {
                 let col_width = len + 1;
                 if cumulative_width + col_width > area_width {
                     break;
@@ -150,7 +152,8 @@ fn calculate_visible_columns_for_data(
         // Calculate visible columns with effective offset
         let mut vis_cols = Vec::new();
         let mut cumulative_width = 0u16;
-        for (idx, &len) in longest_item_lens.iter().enumerate().skip(eff_offset) {
+        for (idx, &len) in longest_item_lens.iter().enumerate().skip(eff_offset)
+        {
             let col_width = len + 1;
             if cumulative_width + col_width > area_width {
                 break;
@@ -174,7 +177,9 @@ fn calculate_visible_columns_for_data(
         // No column selected - just calculate visible columns from current offset
         let mut vis_cols = Vec::new();
         let mut cumulative_width = 0u16;
-        for (idx, &len) in longest_item_lens.iter().enumerate().skip(column_offset) {
+        for (idx, &len) in
+            longest_item_lens.iter().enumerate().skip(column_offset)
+        {
             let col_width = len + 1;
             if cumulative_width + col_width > area_width {
                 break;
@@ -192,13 +197,8 @@ fn calculate_visible_columns_for_data(
 }
 
 // Helper function to create table styles
-fn create_table_styles() -> (
-    Style,
-    Style,
-    Style,
-    Text<'static>,
-    HighlightSpacing,
-) {
+fn create_table_styles()
+-> (Style, Style, Style, Text<'static>, HighlightSpacing) {
     let selected_row_style = Style::default()
         .add_modifier(Modifier::REVERSED | Modifier::BOLD)
         .fg(ratatui::style::Color::Black)
@@ -208,12 +208,8 @@ fn create_table_styles() -> (
         .add_modifier(Modifier::REVERSED)
         .fg(ratatui::style::Color::Magenta);
     let bar: &'static str = " █ ";
-    let highlight_symbol = Text::from(vec![
-        "".into(),
-        bar.into(),
-        bar.into(),
-        "".into(),
-    ]);
+    let highlight_symbol =
+        Text::from(vec!["".into(), bar.into(), bar.into(), "".into()]);
     (
         selected_row_style,
         selected_col_style,
@@ -233,19 +229,25 @@ impl StatefulWidget for TableDataWidget {
         state: &mut Self::State,
     ) {
         let selected_col_opt = state.selected_column();
-        let (visible_cols, relative_selected_col) = calculate_visible_columns_for_data(
-            &self.longest_item_lens,
-            &self.column_names,
-            self.column_offset,
-            selected_col_opt,
-            area.width,
-        );
+        let (visible_cols, relative_selected_col) =
+            calculate_visible_columns_for_data(
+                &self.longest_item_lens,
+                &self.column_names,
+                self.column_offset,
+                selected_col_opt,
+                area.width,
+            );
 
         let original_col = state.selected_column();
         state.select_column(relative_selected_col);
 
-        let (selected_row_style, selected_col_style, selected_cell_style, highlight_symbol, highlight_spacing) =
-            create_table_styles();
+        let (
+            selected_row_style,
+            selected_col_style,
+            selected_cell_style,
+            highlight_symbol,
+            highlight_spacing,
+        ) = create_table_styles();
 
         let header = visible_cols
             .iter()
@@ -390,7 +392,9 @@ fn calculate_visible_columns_for_table(
             // Calculate if selected column is visible with current offset
             let mut cumulative_width = 0u16;
             let mut visible_end = eff_offset;
-            for (idx, &len) in longest_item_lens.iter().enumerate().skip(eff_offset) {
+            for (idx, &len) in
+                longest_item_lens.iter().enumerate().skip(eff_offset)
+            {
                 let col_width = len + 1;
                 if cumulative_width + col_width > area_width {
                     break;
@@ -411,7 +415,8 @@ fn calculate_visible_columns_for_table(
         // Calculate visible columns with effective offset
         let mut vis_cols = Vec::new();
         let mut cumulative_width = 0u16;
-        for (idx, &len) in longest_item_lens.iter().enumerate().skip(eff_offset) {
+        for (idx, &len) in longest_item_lens.iter().enumerate().skip(eff_offset)
+        {
             let col_width = len + 1;
             if cumulative_width + col_width > area_width {
                 break;
@@ -435,7 +440,9 @@ fn calculate_visible_columns_for_table(
         // No column selected - just calculate visible columns from current offset
         let mut vis_cols = Vec::new();
         let mut cumulative_width = 0u16;
-        for (idx, &len) in longest_item_lens.iter().enumerate().skip(column_offset) {
+        for (idx, &len) in
+            longest_item_lens.iter().enumerate().skip(column_offset)
+        {
             let col_width = len + 1;
             if cumulative_width + col_width > area_width {
                 break;
@@ -466,18 +473,24 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
         }
 
         let selected_col_opt = state.selected_column();
-        let (visible_cols, relative_selected_col) = calculate_visible_columns_for_table(
-            &self.longest_item_lens,
-            self.column_offset,
-            selected_col_opt,
-            area.width,
-        );
+        let (visible_cols, relative_selected_col) =
+            calculate_visible_columns_for_table(
+                &self.longest_item_lens,
+                self.column_offset,
+                selected_col_opt,
+                area.width,
+            );
 
         let original_col = state.selected_column();
         state.select_column(relative_selected_col);
 
-        let (selected_row_style, selected_col_style, selected_cell_style, highlight_symbol, highlight_spacing) =
-            create_table_styles();
+        let (
+            selected_row_style,
+            selected_col_style,
+            selected_cell_style,
+            highlight_symbol,
+            highlight_spacing,
+        ) = create_table_styles();
 
         let all_cols = T::cols();
         let header = visible_cols

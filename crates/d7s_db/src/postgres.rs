@@ -401,7 +401,8 @@ fn try_get<'a, T: ToString + FromSql<'a>>(
 ) -> String {
     row.try_get::<_, Option<T>>(index)
         .ok()
-        .flatten().map_or_else(|| "NULL".to_string(), |v| v.to_string())
+        .flatten()
+        .map_or_else(|| "NULL".to_string(), |v| v.to_string())
 }
 
 /// Try multiple type conversions in order, return first successful one
@@ -430,7 +431,11 @@ where
 fn try_get_bytes(row: &tokio_postgres::Row, index: usize) -> String {
     row.try_get::<_, Option<Vec<u8>>>(index)
         .ok()
-        .flatten().map_or_else(|| "NULL".to_string(), |bytes| format!("<{} bytes>", bytes.len()))
+        .flatten()
+        .map_or_else(
+            || "NULL".to_string(),
+            |bytes| format!("<{} bytes>", bytes.len()),
+        )
 }
 
 fn get_vec_string(

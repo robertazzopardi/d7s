@@ -51,15 +51,16 @@ impl TableNavigationHandler {
 
         // Clamp selected column
         if let Some(selected_col) = table.table_state.selected_column()
-            && selected_col >= num_columns {
-                if num_columns == 0 {
-                    table.table_state.select_column(None);
-                } else {
-                    table
-                        .table_state
-                        .select_column(Some(num_columns.saturating_sub(1)));
-                }
+            && selected_col >= num_columns
+        {
+            if num_columns == 0 {
+                table.table_state.select_column(None);
+            } else {
+                table
+                    .table_state
+                    .select_column(Some(num_columns.saturating_sub(1)));
             }
+        }
 
         // Clamp column offset
         if num_columns == 0 {
@@ -75,15 +76,16 @@ impl TableNavigationHandler {
 
         // Clamp selected column
         if let Some(selected_col) = table_data.table_state.selected_column()
-            && selected_col >= num_columns {
-                if num_columns == 0 {
-                    table_data.table_state.select_column(None);
-                } else {
-                    table_data
-                        .table_state
-                        .select_column(Some(num_columns.saturating_sub(1)));
-                }
+            && selected_col >= num_columns
+        {
+            if num_columns == 0 {
+                table_data.table_state.select_column(None);
+            } else {
+                table_data
+                    .table_state
+                    .select_column(Some(num_columns.saturating_sub(1)));
             }
+        }
 
         // Clamp column offset
         if num_columns == 0 {
