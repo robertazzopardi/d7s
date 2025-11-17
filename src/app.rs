@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use color_eyre::Result;
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
@@ -16,12 +18,13 @@ use d7s_ui::{
         handle_sql_executor_input, test_connection,
     },
     widgets::{
+        constraint_len_calculator,
         hotkey::Hotkey,
         modal::{ModalAction, ModalManager},
         search_filter::SearchFilter,
         sql_executor::SqlExecutor,
         status_line::StatusLine,
-        table::{DataTable, TableDataWidget},
+        table::{DataTable, RawTableRow},
         top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS, TopBarView},
     },
 };
@@ -81,7 +84,7 @@ pub struct App<'a> {
     /// Current column table data
     column_table: Option<DataTable<Column>>,
     /// Current table data (rows)
-    table_data: Option<TableDataWidget>,
+    table_data: Option<DataTable<RawTableRow>>,
     /// SQL executor widget
     sql_executor: SqlExecutor,
     keyring: Option<Keyring>,
@@ -857,12 +860,14 @@ impl App<'_> {
                     let selected_col =
                         table_data.table_state.selected_column().unwrap_or(0);
 
-                    if selected_col < table_data.column_names.len()
-                        && selected_col < table_data.items[selected_row].len()
+                    if let Some(ref column_names) =
+                        table_data.dynamic_column_names
+                        && selected_col < column_names.len()
+                        && selected_col
+                            < table_data.items[selected_row].values.len()
                     {
-                        let column_name =
-                            table_data.column_names[selected_col].clone();
-                        let cell_value = table_data.items[selected_row]
+                        let column_name = column_names[selected_col].clone();
+                        let cell_value = table_data.items[selected_row].values
                             [selected_col]
                             .clone();
 
@@ -1157,7 +1162,7 @@ impl App<'_> {
                     // Store original data for filtering
                     self.original_table_data.clone_from(&data);
                     self.table_data =
-                        Some(TableDataWidget::new(data, column_names));
+                        Some(DataTable::from_raw_data(data, column_names));
                     self.explorer_state =
                         Some(DatabaseExplorerState::TableData(
                             schema_name.to_string(),
@@ -1264,7 +1269,23 @@ impl App<'_> {
                 }
                 Some(DatabaseExplorerState::TableData(_, _)) => {
                     if let Some(table_data) = &mut self.table_data {
-                        table_data.items.clone_from(&self.original_table_data);
+                        if let Some(ref column_names) =
+                            table_data.dynamic_column_names
+                        {
+                            // Recreate items from original data
+                            let column_names_arc = Arc::clone(column_names);
+                            table_data.items = self
+                                .original_table_data
+                                .iter()
+                                .map(|values| RawTableRow {
+                                    values: values.clone(),
+                                    column_names: Arc::clone(&column_names_arc),
+                                })
+                                .collect();
+                            // Recalculate longest_item_lens
+                            table_data.longest_item_lens =
+                                constraint_len_calculator(&table_data.items);
+                        }
                         TableNavigationHandler::clamp_table_data_selection(
                             table_data,
                         );
