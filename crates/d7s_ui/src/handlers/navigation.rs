@@ -3,7 +3,7 @@ use d7s_db::{Column, Schema, Table, TableData};
 
 use crate::widgets::{
     sql_executor::SqlExecutor,
-    table::{DataTable, TableDataWidget},
+    table::{DataTable, RawTableRow},
 };
 
 /// Helper for table navigation operations
@@ -25,8 +25,8 @@ impl TableNavigationHandler {
         }
     }
 
-    /// Clamps the selection for a `TableDataWidget` to valid bounds
-    pub fn clamp_table_data_selection(table_data: &mut TableDataWidget) {
+    /// Clamps the selection for a `DataTable<RawTableRow>` to valid bounds
+    pub fn clamp_table_data_selection(table_data: &mut DataTable<RawTableRow>) {
         if let Some(selected) = table_data.table_state.selected()
             && selected >= table_data.items.len()
         {
@@ -70,9 +70,12 @@ impl TableNavigationHandler {
         }
     }
 
-    /// Clamps the column selection and offset for a `TableDataWidget` to valid bounds
-    pub fn clamp_table_data_columns(table_data: &mut TableDataWidget) {
-        let num_columns = table_data.column_names.len();
+    /// Clamps the column selection and offset for a `DataTable<RawTableRow>` to valid bounds
+    pub fn clamp_table_data_columns(table_data: &mut DataTable<RawTableRow>) {
+        let num_columns = table_data
+            .items
+            .first()
+            .map_or(0, d7s_db::TableData::num_columns);
 
         // Clamp selected column
         if let Some(selected_col) = table_data.table_state.selected_column()
@@ -127,7 +130,7 @@ impl TableNavigationHandler {
 
     /// Handles navigation for table data widget
     pub fn handle_table_data_navigation(
-        table_data: &mut Option<TableDataWidget>,
+        table_data: &mut Option<DataTable<RawTableRow>>,
         key: KeyCode,
     ) {
         if let Some(table_data) = table_data {
@@ -143,7 +146,10 @@ impl TableNavigationHandler {
                 KeyCode::Char('h' | 'b') | KeyCode::Left => {
                     // If no column is selected, start with the last column, otherwise navigate
                     if table_data.table_state.selected_column().is_none() {
-                        let num_cols = table_data.column_names.len();
+                        let num_cols = table_data
+                            .items
+                            .first()
+                            .map_or(0, d7s_db::TableData::num_columns);
                         if num_cols > 0 {
                             table_data.table_state.select_column(Some(
                                 num_cols.saturating_sub(1),
@@ -219,7 +225,10 @@ impl TableNavigationHandler {
                 KeyCode::Char('h' | 'b') | KeyCode::Left => {
                     // If no column is selected, start with the last column, otherwise navigate
                     if table_widget.table_state.selected_column().is_none() {
-                        let num_cols = table_widget.column_names.len();
+                        let num_cols = table_widget
+                            .items
+                            .first()
+                            .map_or(0, d7s_db::TableData::num_columns);
                         if num_cols > 0 {
                             table_widget.table_state.select_column(Some(
                                 num_cols.saturating_sub(1),
