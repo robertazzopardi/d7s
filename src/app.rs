@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use color_eyre::Result;
@@ -98,6 +99,12 @@ pub struct App<'a> {
     original_tables: Vec<Table>,
     original_columns: Vec<Column>,
     original_table_data: Vec<Vec<String>>,
+    /// Session password storage (in-memory only, cleared when app exits)
+    /// Key format: "{user}@{host}:{port}/{database}"
+    session_passwords: HashMap<String, String>,
+    /// Whether to automatically store passwords in session memory when "ask every time" is enabled
+    /// Default: true (auto-store for better UX)
+    auto_store_session_password: bool,
 }
 
 impl Default for App<'_> {
@@ -125,6 +132,8 @@ impl Default for App<'_> {
             original_tables: Vec::new(),
             original_columns: Vec::new(),
             original_table_data: Vec::new(),
+            session_passwords: HashMap::new(),
+            auto_store_session_password: true, // Default to auto-storing for better UX
         }
     }
 }
@@ -380,15 +389,26 @@ impl App<'_> {
                         && let Some(connection) =
                             self.table_widget.items.get(selected_index)
                     {
-                        // Initialize keyring with the connection's user
-                        self.keyring = Keyring::new(&connection.user).ok();
-
-                        // Open edit connection modal - password field will be empty if not found
-                        let password = self
-                            .keyring
+                        // Check if "ask every time" is enabled - don't access keyring in that case
+                        let should_ask_every_time = connection
+                            .password_storage
                             .as_ref()
-                            .and_then(|keyring| keyring.get_password().ok())
-                            .unwrap_or_default();
+                            .is_some_and(|s| s == "dont_save");
+
+                        let password = if should_ask_every_time {
+                            // Don't access keyring for "ask every time" connections
+                            // Never create a keyring instance to avoid system prompts
+                            self.keyring = None;
+                            String::new()
+                        } else {
+                            // Initialize keyring with the connection's user and get password
+                            // Only create keyring if NOT "ask every time"
+                            self.keyring = Keyring::new(&connection.user).ok();
+                            self.keyring
+                                .as_ref()
+                                .and_then(|keyring| keyring.get_password().ok())
+                                .unwrap_or_default()
+                        };
                         self.modal_manager
                             .open_edit_connection_modal(connection, password);
                         return Ok(()); // Return early to prevent key propagation
@@ -561,13 +581,26 @@ impl App<'_> {
     fn refresh_connections(&mut self) {
         if let Ok(connections) = get_connections() {
             self.original_connections.clone_from(&connections);
-            self.table_widget.items = connections;
+            // Reapply filter if one is active, otherwise show all connections
+            if !self.search_filter.get_filter_query().is_empty() {
+                self.apply_filter();
+            } else {
+                self.table_widget.items = connections;
+            }
         }
     }
 
     /// Set running to false to quit the application.
     const fn quit(&mut self) {
         self.running = false;
+    }
+
+    /// Generate a unique key for a connection to use in session password storage
+    fn connection_key(connection: &Connection) -> String {
+        format!(
+            "{}@{}:{}/{}",
+            connection.user, connection.host, connection.port, connection.database
+        )
     }
 
     /// Connect to the selected database
@@ -585,34 +618,81 @@ impl App<'_> {
                     .is_some_and(|s| s == "dont_save");
 
                 if should_ask_every_time {
-                    // Always ask for password when "Ask every time" is enabled
-                    let prompt = format!(
-                        "Enter password for user '{}':",
-                        connection.user
-                    );
-                    let entry = Keyring::new(&connection.user)?;
-                    self.modal_manager
-                        .open_password_modal(connection.clone(), prompt);
-                    self.keyring = Some(entry);
-                } else {
-                    // Try to get password from keyring
-                    let entry = Keyring::new(&connection.user)?;
-                    if let Ok(password) = entry.get_password() {
-                        self.keyring = Some(entry);
+                    // Check session storage first
+                    let connection_key = Self::connection_key(connection);
+                    if let Some(session_password) =
+                        self.session_passwords.get(&connection_key)
+                    {
+                        // Use password from session storage
+                        // Don't create keyring for "ask every time" connections
+                        self.keyring = None;
                         self.connect_with_password(
                             connection.clone(),
-                            password,
+                            session_password.clone(),
                         )
                         .await?;
                     } else {
-                        // Password not found - show password modal
+                        // No session password found - ask for password
+                        // Don't create keyring for "ask every time" connections
                         let prompt = format!(
-                            "Password not found for user '{}'.\nPlease enter password:",
+                            "Enter password for user '{}':",
+                            connection.user
+                        );
+                        self.keyring = None;
+                        self.modal_manager
+                            .open_password_modal(connection.clone(), prompt);
+                    }
+                } else {
+                    // Try to get password from keyring
+                    // Only create keyring if NOT "ask every time"
+                    // Double-check to avoid any system prompts
+                    let is_ask_every_time = connection
+                        .password_storage
+                        .as_ref()
+                        .is_some_and(|s| s == "dont_save");
+                    
+                    if !is_ask_every_time {
+                        match Keyring::new(&connection.user) {
+                            Ok(entry) => {
+                                if let Ok(password) = entry.get_password() {
+                                    self.keyring = Some(entry);
+                                    self.connect_with_password(
+                                        connection.clone(),
+                                        password,
+                                    )
+                                    .await?;
+                                } else {
+                                    // Password not found - show password modal
+                                    let prompt = format!(
+                                        "Password not found for user '{}'.\nPlease enter password:",
+                                        connection.user
+                                    );
+                                    self.modal_manager
+                                        .open_password_modal(connection.clone(), prompt);
+                                    self.keyring = Some(entry);
+                                }
+                            }
+                            Err(_) => {
+                                // Keyring creation failed - show password modal
+                                let prompt = format!(
+                                    "Unable to access keyring for user '{}'.\nPlease enter password:",
+                                    connection.user
+                                );
+                                self.keyring = None;
+                                self.modal_manager
+                                    .open_password_modal(connection.clone(), prompt);
+                            }
+                        }
+                    } else {
+                        // Should never reach here if "ask every time" is selected,
+                        // but just in case, don't create keyring
+                        self.keyring = None;
+                        let prompt = format!(
+                            "Enter password for user '{}':",
                             connection.user
                         );
                         self.modal_manager
                             .open_password_modal(connection.clone(), prompt);
-                        self.keyring = Some(entry);
                     }
                 }
             }
@@ -993,13 +1073,12 @@ impl App<'_> {
         // Handle business logic based on modal actions
         match action {
             ModalAction::Save => {
-                // Handle password modal save
+                // Handle password modal save (only used for "ask every time" connections)
                 if let Some(password_modal) =
                     self.modal_manager.get_password_modal_mut()
                     && let Some(connection) = &password_modal.connection.clone()
                 {
                     let password = password_modal.password.clone();
-                    let save_password = password_modal.save_password;
                     password_modal.close();
 
                     // Check if connection has "Ask every time" enabled
@@ -1008,29 +1087,17 @@ impl App<'_> {
                         .as_ref()
                         .is_some_and(|s| s == "dont_save");
 
-                    // Store password in keyring only if:
-                    // 1. User chose to save it (save_password checkbox)
-                    // 2. Connection doesn't have "Ask every time" enabled
-                    // 3. Not in dev mode
-                    if save_password && !ask_every_time {
-                        #[cfg(not(debug_assertions))]
-                        {
-                            if let Some(keyring) = &mut self.keyring
-                                && let Err(e) = keyring.set_password(&password)
-                            {
-                                eprintln!(
-                                    "Warning: Failed to store password in keyring: {e}"
-                                );
-                            }
-                        }
-                        #[cfg(debug_assertions)]
-                        {
-                            // In dev mode, passwords are not saved to keyring
-                            // The checkbox is ignored
-                        }
+                    // For "ask every time" connections, never access keyring
+                    // Only store in session memory if auto-store is enabled
+                    if self.auto_store_session_password && ask_every_time {
+                        let connection_key = Self::connection_key(connection);
+                        self.session_passwords
+                            .insert(connection_key, password.clone());
                     }
 
                     // Connect with the provided password
+                    // Don't create keyring for "ask every time" connections
+                    self.keyring = None;
                     if let Err(e) = self
                         .connect_with_password(connection.clone(), password)
                         .await
@@ -1045,8 +1112,41 @@ impl App<'_> {
                 {
                     let original_name = modal.original_name.clone();
                     let mode = modal.mode;
+                    
+                    // Always save password to keyring if:
+                    // 1. password_storage is Keyring (not "ask every time")
+                    // 2. password is provided
+                    let should_save_to_keyring = connection
+                        .password_storage
+                        .as_ref()
+                        .map_or(false, |s| s == "keyring")
+                        && connection.password.is_some();
+                    
+                    // Prepare keyring for saving (only if we should save)
+                    // Never create keyring if "ask every time" is selected to avoid system prompts
+                    let keyring_for_save = if should_save_to_keyring {
+                        // Create keyring if it doesn't exist
+                        // Only do this if password_storage is NOT "ask every time"
+                        if self.keyring.is_none() {
+                            // Double-check we're not in "ask every time" mode
+                            let is_ask_every_time = connection
+                                .password_storage
+                                .as_ref()
+                                .is_some_and(|s| s == "dont_save");
+                            if !is_ask_every_time {
+                                self.keyring = Keyring::new(&connection.user).ok();
+                            }
+                        }
+                        &mut self.keyring
+                    } else {
+                        // Don't save to keyring - pass None
+                        // Make sure keyring is None to avoid any prompts
+                        self.keyring = None;
+                        &mut None
+                    };
+                    
                     match handle_save_connection(
-                        &mut self.keyring,
+                        keyring_for_save,
                         &connection,
                         mode,
                         original_name,
@@ -1092,10 +1192,16 @@ impl App<'_> {
         if let Some(connection) =
             self.modal_manager.was_confirmation_modal_confirmed()
         {
-            if let Some(keyring) = &self.keyring {
-                let _ = keyring.delete_password();
-            } else {
-                eprintln!("No keyring found");
+            // Only try to delete from keyring if the connection doesn't have "ask every time" enabled
+            let should_ask_every_time = connection
+                .password_storage
+                .as_ref()
+                .is_some_and(|s| s == "dont_save");
+            
+            if !should_ask_every_time {
+                if let Some(keyring) = &self.keyring {
+                    let _ = keyring.delete_password();
+                }
             }
 
             if let Err(e) = d7s_db::sqlite::delete_connection(&connection.name)
@@ -1183,7 +1289,9 @@ impl App<'_> {
 
         match self.state {
             AppState::ConnectionList => {
-                let filtered_items = self.table_widget.filter(query);
+                // Filter from original_connections, not from already-filtered items
+                let temp_table = DataTable::new(self.original_connections.clone());
+                let filtered_items = temp_table.filter(query);
                 self.table_widget.items = filtered_items;
                 TableNavigationHandler::clamp_data_table_selection(
                     &mut self.table_widget,
