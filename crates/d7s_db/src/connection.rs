@@ -47,6 +47,7 @@ impl TableData for Connection {
             self.password.as_ref().map_or_else(String::new, |password| {
                 "•".repeat(password.len())
             }),
+            self.password_storage.clone().unwrap_or_default(),
         ]
     }
 

@@ -149,7 +149,6 @@ pub struct PasswordModal {
     pub password: String,
     pub connection: Option<Connection>,
     pub prompt: String,
-    pub save_password: bool,
 }
 
 impl<T: TableData> Modal<T> {
@@ -190,6 +189,16 @@ impl<T: TableData> Modal<T> {
         for field in &mut self.fields {
             field.value.clear();
             field.set_focus(false);
+        }
+        // Set default values for Host and Port (for Connection modals)
+        // Host is at index 1, Port is at index 2
+        if self.fields.len() > 2 {
+            if self.fields[1].label == "Host" {
+                self.fields[1].value = "localhost".to_string();
+            }
+            if self.fields[2].label == "Port" {
+                self.fields[2].value = "5432".to_string();
+            }
         }
         // Set focus on first field
         if !self.fields.is_empty() {
@@ -236,13 +245,13 @@ impl<T: TableData> Modal<T> {
     }
 
     /// Get total number of navigable items (fields + storage selector + buttons)
-    const fn total_items(&self) -> usize {
-        self.fields.len() + 1 + 3 // fields + storage selector + 3 buttons
+    fn total_items(&self) -> usize {
+        self.visible_fields_count() + 1 + 3 // visible fields + storage selector + 3 buttons
     }
 
     /// Check if `current_field` is on a button
-    const fn is_on_button(&self) -> Option<usize> {
-        let button_start = self.fields.len() + 1;
+    fn is_on_button(&self) -> Option<usize> {
+        let button_start = self.visible_fields_count() + 1;
         if self.current_field >= button_start
             && self.current_field < button_start + 3
         {
@@ -256,15 +265,21 @@ impl<T: TableData> Modal<T> {
         let total = self.total_items();
         if self.current_field < total - 1 {
             // Clear current focus
-            if self.current_field < self.fields.len() {
-                self.fields[self.current_field].set_focus(false);
+            if self.current_field < self.visible_fields_count() {
+                let logical_index = self.get_logical_field_index(self.current_field);
+                if logical_index < self.fields.len() {
+                    self.fields[logical_index].set_focus(false);
+                }
             }
 
             self.current_field += 1;
 
             // Set focus on new item
-            if self.current_field < self.fields.len() {
-                self.fields[self.current_field].set_focus(true);
+            if self.current_field < self.visible_fields_count() {
+                let logical_index = self.get_logical_field_index(self.current_field);
+                if logical_index < self.fields.len() {
+                    self.fields[logical_index].set_focus(true);
+                }
             }
         }
     }
@@ -272,41 +287,66 @@ impl<T: TableData> Modal<T> {
     pub fn prev_field(&mut self) {
         if self.current_field > 0 {
             // Clear current focus
-            if self.current_field < self.fields.len() {
-                self.fields[self.current_field].set_focus(false);
+            if self.current_field < self.visible_fields_count() {
+                let logical_index = self.get_logical_field_index(self.current_field);
+                if logical_index < self.fields.len() {
+                    self.fields[logical_index].set_focus(false);
+                }
             }
 
             self.current_field -= 1;
 
             // Set focus on new item
-            if self.current_field < self.fields.len() {
-                self.fields[self.current_field].set_focus(true);
+            if self.current_field < self.visible_fields_count() {
+                let logical_index = self.get_logical_field_index(self.current_field);
+                if logical_index < self.fields.len() {
+                    self.fields[logical_index].set_focus(true);
+                }
             }
         }
     }
 
     pub fn add_char(&mut self, c: char) {
         // Only add characters when on a field, not on storage selector or buttons
-        if self.current_field < self.fields.len()
-            && let Some(field) = self.fields.get_mut(self.current_field)
-        {
-            field.add_char(c);
+        if self.current_field < self.visible_fields_count() {
+            let logical_index = self.get_logical_field_index(self.current_field);
+            if let Some(field) = self.fields.get_mut(logical_index) {
+                field.add_char(c);
+            }
         }
     }
 
     pub fn remove_char(&mut self) {
         // Only remove characters when on a field, not on storage selector or buttons
-        if self.current_field < self.fields.len()
-            && let Some(field) = self.fields.get_mut(self.current_field)
-        {
-            field.remove_char();
+        if self.current_field < self.visible_fields_count() {
+            let logical_index = self.get_logical_field_index(self.current_field);
+            if let Some(field) = self.fields.get_mut(logical_index) {
+                field.remove_char();
+            }
         }
     }
 
     pub fn get_connection(&self) -> Option<Connection> {
-        if self.fields.iter().any(|f| f.value.is_empty()) {
+        // Check if all required fields are filled (password is optional when "ask every time" is selected)
+        let password_field_index = self.password_field_index();
+        let required_fields: Vec<&ModalField> = if self.is_password_field_hidden() {
+            // Exclude password field from validation when hidden
+            self.fields.iter().take(password_field_index).collect()
+        } else {
+            // Include all fields when password is visible
+            self.fields.iter().collect()
+        };
+
+        if required_fields.iter().any(|f| f.value.trim().is_empty()) {
             return None;
         }
+
+        // Password is optional when "ask every time" is selected
+        let password = if self.is_password_field_hidden() {
+            None
+        } else {
+            Some(self.fields[password_field_index].value.clone())
+        };
 
         Some(Connection {
             name: self.fields[0].value.clone(),
@@ -314,7 +354,7 @@ impl<T: TableData> Modal<T> {
             port: self.fields[2].value.clone(),
             user: self.fields[3].value.clone(),
             database: self.fields[4].value.clone(),
-            password: Some(self.fields[5].value.clone()),
+            password,
             schema: None,
             table: None,
             password_storage: Some(self.password_storage.to_string()),
@@ -322,7 +362,17 @@ impl<T: TableData> Modal<T> {
     }
 
     pub fn is_valid(&self) -> bool {
-        !self.fields.iter().any(|f| f.value.trim().is_empty())
+        // Password field is optional when "ask every time" is selected
+        let password_field_index = self.password_field_index();
+        let required_fields: Vec<&ModalField> = if self.is_password_field_hidden() {
+            // Exclude password field from validation when hidden
+            self.fields.iter().take(password_field_index).collect()
+        } else {
+            // Include all fields when password is visible
+            self.fields.iter().collect()
+        };
+
+        !required_fields.iter().any(|f| f.value.trim().is_empty())
     }
 
     /// Handle key events for UI navigation only
@@ -334,9 +384,9 @@ impl<T: TableData> Modal<T> {
                 ModalAction::Cancel
             }
             (_, KeyCode::BackTab | KeyCode::Up) => {
-                // If on buttons, go to storage selector above
+                // If on buttons, go to last item above buttons
                 if self.is_on_button().is_some() {
-                    self.current_field = self.fields.len(); // Storage selector
+                    self.current_field = self.visible_fields_count();
                 } else {
                     self.prev_field();
                 }
@@ -372,12 +422,12 @@ impl<T: TableData> Modal<T> {
             }
             (_, KeyCode::Char(c)) => {
                 // If focused on storage selector, Space toggles it
-                if self.current_field == self.fields.len() && c == ' ' {
+                if self.current_field == self.visible_fields_count() && c == ' ' {
                     self.toggle_password_storage();
                     return ModalAction::None;
                 }
                 // Only add characters when on a field (not on buttons)
-                if self.current_field < self.fields.len() {
+                if self.current_field < self.visible_fields_count() {
                     self.add_char(c);
                 }
                 ModalAction::None
@@ -390,7 +440,7 @@ impl<T: TableData> Modal<T> {
                 // If on buttons, navigate left between buttons
                 if let Some(button_idx) = self.is_on_button() {
                     let new_button_idx = (button_idx + 2) % 3;
-                    self.current_field = self.fields.len() + 1 + new_button_idx;
+                    self.current_field = self.visible_fields_count() + 1 + new_button_idx;
                 } else {
                     // Otherwise, move to previous item
                     self.prev_field();
@@ -401,7 +451,7 @@ impl<T: TableData> Modal<T> {
                 // If on buttons, navigate right between buttons
                 if let Some(button_idx) = self.is_on_button() {
                     let new_button_idx = (button_idx + 1) % 3;
-                    self.current_field = self.fields.len() + 1 + new_button_idx;
+                    self.current_field = self.visible_fields_count() + 1 + new_button_idx;
                 } else {
                     // Otherwise, move to next item
                     self.next_field();
@@ -449,7 +499,8 @@ impl<T: TableData> Widget for Modal<T> {
         block.render(modal_area, buf);
 
         // Layout inside the modal: Title, Subtitle, Fields, Storage selector, Test result, Buttons
-        let field_height = 9; // 6 fields + storage selector + padding
+        // Adjust height based on whether password field is visible
+        let field_height = if self.is_password_field_hidden() { 8 } else { 9 }; // fields + storage selector + padding
 
         let inner_layout = Layout::default()
             .direction(Direction::Vertical)
@@ -474,22 +525,60 @@ impl<T: TableData> Widget for Modal<T> {
 }
 
 impl<T: TableData> Modal<T> {
+    /// Get the index of the password field (last field)
+    const fn password_field_index(&self) -> usize {
+        self.fields.len() - 1
+    }
+
+    /// Check if password field should be hidden
+    fn is_password_field_hidden(&self) -> bool {
+        self.password_storage == PasswordStorageType::DontSave
+    }
+
+    /// Get the number of visible fields (excluding password if hidden)
+    fn visible_fields_count(&self) -> usize {
+        if self.is_password_field_hidden() {
+            self.fields.len() - 1
+        } else {
+            self.fields.len()
+        }
+    }
+
+
+    /// Get the logical field index from a visible field index
+    /// This maps the visible position (which excludes password when hidden) to the actual field index
+    fn get_logical_field_index(&self, visible_index: usize) -> usize {
+        // When password is hidden, visible_index 0-4 maps to fields[0-4]
+        // When password is visible, visible_index 0-5 maps to fields[0-5]
+        // Since visible_index is always < visible_fields_count(), and when password is hidden
+        // visible_fields_count() = 5, visible_index can only be 0-4, which maps directly
+        // When password is visible, visible_index can be 0-5, which also maps directly
+        visible_index
+    }
+
     fn render_fields(&self, area: Rect, buf: &mut Buffer) {
         // Each field is a row: label left, value right after colon
-        let num_rows = self.fields.len() + 1; // +1 for storage selector
+        // +1 for storage selector
+        let num_rows = self.visible_fields_count() + 1;
 
         let field_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints((0..num_rows).map(|_| Constraint::Length(1)))
             .split(area);
 
+        let mut visible_index = 0;
         for (i, field) in self.fields.iter().enumerate() {
+            // Skip password field if it should be hidden
+            if self.is_password_field_hidden() && i == self.password_field_index() {
+                continue;
+            }
+
             let label = format!("{}:", field.label);
             let value = if field.value.is_empty() {
                 " ".repeat(18)
             } else {
                 // Check if this is a password field (last field)
-                if i == self.fields.len() - 1 {
+                if i == self.password_field_index() {
                     "•".repeat(field.value.len())
                 } else {
                     field.value.clone()
@@ -507,7 +596,9 @@ impl<T: TableData> Modal<T> {
             Paragraph::new(text)
                 .style(style)
                 .alignment(Alignment::Left)
-                .render(field_layout[i], buf);
+                .render(field_layout[visible_index], buf);
+            
+            visible_index += 1;
         }
 
         // Render password storage selector as a checkbox toggle
@@ -515,7 +606,7 @@ impl<T: TableData> Modal<T> {
             PasswordStorageType::Keyring => "[ ] Ask every time",
             PasswordStorageType::DontSave => "[x] Ask every time",
         };
-        let storage_style = if self.current_field == self.fields.len() {
+        let storage_style = if self.current_field == self.visible_fields_count() {
             // Focused on storage selector
             Style::default().fg(Color::Yellow).bg(Color::DarkGray)
         } else {
@@ -524,7 +615,7 @@ impl<T: TableData> Modal<T> {
         Paragraph::new(checkbox_text)
             .style(storage_style)
             .alignment(Alignment::Left)
-            .render(field_layout[self.fields.len()], buf);
+            .render(field_layout[self.visible_fields_count()], buf);
     }
 
     fn render_buttons(&self, area: Rect, buf: &mut Buffer) {
@@ -745,12 +836,7 @@ impl PasswordModal {
             password: String::new(),
             connection: Some(connection),
             prompt,
-            save_password: false, // Default to not saving password
         }
-    }
-
-    pub const fn toggle_save_password(&mut self) {
-        self.save_password = !self.save_password;
     }
 
     pub const fn close(&mut self) {
@@ -778,11 +864,6 @@ impl PasswordModal {
                     self.close();
                     ModalAction::Save
                 }
-            }
-            (_, KeyCode::Char(' ')) => {
-                // Space toggles save password checkbox (don't add space to password)
-                self.toggle_save_password();
-                ModalAction::None
             }
             (_, KeyCode::Char(c)) if !c.is_control() => {
                 self.add_char(c);
@@ -819,13 +900,12 @@ impl Widget for PasswordModal {
         Clear.render(modal_area, buf);
         block.render(modal_area, buf);
 
-        // Layout inside the modal: Prompt, Password input, Save checkbox, Buttons
+        // Layout inside the modal: Prompt, Password input, Buttons
         let inner_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(2), // Prompt
                 Constraint::Length(1), // Password input
-                Constraint::Length(2), // Save password checkbox
                 Constraint::Length(1), // Buttons
             ])
             .margin(1)
@@ -844,23 +924,12 @@ impl Widget for PasswordModal {
             .alignment(Alignment::Left)
             .render(inner_layout[1], buf);
 
-        // Render save password checkbox
-        let checkbox_text = if self.save_password {
-            "[x] Save password in keyring"
-        } else {
-            "[ ] Save password in keyring"
-        };
-        Paragraph::new(checkbox_text)
-            .style(Style::default().fg(Color::Cyan))
-            .alignment(Alignment::Left)
-            .render(inner_layout[2], buf);
-
         // Render buttons
         let buttons = Buttons {
             buttons: vec!["OK", "Cancel"],
             selected: usize::from(self.password.is_empty()),
         };
-        buttons.render(inner_layout[3], buf);
+        buttons.render(inner_layout[2], buf);
     }
 }
 

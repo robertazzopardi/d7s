@@ -21,6 +21,7 @@ pub fn handle_save_connection(
     original_name: Option<String>,
 ) -> Result<(), String> {
     // Handle password storage based on connection's storage preference
+    // Only save to keyring if password_storage is Keyring (not "ask every time")
     #[allow(unused_variables)]
     if let Some(password) = &connection.password {
         let storage_type = connection
@@ -32,42 +33,31 @@ pub fn handle_save_connection(
 
         match storage_type {
             PasswordStorageType::Keyring => {
+                // Always save to keyring when password_storage is Keyring
                 // In dev mode, don't actually save to keyring (but UI still shows the option)
                 #[cfg(not(debug_assertions))]
                 {
-                    let keyring_result = if let Some(keyring) = keyring {
-                        keyring.set_password(password)
-                    } else {
-                        match Keyring::new(&connection.user) {
-                            Ok(new_keyring) => {
-                                let result = new_keyring.set_password(password);
-                                *keyring = Some(new_keyring);
-                                result
-                            }
-                            Err(e) => {
-                                return Err(format!(
-                                    "Failed to create keyring: {e}"
-                                ));
-                            }
-                        }
-                    };
+                    // Never create a new keyring here - it should be created in app.rs before calling this
+                    if let Some(keyring) = keyring {
+                        let keyring_result = keyring.set_password(password);
 
-                    if let Err(e) = keyring_result {
-                        let error_msg = e.to_string();
-                        if error_msg.contains("locked collection") {
-                            return Err(
-                                "Keyring is locked. Please unlock your keyring first.\n\n\
-                                On Linux, you can unlock it using:\n\
-                                - seahorse (GUI: search for 'Passwords and Keys')\n\
-                                - Or unlock it when prompted by your desktop environment\n\n\
-                                Alternatively, you can save the connection without storing the password in the keyring."
-                                    .to_string(),
-                            );
+                        if let Err(e) = keyring_result {
+                            let error_msg = e.to_string();
+                            if error_msg.contains("locked collection") {
+                                return Err(
+                                    "Keyring is locked. Please unlock your keyring first.\n\n\
+                                    On Linux, you can unlock it using:\n\
+                                    - seahorse (GUI: search for 'Passwords and Keys')\n\
+                                    - Or unlock it when prompted by your desktop environment\n\n\
+                                    Alternatively, you can save the connection without storing the password in the keyring."
+                                        .to_string(),
+                                );
+                            }
+                            return Err(format!(
+                                "Failed to store password in keyring: {error_msg}\n\n\
+                                Hint: If your keyring is locked, unlock it first using your system's keyring manager."
+                            ));
                         }
-                        return Err(format!(
-                            "Failed to store password in keyring: {error_msg}\n\n\
-                            Hint: If your keyring is locked, unlock it first using your system's keyring manager."
-                        ));
                     }
                 }
                 #[cfg(debug_assertions)]
@@ -78,6 +68,7 @@ pub fn handle_save_connection(
             }
             PasswordStorageType::DontSave => {
                 // Don't save password - connection will work but password won't be stored
+                // Never access keyring for "ask every time" connections
             }
         }
     }
