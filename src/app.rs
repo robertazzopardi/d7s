@@ -6,7 +6,7 @@ use crossterm::event::{
 };
 use d7s_auth::Keyring;
 use d7s_db::{
-    Column, Database, Schema, Table,
+    Column, Database, Schema, Table, TableData,
     connection::Connection,
     postgres::Postgres,
     sqlite::{get_connections, init_db},
@@ -20,7 +20,7 @@ use d7s_ui::{
     widgets::{
         constraint_len_calculator,
         hotkey::Hotkey,
-        modal::{ModalAction, ModalManager},
+        modal::{ModalAction, ModalManager, TestResult},
         search_filter::SearchFilter,
         sql_executor::SqlExecutor,
         status_line::StatusLine,
@@ -179,6 +179,7 @@ impl App<'_> {
             .direction(Direction::Vertical)
             .constraints(main_layout)
             .split(frame.area());
+        let first_layout = *layout.first().unwrap_or(&Rect::default());
 
         let current_connection =
             self.active_connection.clone().unwrap_or_default();
@@ -188,10 +189,11 @@ impl App<'_> {
                 hotkeys: &self.hotkeys,
                 app_name: APP_NAME,
             },
-            layout[0],
+            first_layout,
         );
 
         // Create the main content area (layout[1] is the middle section)
+        let layout_rect = *layout.get(1).unwrap_or(&frame.area());
         let main_area = if self.search_filter.is_active {
             // If search filter is active, create a layout with search filter at top
             let search_layout = Layout::default()
@@ -200,19 +202,21 @@ impl App<'_> {
                     Constraint::Length(3), // Search filter height
                     Constraint::Min(0),    // Remaining space for table
                 ])
-                .split(layout[1]);
+                .split(layout_rect);
+
+            let search_layout_rect =
+                *search_layout.first().unwrap_or(&Rect::default());
 
             // Render search filter
             frame.render_stateful_widget(
                 self.search_filter.clone(),
-                search_layout[0],
+                search_layout_rect,
                 &mut (),
             );
 
-            // Return the area for the table
-            search_layout[1]
+            *search_layout.get(1).unwrap_or(&Rect::default())
         } else {
-            layout[1]
+            layout_rect
         };
 
         match self.state {
@@ -256,30 +260,14 @@ impl App<'_> {
         }
 
         // Render status line at the bottom
-        if !self.status_line.message().is_empty() {
-            frame.render_widget(self.status_line.clone(), layout[2]);
+        if !self.status_line.message().is_empty()
+            && let Some(status_layout) = layout.get(2)
+        {
+            frame.render_widget(self.status_line.clone(), *status_layout);
         }
 
         // Render modals using the modal manager
-        if let Some(modal) = self.modal_manager.get_connection_modal() {
-            frame.render_widget(modal.clone(), frame.area());
-        }
-
-        if let Some(confirmation_modal) =
-            self.modal_manager.get_confirmation_modal()
-        {
-            frame.render_widget(confirmation_modal.clone(), frame.area());
-        }
-
-        if let Some(cell_value_modal) =
-            self.modal_manager.get_cell_value_modal()
-        {
-            frame.render_widget(cell_value_modal.clone(), frame.area());
-        }
-
-        if let Some(password_modal) = self.modal_manager.get_password_modal() {
-            frame.render_widget(password_modal.clone(), frame.area());
-        }
+        self.render_modals(frame);
     }
 
     /// Reads the crossterm events and updates the state of [`App`].
@@ -288,11 +276,15 @@ impl App<'_> {
     /// [`event::poll`] function to check if there are any events available with a timeout.
     async fn handle_crossterm_events(&mut self) -> Result<()> {
         match event::read()? {
-            // it's important to check KeyEventKind::Press to avoid handling key release events
             Event::Key(key) if key.kind == KeyEventKind::Press => {
                 self.on_key_event(key).await?;
             }
-            _ => {}
+            Event::Key(_) => todo!(),
+            Event::FocusGained => todo!(),
+            Event::FocusLost => todo!(),
+            Event::Mouse(_) => todo!(),
+            Event::Paste(_) => todo!(),
+            Event::Resize(_, _) => todo!(),
         }
 
         Ok(())
@@ -355,60 +347,28 @@ impl App<'_> {
                 // Only handle 'd' key if no modals are open and in connection list
                 if self.state == AppState::ConnectionList
                     && !self.modal_manager.is_any_modal_open()
-                    && let Some(selected_index) =
-                        self.table_widget.table_state.selected()
+                    && let Some(connection) = self.get_selected_connection()
                 {
-                    // Account for header row - selected_index 0 is header, 1+ are data rows
-                    if selected_index < self.table_widget.items.len()
-                        && let Some(connection) =
-                            self.table_widget.items.get(selected_index)
-                    {
-                        let message = format!(
-                            "Are you sure you want to delete\nthe connection '{}'?\n\nThis action cannot be undone.",
-                            connection.name
-                        );
-                        self.modal_manager.open_confirmation_modal(
-                            message,
-                            connection.clone(),
-                        );
-                        return Ok(()); // Return early to prevent key propagation
-                    }
+                    let message = format!(
+                        "Are you sure you want to delete\nthe connection '{}'?\n\nThis action cannot be undone.",
+                        connection.name
+                    );
+                    self.modal_manager
+                        .open_confirmation_modal(message, connection.clone());
+                    return Ok(()); // Return early to prevent key propagation
                 }
             }
             (_, KeyCode::Char('e')) => {
                 // Only handle 'e' key if no modal is open and in connection list
                 if self.state == AppState::ConnectionList
                     && !self.modal_manager.is_any_modal_open()
-                    && let Some(selected_index) =
-                        self.table_widget.table_state.selected()
+                    && let Some(connection) = self.get_selected_connection()
                 {
-                    if selected_index < self.table_widget.items.len()
-                        && let Some(connection) =
-                            self.table_widget.items.get(selected_index)
-                    {
-                        // Check if "ask every time" is enabled - don't access keyring in that case
-                        let should_ask_every_time = connection
-                            .password_storage
-                            .as_ref()
-                            .is_some_and(|s| s == "dont_save");
-
-                        let password = if should_ask_every_time {
-                            // Don't access keyring for "ask every time" connections
-                            // Never create a keyring instance to avoid system prompts
-                            String::new()
-                        } else {
-                            // Initialize keyring with the connection's user and get password
-                            // Only create keyring if NOT "ask every time"
-                            let keyring = Keyring::new(&connection.name).ok();
-                            keyring
-                                .as_ref()
-                                .and_then(|keyring| keyring.get_password().ok())
-                                .unwrap_or_default()
-                        };
-                        self.modal_manager
-                            .open_edit_connection_modal(connection, password);
-                        return Ok(()); // Return early to prevent key propagation
-                    }
+                    let password = self.get_connection_password(connection);
+                    let connection = connection.clone();
+                    self.modal_manager
+                        .open_edit_connection_modal(&connection, password);
+                    return Ok(()); // Return early to prevent key propagation
                 }
             }
             (_, KeyCode::Char('p')) => self.toggle_popup(),
@@ -578,10 +538,10 @@ impl App<'_> {
         if let Ok(connections) = get_connections() {
             self.original_connections.clone_from(&connections);
             // Reapply filter if one is active, otherwise show all connections
-            if !self.search_filter.get_filter_query().is_empty() {
-                self.apply_filter();
-            } else {
+            if self.search_filter.get_filter_query().is_empty() {
                 self.table_widget.items = connections;
+            } else {
+                self.apply_filter();
             }
         }
     }
@@ -602,96 +562,71 @@ impl App<'_> {
         )
     }
 
+    /// Get the currently selected connection from the connection list
+    fn get_selected_connection(&self) -> Option<&Connection> {
+        self.table_widget
+            .table_state
+            .selected()
+            .filter(|&idx| idx < self.table_widget.items.len())
+            .and_then(|idx| self.table_widget.items.get(idx))
+    }
+
+    /// Get the password for a connection from keyring (if not "ask every time")
+    fn get_connection_password(&self, connection: &Connection) -> String {
+        if connection.should_ask_every_time() {
+            String::new()
+        } else {
+            Keyring::new(&connection.name)
+                .ok()
+                .and_then(|keyring| keyring.get_password().ok())
+                .unwrap_or_default()
+        }
+    }
+
     /// Connect to the selected database
     async fn connect_to_database(&mut self) -> Result<()> {
-        if let Some(selected_index) = self.table_widget.table_state.selected() {
-            // Account for header row - selected_index 0 is header, 1+ are data rows
-            if selected_index < self.table_widget.items.len()
-                && let Some(connection) =
-                    self.table_widget.items.get(selected_index)
+        let Some(connection) = self.get_selected_connection() else {
+            return Ok(());
+        };
+
+        if connection.should_ask_every_time() {
+            // Check session storage first
+            let connection_key = Self::connection_key(connection);
+            if let Some(session_password) =
+                self.session_passwords.get(&connection_key)
             {
-                // Check if password storage is set to "dont_save" (ask every time)
-                let should_ask_every_time = connection
-                    .password_storage
-                    .as_ref()
-                    .is_some_and(|s| s == "dont_save");
-
-                if should_ask_every_time {
-                    // Check session storage first
-                    let connection_key = Self::connection_key(connection);
-                    if let Some(session_password) =
-                        self.session_passwords.get(&connection_key)
-                    {
-                        // Use password from session storage
-                        // Don't create keyring for "ask every time" connections
-                        self.connect_with_password(
-                            connection.clone(),
-                            session_password.clone(),
-                        )
+                self.connect_with_password(
+                    connection.clone(),
+                    session_password.clone(),
+                )
+                .await?;
+            } else {
+                let prompt =
+                    format!("Enter password for user '{}':", connection.user);
+                self.modal_manager
+                    .open_password_modal(connection.clone(), prompt);
+            }
+        } else {
+            // Try to get password from keyring
+            if let Ok(entry) = Keyring::new(&connection.name) {
+                if let Ok(password) = entry.get_password() {
+                    self.connect_with_password(connection.clone(), password)
                         .await?;
-                    } else {
-                        // No session password found - ask for password
-                        // Don't create keyring for "ask every time" connections
-                        let prompt = format!(
-                            "Enter password for user '{}':",
-                            connection.user
-                        );
-                        self.modal_manager
-                            .open_password_modal(connection.clone(), prompt);
-                    }
                 } else {
-                    // Try to get password from keyring
-                    // Only create keyring if NOT "ask every time"
-                    // Double-check to avoid any system prompts
-                    let is_ask_every_time = connection
-                        .password_storage
-                        .as_ref()
-                        .is_some_and(|s| s == "dont_save");
-
-                    if !is_ask_every_time {
-                        match Keyring::new(&connection.name) {
-                            Ok(entry) => {
-                                if let Ok(password) = entry.get_password() {
-                                    self.connect_with_password(
-                                        connection.clone(),
-                                        password,
-                                    )
-                                    .await?;
-                                } else {
-                                    // Password not found - show password modal
-                                    let prompt = format!(
-                                        "Password not found for user '{}'.\nPlease enter password:",
-                                        connection.user
-                                    );
-                                    self.modal_manager.open_password_modal(
-                                        connection.clone(),
-                                        prompt,
-                                    );
-                                }
-                            }
-                            Err(_) => {
-                                // Keyring creation failed - show password modal
-                                let prompt = format!(
-                                    "Unable to access keyring for user '{}'.\nPlease enter password:",
-                                    connection.user
-                                );
-                                self.modal_manager.open_password_modal(
-                                    connection.clone(),
-                                    prompt,
-                                );
-                            }
-                        }
-                    } else {
-                        // Should never reach here if "ask every time" is selected,
-                        // but just in case, don't create keyring
-                        let prompt = format!(
-                            "Enter password for user '{}':",
-                            connection.user
-                        );
-                        self.modal_manager
-                            .open_password_modal(connection.clone(), prompt);
-                    }
+                    let prompt = format!(
+                        "Password not found for user '{}'.\nPlease enter password:",
+                        connection.user
+                    );
+                    self.modal_manager
+                        .open_password_modal(connection.clone(), prompt);
                 }
+            } else {
+                let prompt = format!(
+                    "Unable to access keyring for user '{}'.\nPlease enter password:",
+                    connection.user
+                );
+                self.modal_manager
+                    .open_password_modal(connection.clone(), prompt);
             }
         }
         Ok(())
@@ -765,57 +700,44 @@ impl App<'_> {
         }
     }
 
+    /// Render all active modals
+    fn render_modals(&self, frame: &mut Frame) {
+        let area = frame.area();
+
+        if let Some(modal) = self.modal_manager.get_connection_modal() {
+            frame.render_widget(modal.clone(), area);
+        }
+
+        if let Some(modal) = self.modal_manager.get_confirmation_modal() {
+            frame.render_widget(modal.clone(), area);
+        }
+
+        if let Some(modal) = self.modal_manager.get_cell_value_modal() {
+            frame.render_widget(modal.clone(), area);
+        }
+
+        if let Some(modal) = self.modal_manager.get_password_modal() {
+            frame.render_widget(modal.clone(), area);
+        }
+    }
+
     /// Render the appropriate database table based on explorer state
     fn render_database_table(&self, frame: &mut Frame, area: Rect) {
         match &self.explorer_state {
-            Some(DatabaseExplorerState::Schemas) => {
-                if let Some(schema_table) = &self.schema_table {
-                    frame.render_stateful_widget(
-                        schema_table.clone(),
-                        area,
-                        &mut schema_table.table_state.clone(),
-                    );
-                }
+            Some(DatabaseExplorerState::Schemas) | None => {
+                render_data_table(frame, &self.schema_table, area);
             }
             Some(DatabaseExplorerState::Tables(_)) => {
-                if let Some(table_table) = &self.table_table {
-                    frame.render_stateful_widget(
-                        table_table.clone(),
-                        area,
-                        &mut table_table.table_state.clone(),
-                    );
-                }
+                render_data_table(frame, &self.table_table, area);
             }
             Some(DatabaseExplorerState::Columns(_, _)) => {
-                if let Some(column_table) = &self.column_table {
-                    frame.render_stateful_widget(
-                        column_table.clone(),
-                        area,
-                        &mut column_table.table_state.clone(),
-                    );
-                }
+                render_data_table(frame, &self.column_table, area);
             }
             Some(DatabaseExplorerState::TableData(_, _)) => {
-                if let Some(table_data) = &self.table_data {
-                    frame.render_stateful_widget(
-                        table_data.clone(),
-                        area,
-                        &mut table_data.table_state.clone(),
-                    );
-                }
+                render_data_table(frame, &self.table_data, area);
             }
             Some(DatabaseExplorerState::SqlExecutor) => {
                 frame.render_widget(self.sql_executor.clone(), area);
-            }
-            None => {
-                // Show schemas by default
-                if let Some(schema_table) = &self.schema_table {
-                    frame.render_stateful_widget(
-                        schema_table.clone(),
-                        area,
-                        &mut schema_table.table_state.clone(),
-                    );
-                }
             }
         }
     }
@@ -894,13 +816,11 @@ impl App<'_> {
                     && selected_index < schema_table.items.len()
                     && let Some(schema) = schema_table.items.get(selected_index)
                 {
-                    let schema_name = schema.name.clone();
-
                     if let Some(connection) = &mut self.active_connection {
-                        connection.schema = Some(schema_name.clone());
+                        connection.schema = Some(schema.name.clone());
                     }
 
-                    self.load_tables(&schema_name).await?;
+                    self.load_tables(&schema.name.clone()).await?;
                 }
             }
             Some(DatabaseExplorerState::Tables(schema_name)) => {
@@ -908,20 +828,17 @@ impl App<'_> {
                 if let Some(table_table) = &self.table_table
                     && let Some(selected_index) =
                         table_table.table_state.selected()
+                    && selected_index < table_table.items.len()
+                    && let Some(table) = table_table.items.get(selected_index)
                 {
-                    let data_index = selected_index;
-                    if data_index < table_table.items.len()
-                        && let Some(table) = table_table.items.get(data_index)
-                    {
-                        let schema_name = schema_name.clone();
-                        let table_name = table.name.clone();
+                    let schema_name = schema_name.clone();
+                    let table_name = table.name.clone();
 
-                        if let Some(connection) = &mut self.active_connection {
-                            connection.table = Some(table_name.clone());
-                        }
-
-                        self.load_table_data(&schema_name, &table_name).await?;
+                    if let Some(connection) = &mut self.active_connection {
+                        connection.table = Some(table_name.clone());
                     }
+
+                    self.load_table_data(&schema_name, &table_name).await?;
                 }
             }
             Some(DatabaseExplorerState::Columns(schema_name, table_name)) => {
@@ -940,15 +857,31 @@ impl App<'_> {
                     let selected_col =
                         table_data.table_state.selected_column().unwrap_or(0);
 
+                    let selected_index = table_data
+                        .items
+                        .get(selected_row)
+                        .map(|row| row.values.len())
+                        .unwrap_or_default();
                     if let Some(ref column_names) =
                         table_data.dynamic_column_names
                         && selected_col < column_names.len()
-                        && selected_col
-                            < table_data.items[selected_row].values.len()
+                        && selected_col < selected_index
                     {
-                        let column_name = column_names[selected_col].clone();
-                        let cell_value = table_data.items[selected_row].values
-                            [selected_col]
+                        let no_column_name_error_message =
+                            &"Could not get column name.".to_string();
+                        let column_name = column_names
+                            .get(selected_col)
+                            .unwrap_or(no_column_name_error_message)
+                            .clone();
+
+                        let no_cell_value_error_message =
+                            &"Could not get cell value.".to_string();
+                        let cell_value = table_data
+                            .items
+                            .get(selected_row)
+                            .map(|item| &item.values)
+                            .and_then(|values| values.get(selected_col))
+                            .unwrap_or(no_cell_value_error_message)
                             .clone();
 
                         self.modal_manager
@@ -977,12 +910,14 @@ impl App<'_> {
                                 .iter()
                                 .map(|row| row.values.clone())
                                 .collect();
-                            let column_names = if results.is_empty() {
-                                vec!["Result".to_string()]
-                            } else {
-                                results[0].column_names.clone()
-                            };
-                            self.sql_executor.set_results(data, column_names);
+
+                            let column_names = results
+                                .first()
+                                .map(|result| result.column_names.clone());
+
+                            if let Some(names) = column_names {
+                                self.sql_executor.set_results(data, &names);
+                            }
                         }
                         Err(e) => {
                             self.sql_executor.set_error(e.to_string());
@@ -1043,21 +978,24 @@ impl App<'_> {
     fn handle_database_table_navigation(&mut self, key: KeyCode) {
         match &self.explorer_state {
             Some(DatabaseExplorerState::Schemas) => {
-                self.handle_schema_table_navigation(key);
+                TableNavigationHandler::navigate(&mut self.schema_table, key);
             }
             Some(DatabaseExplorerState::Tables(_)) => {
-                self.handle_table_table_navigation(key);
+                TableNavigationHandler::navigate(&mut self.table_table, key);
             }
             Some(DatabaseExplorerState::Columns(_, _)) => {
-                self.handle_column_table_navigation(key);
+                TableNavigationHandler::navigate(&mut self.column_table, key);
             }
             Some(DatabaseExplorerState::TableData(_, _)) => {
-                self.handle_table_data_navigation(key);
+                TableNavigationHandler::navigate(&mut self.table_data, key);
             }
             Some(DatabaseExplorerState::SqlExecutor) => {
                 // If we have results, handle table navigation
                 if self.sql_executor.table_widget.is_some() {
-                    self.handle_sql_results_navigation(key);
+                    TableNavigationHandler::handle_sql_results_navigation(
+                        &mut self.sql_executor,
+                        key,
+                    );
                 }
             }
             None => {}
@@ -1081,15 +1019,11 @@ impl App<'_> {
                     let password = password_modal.password.clone();
                     password_modal.close();
 
-                    // Check if connection has "Ask every time" enabled
-                    let ask_every_time = connection
-                        .password_storage
-                        .as_ref()
-                        .is_some_and(|s| s == "dont_save");
-
                     // For "ask every time" connections, never access keyring
                     // Only store in session memory if auto-store is enabled
-                    if self.auto_store_session_password && ask_every_time {
+                    if self.auto_store_session_password
+                        && connection.should_ask_every_time()
+                    {
                         let connection_key = Self::connection_key(connection);
                         self.session_passwords
                             .insert(connection_key, password.clone());
@@ -1112,33 +1046,14 @@ impl App<'_> {
                     let original_name = modal.original_name.clone();
                     let mode = modal.mode;
 
-                    // Always save password to keyring if:
-                    // 1. password_storage is Keyring (not "ask every time")
-                    // 2. password is provided
-                    let should_save_to_keyring = connection
-                        .password_storage
-                        .as_ref()
-                        .map_or(false, |s| s == "keyring")
+                    // Always save password to keyring if using keyring storage and password is provided
+                    let should_save_to_keyring = connection.uses_keyring()
                         && connection.password.is_some();
 
                     // Prepare keyring for saving (only if we should save)
-                    // Never create keyring if "ask every time" is selected to avoid system prompts
                     let keyring_for_save = if should_save_to_keyring {
-                        // Create keyring if it doesn't exist
-                        // Only do this if password_storage is NOT "ask every time"
-                        // Double-check we're not in "ask every time" mode
-                        let is_ask_every_time = connection
-                            .password_storage
-                            .as_ref()
-                            .is_some_and(|s| s == "dont_save");
-                        if !is_ask_every_time {
-                            &mut Keyring::new(&connection.name).ok()
-                        } else {
-                            &mut None
-                        }
+                        &mut Keyring::new(&connection.name).ok()
                     } else {
-                        // Don't save to keyring - pass None
-                        // Make sure keyring is None to avoid any prompts
                         &mut None
                     };
 
@@ -1153,10 +1068,7 @@ impl App<'_> {
                             self.refresh_connections();
                         }
                         Err(error_msg) => {
-                            modal.test_result =
-                                d7s_ui::widgets::modal::TestResult::Failed(
-                                    error_msg,
-                                );
+                            modal.test_result = TestResult::Failed(error_msg);
                         }
                     }
                 }
@@ -1166,14 +1078,12 @@ impl App<'_> {
                     self.modal_manager.get_connection_modal_mut()
                 {
                     if let Some(connection) = modal.get_connection() {
-                        modal.test_result =
-                            d7s_ui::widgets::modal::TestResult::Testing;
+                        modal.test_result = TestResult::Testing;
                         modal.test_result = test_connection(&connection).await;
                     } else {
-                        modal.test_result =
-                            d7s_ui::widgets::modal::TestResult::Failed(
-                                "Please fill in all fields".to_string(),
-                            );
+                        modal.test_result = TestResult::Failed(
+                            "Please fill in all fields".to_string(),
+                        );
                     }
                 }
             }
@@ -1189,16 +1099,11 @@ impl App<'_> {
         if let Some(connection) =
             self.modal_manager.was_confirmation_modal_confirmed()
         {
-            // Only try to delete from keyring if the connection doesn't have "ask every time" enabled
-            let should_ask_every_time = connection
-                .password_storage
-                .as_ref()
-                .is_some_and(|s| s == "dont_save");
-
-            if !should_ask_every_time {
-                if let Some(keyring) = &Keyring::new(&connection.name).ok() {
-                    let _ = keyring.delete_password();
-                }
+            // Only try to delete from keyring if not using "ask every time"
+            if !connection.should_ask_every_time()
+                && let Some(keyring) = &Keyring::new(&connection.name).ok()
+            {
+                let _ = keyring.delete_password();
             }
 
             if let Err(e) = d7s_db::sqlite::delete_connection(&connection.name)
@@ -1213,41 +1118,6 @@ impl App<'_> {
         self.modal_manager.cleanup_closed_modals();
 
         Ok(())
-    }
-
-    fn handle_table_data_navigation(&mut self, key: KeyCode) {
-        TableNavigationHandler::handle_table_data_navigation(
-            &mut self.table_data,
-            key,
-        );
-    }
-
-    fn handle_column_table_navigation(&mut self, key: KeyCode) {
-        TableNavigationHandler::handle_column_table_navigation(
-            &mut self.column_table,
-            key,
-        );
-    }
-
-    fn handle_table_table_navigation(&mut self, key: KeyCode) {
-        TableNavigationHandler::handle_table_table_navigation(
-            &mut self.table_table,
-            key,
-        );
-    }
-
-    fn handle_schema_table_navigation(&mut self, key: KeyCode) {
-        TableNavigationHandler::handle_schema_table_navigation(
-            &mut self.schema_table,
-            key,
-        );
-    }
-
-    fn handle_sql_results_navigation(&mut self, key: KeyCode) {
-        TableNavigationHandler::handle_sql_results_navigation(
-            &mut self.sql_executor,
-            key,
-        );
     }
 
     /// Load table data for a table
@@ -1265,7 +1135,7 @@ impl App<'_> {
                     // Store original data for filtering
                     self.original_table_data.clone_from(&data);
                     self.table_data =
-                        Some(DataTable::from_raw_data(data, column_names));
+                        Some(DataTable::from_raw_data(data, &column_names));
                     self.explorer_state =
                         Some(DatabaseExplorerState::TableData(
                             schema_name.to_string(),
@@ -1291,51 +1161,27 @@ impl App<'_> {
                     DataTable::new(self.original_connections.clone());
                 let filtered_items = temp_table.filter(query);
                 self.table_widget.items = filtered_items;
-                TableNavigationHandler::clamp_data_table_selection(
-                    &mut self.table_widget,
-                );
+                TableNavigationHandler::clamp_selection(&mut self.table_widget);
             }
-            AppState::DatabaseConnected => match &self.explorer_state {
-                Some(DatabaseExplorerState::Schemas) => {
-                    if let Some(schema_table) = &mut self.schema_table {
-                        let filtered_items = schema_table.filter(query);
-                        schema_table.items = filtered_items;
-                        TableNavigationHandler::clamp_data_table_selection(
-                            schema_table,
-                        );
+            AppState::DatabaseConnected => {
+                match self.explorer_state {
+                    Some(DatabaseExplorerState::Schemas) => {
+                        filter_table_data(query, &mut self.schema_table);
+                    }
+                    Some(DatabaseExplorerState::Tables(_)) => {
+                        filter_table_data(query, &mut self.table_table);
+                    }
+                    Some(DatabaseExplorerState::Columns(_, _)) => {
+                        filter_table_data(query, &mut self.column_table);
+                    }
+                    Some(DatabaseExplorerState::TableData(_, _)) => {
+                        filter_table_data(query, &mut self.table_data);
+                    }
+                    Some(DatabaseExplorerState::SqlExecutor) | None => {
+                        // No filtering for SQL executor
                     }
                 }
-                Some(DatabaseExplorerState::Tables(_)) => {
-                    if let Some(table_table) = &mut self.table_table {
-                        let filtered_items = table_table.filter(query);
-                        table_table.items = filtered_items;
-                        TableNavigationHandler::clamp_data_table_selection(
-                            table_table,
-                        );
-                    }
-                }
-                Some(DatabaseExplorerState::Columns(_, _)) => {
-                    if let Some(column_table) = &mut self.column_table {
-                        let filtered_items = column_table.filter(query);
-                        column_table.items = filtered_items;
-                        TableNavigationHandler::clamp_data_table_selection(
-                            column_table,
-                        );
-                    }
-                }
-                Some(DatabaseExplorerState::TableData(_, _)) => {
-                    if let Some(table_data) = &mut self.table_data {
-                        let filtered_items = table_data.filter(query);
-                        table_data.items = filtered_items;
-                        TableNavigationHandler::clamp_table_data_selection(
-                            table_data,
-                        );
-                    }
-                }
-                Some(DatabaseExplorerState::SqlExecutor) | None => {
-                    // No filtering for SQL executor
-                }
-            },
+            }
         }
     }
 
@@ -1344,63 +1190,59 @@ impl App<'_> {
         match self.state {
             AppState::ConnectionList => {
                 self.table_widget.items = self.original_connections.clone();
-                TableNavigationHandler::clamp_data_table_selection(
-                    &mut self.table_widget,
-                );
+                TableNavigationHandler::clamp_selection(&mut self.table_widget);
             }
-            AppState::DatabaseConnected => match &self.explorer_state {
-                Some(DatabaseExplorerState::Schemas) => {
-                    if let Some(schema_table) = &mut self.schema_table {
-                        schema_table.items.clone_from(&self.original_schemas);
-                        TableNavigationHandler::clamp_data_table_selection(
-                            schema_table,
+            AppState::DatabaseConnected => {
+                match self.explorer_state {
+                    Some(DatabaseExplorerState::Schemas) => {
+                        restore_table_data(
+                            &mut self.schema_table,
+                            &self.original_schemas,
                         );
                     }
-                }
-                Some(DatabaseExplorerState::Tables(_)) => {
-                    if let Some(table_table) = &mut self.table_table {
-                        table_table.items.clone_from(&self.original_tables);
-                        TableNavigationHandler::clamp_data_table_selection(
-                            table_table,
+                    Some(DatabaseExplorerState::Tables(_)) => {
+                        restore_table_data(
+                            &mut self.table_table,
+                            &self.original_tables,
                         );
                     }
-                }
-                Some(DatabaseExplorerState::Columns(_, _)) => {
-                    if let Some(column_table) = &mut self.column_table {
-                        column_table.items.clone_from(&self.original_columns);
-                        TableNavigationHandler::clamp_data_table_selection(
-                            column_table,
+                    Some(DatabaseExplorerState::Columns(_, _)) => {
+                        restore_table_data(
+                            &mut self.column_table,
+                            &self.original_columns,
                         );
                     }
-                }
-                Some(DatabaseExplorerState::TableData(_, _)) => {
-                    if let Some(table_data) = &mut self.table_data {
-                        if let Some(ref column_names) =
-                            table_data.dynamic_column_names
-                        {
-                            // Recreate items from original data
-                            let column_names_arc = Arc::clone(column_names);
-                            table_data.items = self
-                                .original_table_data
-                                .iter()
-                                .map(|values| RawTableRow {
-                                    values: values.clone(),
-                                    column_names: Arc::clone(&column_names_arc),
-                                })
-                                .collect();
-                            // Recalculate longest_item_lens
-                            table_data.longest_item_lens =
-                                constraint_len_calculator(&table_data.items);
+                    Some(DatabaseExplorerState::TableData(_, _)) => {
+                        if let Some(table_data) = &mut self.table_data {
+                            if let Some(ref column_names) =
+                                table_data.dynamic_column_names
+                            {
+                                // Recreate items from original data
+                                let column_names_arc = Arc::clone(column_names);
+                                table_data.items = self
+                                    .original_table_data
+                                    .iter()
+                                    .map(|values| RawTableRow {
+                                        values: values.clone(),
+                                        column_names: Arc::clone(
+                                            &column_names_arc,
+                                        ),
+                                    })
+                                    .collect();
+                                // Recalculate longest_item_lens
+                                table_data.longest_item_lens =
+                                    constraint_len_calculator(
+                                        &table_data.items,
+                                    );
+                            }
+                            TableNavigationHandler::clamp_selection(table_data);
                         }
-                        TableNavigationHandler::clamp_table_data_selection(
-                            table_data,
-                        );
+                    }
+                    Some(DatabaseExplorerState::SqlExecutor) | None => {
+                        // No filtering for SQL executor
                     }
                 }
-                Some(DatabaseExplorerState::SqlExecutor) | None => {
-                    // No filtering for SQL executor
-                }
-            },
+            }
         }
     }
 
@@ -1412,5 +1254,39 @@ impl App<'_> {
     /// Clear the status line
     pub fn clear_status(&mut self) {
         self.status_line.clear();
+    }
+}
+
+fn filter_table_data<T: TableData + Clone>(
+    query: &str,
+    table: &mut Option<DataTable<T>>,
+) {
+    if let Some(table) = table {
+        table.items = table.filter(query);
+        TableNavigationHandler::clamp_selection(table);
+    }
+}
+
+fn restore_table_data<T: TableData + Clone>(
+    table: &mut Option<DataTable<T>>,
+    original_data: &[T],
+) {
+    if let Some(table) = table {
+        table.items.clone_from(&original_data.to_vec());
+        TableNavigationHandler::clamp_selection(table);
+    }
+}
+
+fn render_data_table<T: TableData + Clone + std::fmt::Debug>(
+    frame: &mut Frame,
+    table: &Option<DataTable<T>>,
+    area: Rect,
+) {
+    if let Some(table) = table {
+        frame.render_stateful_widget(
+            table.clone(),
+            area,
+            &mut table.table_state.clone(),
+        );
     }
 }
