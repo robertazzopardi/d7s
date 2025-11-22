@@ -1,10 +1,15 @@
+use std::{collections::HashMap, sync::Arc};
+
 use color_eyre::Result;
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
 use d7s_auth::Keyring;
 use d7s_db::{
-    Column, Database, Schema, Table, connection::Connection, postgres::Postgres,
+    Column, Database, Schema, Table,
+    connection::Connection,
+    postgres::Postgres,
+    sqlite::{get_connections, init_db},
 };
 use d7s_ui::{
     handlers::{
@@ -13,11 +18,13 @@ use d7s_ui::{
         handle_sql_executor_input, test_connection,
     },
     widgets::{
+        constraint_len_calculator,
         hotkey::Hotkey,
         modal::{ModalAction, ModalManager},
         search_filter::SearchFilter,
         sql_executor::SqlExecutor,
-        table::{DataTable, TableDataWidget},
+        status_line::StatusLine,
+        table::{DataTable, RawTableRow},
         top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS, TopBarView},
     },
 };
@@ -77,34 +84,35 @@ pub struct App<'a> {
     /// Current column table data
     column_table: Option<DataTable<Column>>,
     /// Current table data (rows)
-    table_data: Option<TableDataWidget>,
+    table_data: Option<DataTable<RawTableRow>>,
     /// SQL executor widget
     sql_executor: SqlExecutor,
-    keyring: Option<Keyring>,
     /// Search filter widget
     search_filter: SearchFilter,
+    /// Status line widget
+    status_line: StatusLine,
     /// Original unfiltered data for restoration
     original_connections: Vec<Connection>,
     original_schemas: Vec<Schema>,
     original_tables: Vec<Table>,
     original_columns: Vec<Column>,
     original_table_data: Vec<Vec<String>>,
+    /// Session password storage (in-memory only, cleared when app exits)
+    /// Key format: "{user}@{host}:{port}/{database}"
+    session_passwords: HashMap<String, String>,
+    /// Whether to automatically store passwords in session memory when "ask every time" is enabled
+    /// Default: true (auto-store for better UX)
+    auto_store_session_password: bool,
 }
 
 impl Default for App<'_> {
     fn default() -> Self {
-        d7s_db::sqlite::init_db().unwrap();
-
-        let items = d7s_db::sqlite::get_connections().unwrap_or_default();
-
-        let table_widget = DataTable::new(items.clone());
-
         Self {
             running: false,
             show_popup: false,
             modal_manager: ModalManager::new(),
             hotkeys: CONNECTION_HOTKEYS.to_vec(),
-            table_widget,
+            table_widget: DataTable::default(),
             state: AppState::ConnectionList,
             active_connection: None,
             active_database: None,
@@ -114,18 +122,33 @@ impl Default for App<'_> {
             column_table: None,
             table_data: None,
             sql_executor: SqlExecutor::new(),
-            keyring: None,
             search_filter: SearchFilter::new(),
-            original_connections: items,
+            status_line: StatusLine::new(),
+            original_connections: Vec::new(),
             original_schemas: Vec::new(),
             original_tables: Vec::new(),
             original_columns: Vec::new(),
             original_table_data: Vec::new(),
+            session_passwords: HashMap::new(),
+            auto_store_session_password: true, // Default to auto-storing for better UX
         }
     }
 }
 
 impl App<'_> {
+    pub fn initialise(mut self) -> Result<Self> {
+        init_db()?;
+
+        let items = get_connections().unwrap_or_default();
+
+        let table_widget = DataTable::new(items.clone());
+
+        self.table_widget = table_widget;
+        self.original_connections = items;
+
+        Ok(self)
+    }
+
     /// Run the application's main loop.
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
@@ -143,12 +166,18 @@ impl App<'_> {
     /// - <https://docs.rs/ratatui/latest/ratatui/widgets/index.html>
     /// - <https://github.com/ratatui/ratatui/tree/main/ratatui-widgets/examples>
     fn render(&mut self, frame: &mut Frame) {
+        // Split layout: top bar, main content, and status line
+        // Status line gets fixed 1 row, main content takes the rest
+        let mut main_layout =
+            vec![Constraint::Percentage(13), Constraint::Min(0)];
+
+        if !self.status_line.message().is_empty() {
+            main_layout.push(Constraint::Length(1));
+        }
+
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Percentage(13),
-                Constraint::Percentage(87),
-            ])
+            .constraints(main_layout)
             .split(frame.area());
 
         let current_connection =
@@ -162,7 +191,7 @@ impl App<'_> {
             layout[0],
         );
 
-        // Create the main content area
+        // Create the main content area (layout[1] is the middle section)
         let main_area = if self.search_filter.is_active {
             // If search filter is active, create a layout with search filter at top
             let search_layout = Layout::default()
@@ -226,6 +255,11 @@ impl App<'_> {
             }
         }
 
+        // Render status line at the bottom
+        if !self.status_line.message().is_empty() {
+            frame.render_widget(self.status_line.clone(), layout[2]);
+        }
+
         // Render modals using the modal manager
         if let Some(modal) = self.modal_manager.get_connection_modal() {
             frame.render_widget(modal.clone(), frame.area());
@@ -241,6 +275,10 @@ impl App<'_> {
             self.modal_manager.get_cell_value_modal()
         {
             frame.render_widget(cell_value_modal.clone(), frame.area());
+        }
+
+        if let Some(password_modal) = self.modal_manager.get_password_modal() {
+            frame.render_widget(password_modal.clone(), frame.area());
         }
     }
 
@@ -261,6 +299,7 @@ impl App<'_> {
     }
 
     /// Handles the key events and updates the state of [`App`].
+    #[allow(clippy::too_many_lines)]
     async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Handle search filter input first
         if self.search_filter.is_active {
@@ -320,10 +359,9 @@ impl App<'_> {
                         self.table_widget.table_state.selected()
                 {
                     // Account for header row - selected_index 0 is header, 1+ are data rows
-                    let data_index = selected_index.saturating_sub(1);
-                    if data_index < self.table_widget.items.len()
+                    if selected_index < self.table_widget.items.len()
                         && let Some(connection) =
-                            self.table_widget.items.get(data_index)
+                            self.table_widget.items.get(selected_index)
                     {
                         let message = format!(
                             "Are you sure you want to delete\nthe connection '{}'?\n\nThis action cannot be undone.",
@@ -344,32 +382,31 @@ impl App<'_> {
                     && let Some(selected_index) =
                         self.table_widget.table_state.selected()
                 {
-                    // Account for header row - selected_index 0 is header, 1+ are data rows
-                    let data_index = selected_index.saturating_sub(1);
-                    if data_index < self.table_widget.items.len()
+                    if selected_index < self.table_widget.items.len()
                         && let Some(connection) =
-                            self.table_widget.items.get(data_index)
+                            self.table_widget.items.get(selected_index)
                     {
-                        // Initialize keyring with the connection's user
-                        self.keyring = Keyring::new(&connection.user).ok();
+                        // Check if "ask every time" is enabled - don't access keyring in that case
+                        let should_ask_every_time = connection
+                            .password_storage
+                            .as_ref()
+                            .is_some_and(|s| s == "dont_save");
 
-                        if let Some(keyring) = &self.keyring {
-                            match keyring.get_password() {
-                                Ok(password) => {
-                                    self.modal_manager
-                                        .open_edit_connection_modal(
-                                            connection, password,
-                                        );
-                                }
-                                Err(e) => {
-                                    eprintln!(
-                                        "Failed to get password from keyring: {e}"
-                                    );
-                                }
-                            }
+                        let password = if should_ask_every_time {
+                            // Don't access keyring for "ask every time" connections
+                            // Never create a keyring instance to avoid system prompts
+                            String::new()
                         } else {
-                            eprintln!("Failed to initialize keyring");
-                        }
+                            // Initialize keyring with the connection's user and get password
+                            // Only create keyring if NOT "ask every time"
+                            let keyring = Keyring::new(&connection.name).ok();
+                            keyring
+                                .as_ref()
+                                .and_then(|keyring| keyring.get_password().ok())
+                                .unwrap_or_default()
+                        };
+                        self.modal_manager
+                            .open_edit_connection_modal(connection, password);
                         return Ok(()); // Return early to prevent key propagation
                     }
                 }
@@ -538,9 +575,14 @@ impl App<'_> {
 
     /// Refresh the table data from the database
     fn refresh_connections(&mut self) {
-        if let Ok(connections) = d7s_db::sqlite::get_connections() {
+        if let Ok(connections) = get_connections() {
             self.original_connections.clone_from(&connections);
-            self.table_widget.items = connections;
+            // Reapply filter if one is active, otherwise show all connections
+            if !self.search_filter.get_filter_query().is_empty() {
+                self.apply_filter();
+            } else {
+                self.table_widget.items = connections;
+            }
         }
     }
 
@@ -549,44 +591,140 @@ impl App<'_> {
         self.running = false;
     }
 
+    /// Generate a unique key for a connection to use in session password storage
+    fn connection_key(connection: &Connection) -> String {
+        format!(
+            "{}@{}:{}/{}",
+            connection.user,
+            connection.host,
+            connection.port,
+            connection.database
+        )
+    }
+
     /// Connect to the selected database
     async fn connect_to_database(&mut self) -> Result<()> {
         if let Some(selected_index) = self.table_widget.table_state.selected() {
             // Account for header row - selected_index 0 is header, 1+ are data rows
-            let data_index = selected_index.saturating_sub(1);
-            if data_index < self.table_widget.items.len()
+            if selected_index < self.table_widget.items.len()
                 && let Some(connection) =
-                    self.table_widget.items.get(data_index)
+                    self.table_widget.items.get(selected_index)
             {
-                let entry = Keyring::new(&connection.user)?;
-                let password = entry.get_password()?;
-                self.keyring = Some(entry);
+                // Check if password storage is set to "dont_save" (ask every time)
+                let should_ask_every_time = connection
+                    .password_storage
+                    .as_ref()
+                    .is_some_and(|s| s == "dont_save");
 
-                // Create connection with password
-                let mut connection_with_password = connection.clone();
-                connection_with_password.password = Some(password);
-
-                // Test the connection first
-                let postgres = connection_with_password.to_postgres();
-                if postgres.test().await {
-                    // Connection successful, update state
-                    self.active_connection =
-                        Some(connection_with_password.clone());
-                    self.active_database = Some(postgres);
-                    self.state = AppState::DatabaseConnected;
-
-                    // Update hotkeys for database mode
-                    self.hotkeys = DATABASE_HOTKEYS.to_vec();
-
-                    // Load schemas after successful connection
-                    self.load_schemas().await?;
+                if should_ask_every_time {
+                    // Check session storage first
+                    let connection_key = Self::connection_key(connection);
+                    if let Some(session_password) =
+                        self.session_passwords.get(&connection_key)
+                    {
+                        // Use password from session storage
+                        // Don't create keyring for "ask every time" connections
+                        self.connect_with_password(
+                            connection.clone(),
+                            session_password.clone(),
+                        )
+                        .await?;
+                    } else {
+                        // No session password found - ask for password
+                        // Don't create keyring for "ask every time" connections
+                        let prompt = format!(
+                            "Enter password for user '{}':",
+                            connection.user
+                        );
+                        self.modal_manager
+                            .open_password_modal(connection.clone(), prompt);
+                    }
                 } else {
-                    eprintln!(
-                        "Failed to connect to database: {}",
-                        connection.name
-                    );
+                    // Try to get password from keyring
+                    // Only create keyring if NOT "ask every time"
+                    // Double-check to avoid any system prompts
+                    let is_ask_every_time = connection
+                        .password_storage
+                        .as_ref()
+                        .is_some_and(|s| s == "dont_save");
+
+                    if !is_ask_every_time {
+                        match Keyring::new(&connection.name) {
+                            Ok(entry) => {
+                                if let Ok(password) = entry.get_password() {
+                                    self.connect_with_password(
+                                        connection.clone(),
+                                        password,
+                                    )
+                                    .await?;
+                                } else {
+                                    // Password not found - show password modal
+                                    let prompt = format!(
+                                        "Password not found for user '{}'.\nPlease enter password:",
+                                        connection.user
+                                    );
+                                    self.modal_manager.open_password_modal(
+                                        connection.clone(),
+                                        prompt,
+                                    );
+                                }
+                            }
+                            Err(_) => {
+                                // Keyring creation failed - show password modal
+                                let prompt = format!(
+                                    "Unable to access keyring for user '{}'.\nPlease enter password:",
+                                    connection.user
+                                );
+                                self.modal_manager.open_password_modal(
+                                    connection.clone(),
+                                    prompt,
+                                );
+                            }
+                        }
+                    } else {
+                        // Should never reach here if "ask every time" is selected,
+                        // but just in case, don't create keyring
+                        let prompt = format!(
+                            "Enter password for user '{}':",
+                            connection.user
+                        );
+                        self.modal_manager
+                            .open_password_modal(connection.clone(), prompt);
+                    }
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Connect to database with the provided password
+    async fn connect_with_password(
+        &mut self,
+        connection: Connection,
+        password: String,
+    ) -> Result<()> {
+        // Create connection with password
+        let mut connection_with_password = connection.clone();
+        connection_with_password.password = Some(password);
+
+        // Test the connection first
+        let postgres = connection_with_password.to_postgres();
+        if postgres.test().await {
+            // Connection successful, update state
+            self.active_connection = Some(connection_with_password.clone());
+            self.active_database = Some(postgres);
+            self.state = AppState::DatabaseConnected;
+
+            // Update hotkeys for database mode
+            self.hotkeys = DATABASE_HOTKEYS.to_vec();
+
+            // Load schemas after successful connection
+            self.load_schemas().await?;
+        } else {
+            self.set_status(format!(
+                "Failed to connect to database: {}",
+                connection.name
+            ));
         }
         Ok(())
     }
@@ -614,10 +752,10 @@ impl App<'_> {
             Some(DatabaseExplorerState::Tables(schema)) => {
                 format!(" {schema} ")
             }
-            Some(DatabaseExplorerState::Columns(schema, table)) => {
-                format!(" {schema}.{table} ")
-            }
-            Some(DatabaseExplorerState::TableData(schema, table)) => {
+            Some(
+                DatabaseExplorerState::Columns(schema, table)
+                | DatabaseExplorerState::TableData(schema, table),
+            ) => {
                 format!(" {schema}.{table} ")
             }
             Some(DatabaseExplorerState::SqlExecutor) => {
@@ -802,12 +940,14 @@ impl App<'_> {
                     let selected_col =
                         table_data.table_state.selected_column().unwrap_or(0);
 
-                    if selected_col < table_data.column_names.len()
-                        && selected_col < table_data.items[selected_row].len()
+                    if let Some(ref column_names) =
+                        table_data.dynamic_column_names
+                        && selected_col < column_names.len()
+                        && selected_col
+                            < table_data.items[selected_row].values.len()
                     {
-                        let column_name =
-                            table_data.column_names[selected_col].clone();
-                        let cell_value = table_data.items[selected_row]
+                        let column_name = column_names[selected_col].clone();
+                        let cell_value = table_data.items[selected_row].values
                             [selected_col]
                             .clone();
 
@@ -925,6 +1065,7 @@ impl App<'_> {
     }
 
     /// Handle modal events
+    #[allow(clippy::too_many_lines)]
     async fn handle_modal_events(&mut self, key: KeyEvent) -> Result<()> {
         // Handle modal events (UI only)
         let action = self.modal_manager.handle_key_events_ui(key);
@@ -932,15 +1073,78 @@ impl App<'_> {
         // Handle business logic based on modal actions
         match action {
             ModalAction::Save => {
-                if let Some(modal) =
+                // Handle password modal save (only used for "ask every time" connections)
+                if let Some(password_modal) =
+                    self.modal_manager.get_password_modal_mut()
+                    && let Some(connection) = &password_modal.connection.clone()
+                {
+                    let password = password_modal.password.clone();
+                    password_modal.close();
+
+                    // Check if connection has "Ask every time" enabled
+                    let ask_every_time = connection
+                        .password_storage
+                        .as_ref()
+                        .is_some_and(|s| s == "dont_save");
+
+                    // For "ask every time" connections, never access keyring
+                    // Only store in session memory if auto-store is enabled
+                    if self.auto_store_session_password && ask_every_time {
+                        let connection_key = Self::connection_key(connection);
+                        self.session_passwords
+                            .insert(connection_key, password.clone());
+                    }
+
+                    // Connect with the provided password
+                    // Don't create keyring for "ask every time" connections
+                    if let Err(e) = self
+                        .connect_with_password(connection.clone(), password)
+                        .await
+                    {
+                        eprintln!("Failed to connect: {e}");
+                    }
+                }
+                // Handle connection modal save
+                else if let Some(modal) =
                     self.modal_manager.get_connection_modal_mut()
                     && let Some(connection) = modal.get_connection()
                 {
                     let original_name = modal.original_name.clone();
-                    let mode = modal.mode.clone();
+                    let mode = modal.mode;
+
+                    // Always save password to keyring if:
+                    // 1. password_storage is Keyring (not "ask every time")
+                    // 2. password is provided
+                    let should_save_to_keyring = connection
+                        .password_storage
+                        .as_ref()
+                        .map_or(false, |s| s == "keyring")
+                        && connection.password.is_some();
+
+                    // Prepare keyring for saving (only if we should save)
+                    // Never create keyring if "ask every time" is selected to avoid system prompts
+                    let keyring_for_save = if should_save_to_keyring {
+                        // Create keyring if it doesn't exist
+                        // Only do this if password_storage is NOT "ask every time"
+                        // Double-check we're not in "ask every time" mode
+                        let is_ask_every_time = connection
+                            .password_storage
+                            .as_ref()
+                            .is_some_and(|s| s == "dont_save");
+                        if !is_ask_every_time {
+                            &mut Keyring::new(&connection.name).ok()
+                        } else {
+                            &mut None
+                        }
+                    } else {
+                        // Don't save to keyring - pass None
+                        // Make sure keyring is None to avoid any prompts
+                        &mut None
+                    };
+
                     match handle_save_connection(
-                        &mut self.keyring,
-                        connection,
+                        keyring_for_save,
+                        &connection,
                         mode,
                         original_name,
                     ) {
@@ -985,10 +1189,16 @@ impl App<'_> {
         if let Some(connection) =
             self.modal_manager.was_confirmation_modal_confirmed()
         {
-            if let Some(keyring) = &self.keyring {
-                let _ = keyring.delete_password();
-            } else {
-                eprintln!("No keyring found");
+            // Only try to delete from keyring if the connection doesn't have "ask every time" enabled
+            let should_ask_every_time = connection
+                .password_storage
+                .as_ref()
+                .is_some_and(|s| s == "dont_save");
+
+            if !should_ask_every_time {
+                if let Some(keyring) = &Keyring::new(&connection.name).ok() {
+                    let _ = keyring.delete_password();
+                }
             }
 
             if let Err(e) = d7s_db::sqlite::delete_connection(&connection.name)
@@ -1055,7 +1265,7 @@ impl App<'_> {
                     // Store original data for filtering
                     self.original_table_data.clone_from(&data);
                     self.table_data =
-                        Some(TableDataWidget::new(data, column_names));
+                        Some(DataTable::from_raw_data(data, column_names));
                     self.explorer_state =
                         Some(DatabaseExplorerState::TableData(
                             schema_name.to_string(),
@@ -1076,7 +1286,10 @@ impl App<'_> {
 
         match self.state {
             AppState::ConnectionList => {
-                let filtered_items = self.table_widget.filter(query);
+                // Filter from original_connections, not from already-filtered items
+                let temp_table =
+                    DataTable::new(self.original_connections.clone());
+                let filtered_items = temp_table.filter(query);
                 self.table_widget.items = filtered_items;
                 TableNavigationHandler::clamp_data_table_selection(
                     &mut self.table_widget,
@@ -1162,7 +1375,23 @@ impl App<'_> {
                 }
                 Some(DatabaseExplorerState::TableData(_, _)) => {
                     if let Some(table_data) = &mut self.table_data {
-                        table_data.items.clone_from(&self.original_table_data);
+                        if let Some(ref column_names) =
+                            table_data.dynamic_column_names
+                        {
+                            // Recreate items from original data
+                            let column_names_arc = Arc::clone(column_names);
+                            table_data.items = self
+                                .original_table_data
+                                .iter()
+                                .map(|values| RawTableRow {
+                                    values: values.clone(),
+                                    column_names: Arc::clone(&column_names_arc),
+                                })
+                                .collect();
+                            // Recalculate longest_item_lens
+                            table_data.longest_item_lens =
+                                constraint_len_calculator(&table_data.items);
+                        }
                         TableNavigationHandler::clamp_table_data_selection(
                             table_data,
                         );
@@ -1173,5 +1402,15 @@ impl App<'_> {
                 }
             },
         }
+    }
+
+    /// Set the status line message
+    pub fn set_status(&mut self, message: impl Into<String>) {
+        self.status_line.set_message(message);
+    }
+
+    /// Clear the status line
+    pub fn clear_status(&mut self) {
+        self.status_line.clear();
     }
 }

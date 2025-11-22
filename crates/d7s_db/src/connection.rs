@@ -12,6 +12,7 @@ pub struct Connection {
     pub schema: Option<String>,
     pub table: Option<String>,
     pub password: Option<String>,
+    pub password_storage: Option<String>, // "keyring" or "dont_save"
 }
 
 impl Display for Connection {
@@ -46,6 +47,7 @@ impl TableData for Connection {
             self.password.as_ref().map_or_else(String::new, |password| {
                 "•".repeat(password.len())
             }),
+            self.password_storage.clone().unwrap_or_default(),
         ]
     }
 
