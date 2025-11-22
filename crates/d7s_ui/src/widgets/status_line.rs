@@ -11,9 +11,8 @@ pub struct StatusLine {
 }
 
 impl StatusLine {
-    /// Create a new status line with an empty message
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             message: String::new(),
         }
@@ -38,7 +37,6 @@ impl StatusLine {
 
 impl Widget for StatusLine {
     fn render(self, area: Rect, buf: &mut ratatui::buffer::Buffer) {
-        // Ensure we have a valid area
         if area.height == 0 || area.width == 0 {
             return;
         }

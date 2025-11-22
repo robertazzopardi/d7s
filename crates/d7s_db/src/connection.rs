@@ -73,4 +73,20 @@ impl Connection {
             password: self.password.clone().unwrap_or_default(),
         }
     }
+
+    /// Check if this connection is configured to ask for password every time
+    #[must_use]
+    pub fn should_ask_every_time(&self) -> bool {
+        self.password_storage
+            .as_ref()
+            .is_some_and(|s| s == "dont_save")
+    }
+
+    /// Check if this connection is configured to use keyring storage
+    #[must_use]
+    pub fn uses_keyring(&self) -> bool {
+        self.password_storage
+            .as_ref()
+            .is_some_and(|s| s == "keyring")
+    }
 }

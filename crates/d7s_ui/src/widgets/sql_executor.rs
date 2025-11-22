@@ -74,10 +74,10 @@ impl SqlExecutor {
     pub fn set_results(
         &mut self,
         results: Vec<Vec<String>>,
-        column_names: Vec<String>,
+        column_names: &[String],
     ) {
         self.results = Some(results.clone());
-        self.column_names.clone_from(&column_names);
+        self.column_names.clone_from(&column_names.to_vec());
         self.error_message = None;
         self.table_widget =
             Some(DataTable::from_raw_data(results, column_names));

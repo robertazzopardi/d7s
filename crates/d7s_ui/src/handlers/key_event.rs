@@ -97,11 +97,11 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
     match key {
         KeyCode::Char('j') | KeyCode::Down => {
             table_widget.table_state.select_next();
-            TableNavigationHandler::clamp_data_table_selection(table_widget);
+            TableNavigationHandler::clamp_selection(table_widget);
         }
         KeyCode::Char('k') | KeyCode::Up => {
             table_widget.table_state.select_previous();
-            TableNavigationHandler::clamp_data_table_selection(table_widget);
+            TableNavigationHandler::clamp_selection(table_widget);
         }
         KeyCode::Char('h' | 'b') | KeyCode::Left => {
             // If no column is selected, start with the last column, otherwise navigate
@@ -118,7 +118,7 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
             } else {
                 table_widget.table_state.select_previous_column();
             }
-            TableNavigationHandler::clamp_data_table_columns(table_widget);
+            TableNavigationHandler::clamp_columns(table_widget);
             // Adjust offset to ensure selected column is visible
             if let Some(selected_col) =
                 table_widget.table_state.selected_column()
@@ -135,7 +135,7 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
             } else {
                 table_widget.table_state.select_next_column();
             }
-            TableNavigationHandler::clamp_data_table_columns(table_widget);
+            TableNavigationHandler::clamp_columns(table_widget);
             // Adjust offset to ensure selected column is visible
             if let Some(selected_col) =
                 table_widget.table_state.selected_column()
@@ -147,7 +147,7 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
         }
         KeyCode::Char('0') => {
             table_widget.table_state.select_column(Some(0));
-            TableNavigationHandler::clamp_data_table_columns(table_widget);
+            TableNavigationHandler::clamp_columns(table_widget);
             // Reset offset when going to first column
             table_widget.column_offset = 0;
         }
@@ -159,14 +159,14 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
             {
                 let last_col = num_cols.saturating_sub(1);
                 table_widget.table_state.select_column(Some(last_col));
-                TableNavigationHandler::clamp_data_table_columns(table_widget);
+                TableNavigationHandler::clamp_columns(table_widget);
                 // Adjust offset to ensure last column is visible
                 table_widget.adjust_offset_for_selected_column(last_col, 80);
             }
         }
         KeyCode::Char('g') => {
             table_widget.table_state.select(Some(1));
-            TableNavigationHandler::clamp_data_table_selection(table_widget);
+            TableNavigationHandler::clamp_selection(table_widget);
         }
         KeyCode::Char('G') => {
             if !table_widget.items.is_empty() {
