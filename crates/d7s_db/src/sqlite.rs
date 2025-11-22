@@ -81,20 +81,17 @@ pub fn init_db() -> Result<()> {
     let mut conn = SqliteConnection::open(db_path)?;
 
     // Define migrations
-    let migrations = Migrations::new(vec![
-        M::up(
-            "CREATE TABLE IF NOT EXISTS connections (
+    let migrations = Migrations::new(vec![M::up(
+        "CREATE TABLE IF NOT EXISTS connections (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
+                name TEXT NOT NULL UNIQUE,
                 host TEXT,
                 port TEXT,
                 database TEXT,
-                user TEXT
+                user TEXT,
+                password_storage TEXT
             );",
-        ),
-        M::up("ALTER TABLE connections ADD COLUMN password_storage TEXT;")
-            .down("ALTER TABLE connections DROP COLUMN password_storage;"),
-    ]);
+    )]);
 
     // Apply migrations
     migrations.to_latest(&mut conn)?;

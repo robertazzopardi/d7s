@@ -81,6 +81,13 @@ pub fn handle_save_connection(
     {
         d7s_db::sqlite::update_connection(&original_name, connection)
             .map_err(|e| format!("Failed to update connection: {e}"))?;
+
+        // Delete the old credential if the name has changed
+        if original_name != connection.name {
+            if let Some(keyring) = Keyring::new(&original_name).ok() {
+                let _ = keyring.delete_password();
+            }
+        }
     }
 
     Ok(())
