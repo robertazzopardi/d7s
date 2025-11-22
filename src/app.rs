@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use color_eyre::Result;
 use crossterm::event::{
@@ -88,7 +87,6 @@ pub struct App<'a> {
     table_data: Option<DataTable<RawTableRow>>,
     /// SQL executor widget
     sql_executor: SqlExecutor,
-    keyring: Option<Keyring>,
     /// Search filter widget
     search_filter: SearchFilter,
     /// Status line widget
@@ -124,7 +122,6 @@ impl Default for App<'_> {
             column_table: None,
             table_data: None,
             sql_executor: SqlExecutor::new(),
-            keyring: None,
             search_filter: SearchFilter::new(),
             status_line: StatusLine::new(),
             original_connections: Vec::new(),
@@ -398,13 +395,12 @@ impl App<'_> {
                         let password = if should_ask_every_time {
                             // Don't access keyring for "ask every time" connections
                             // Never create a keyring instance to avoid system prompts
-                            self.keyring = None;
                             String::new()
                         } else {
                             // Initialize keyring with the connection's user and get password
                             // Only create keyring if NOT "ask every time"
-                            self.keyring = Keyring::new(&connection.user).ok();
-                            self.keyring
+                            let keyring = Keyring::new(&connection.name).ok();
+                            keyring
                                 .as_ref()
                                 .and_then(|keyring| keyring.get_password().ok())
                                 .unwrap_or_default()
@@ -599,7 +595,10 @@ impl App<'_> {
     fn connection_key(connection: &Connection) -> String {
         format!(
             "{}@{}:{}/{}",
-            connection.user, connection.host, connection.port, connection.database
+            connection.user,
+            connection.host,
+            connection.port,
+            connection.database
         )
     }
 
@@ -625,7 +624,6 @@ impl App<'_> {
                     {
                         // Use password from session storage
                         // Don't create keyring for "ask every time" connections
-                        self.keyring = None;
                         self.connect_with_password(
                             connection.clone(),
                             session_password.clone(),
@@ -638,7 +636,6 @@ impl App<'_> {
                             "Enter password for user '{}':",
                             connection.user
                         );
-                        self.keyring = None;
                         self.modal_manager
                             .open_password_modal(connection.clone(), prompt);
                     }
@@ -650,12 +647,11 @@ impl App<'_> {
                         .password_storage
                         .as_ref()
                         .is_some_and(|s| s == "dont_save");
-                    
+
                     if !is_ask_every_time {
-                        match Keyring::new(&connection.user) {
+                        match Keyring::new(&connection.name) {
                             Ok(entry) => {
                                 if let Ok(password) = entry.get_password() {
-                                    self.keyring = Some(entry);
                                     self.connect_with_password(
                                         connection.clone(),
                                         password,
@@ -667,9 +663,10 @@ impl App<'_> {
                                         "Password not found for user '{}'.\nPlease enter password:",
                                         connection.user
                                     );
-                                    self.modal_manager
-                                        .open_password_modal(connection.clone(), prompt);
-                                    self.keyring = Some(entry);
+                                    self.modal_manager.open_password_modal(
+                                        connection.clone(),
+                                        prompt,
+                                    );
                                 }
                             }
                             Err(_) => {
@@ -678,15 +675,15 @@ impl App<'_> {
                                     "Unable to access keyring for user '{}'.\nPlease enter password:",
                                     connection.user
                                 );
-                                self.keyring = None;
-                                self.modal_manager
-                                    .open_password_modal(connection.clone(), prompt);
+                                self.modal_manager.open_password_modal(
+                                    connection.clone(),
+                                    prompt,
+                                );
                             }
                         }
                     } else {
                         // Should never reach here if "ask every time" is selected,
                         // but just in case, don't create keyring
-                        self.keyring = None;
                         let prompt = format!(
                             "Enter password for user '{}':",
                             connection.user
@@ -724,7 +721,10 @@ impl App<'_> {
             // Load schemas after successful connection
             self.load_schemas().await?;
         } else {
-            eprintln!("Failed to connect to database: {}", connection.name);
+            self.set_status(format!(
+                "Failed to connect to database: {}",
+                connection.name
+            ));
         }
         Ok(())
     }
@@ -1097,7 +1097,6 @@ impl App<'_> {
 
                     // Connect with the provided password
                     // Don't create keyring for "ask every time" connections
-                    self.keyring = None;
                     if let Err(e) = self
                         .connect_with_password(connection.clone(), password)
                         .await
@@ -1112,7 +1111,7 @@ impl App<'_> {
                 {
                     let original_name = modal.original_name.clone();
                     let mode = modal.mode;
-                    
+
                     // Always save password to keyring if:
                     // 1. password_storage is Keyring (not "ask every time")
                     // 2. password is provided
@@ -1121,30 +1120,28 @@ impl App<'_> {
                         .as_ref()
                         .map_or(false, |s| s == "keyring")
                         && connection.password.is_some();
-                    
+
                     // Prepare keyring for saving (only if we should save)
                     // Never create keyring if "ask every time" is selected to avoid system prompts
                     let keyring_for_save = if should_save_to_keyring {
                         // Create keyring if it doesn't exist
                         // Only do this if password_storage is NOT "ask every time"
-                        if self.keyring.is_none() {
-                            // Double-check we're not in "ask every time" mode
-                            let is_ask_every_time = connection
-                                .password_storage
-                                .as_ref()
-                                .is_some_and(|s| s == "dont_save");
-                            if !is_ask_every_time {
-                                self.keyring = Keyring::new(&connection.user).ok();
-                            }
+                        // Double-check we're not in "ask every time" mode
+                        let is_ask_every_time = connection
+                            .password_storage
+                            .as_ref()
+                            .is_some_and(|s| s == "dont_save");
+                        if !is_ask_every_time {
+                            &mut Keyring::new(&connection.name).ok()
+                        } else {
+                            &mut None
                         }
-                        &mut self.keyring
                     } else {
                         // Don't save to keyring - pass None
                         // Make sure keyring is None to avoid any prompts
-                        self.keyring = None;
                         &mut None
                     };
-                    
+
                     match handle_save_connection(
                         keyring_for_save,
                         &connection,
@@ -1197,9 +1194,9 @@ impl App<'_> {
                 .password_storage
                 .as_ref()
                 .is_some_and(|s| s == "dont_save");
-            
+
             if !should_ask_every_time {
-                if let Some(keyring) = &self.keyring {
+                if let Some(keyring) = &Keyring::new(&connection.name).ok() {
                     let _ = keyring.delete_password();
                 }
             }
@@ -1290,7 +1287,8 @@ impl App<'_> {
         match self.state {
             AppState::ConnectionList => {
                 // Filter from original_connections, not from already-filtered items
-                let temp_table = DataTable::new(self.original_connections.clone());
+                let temp_table =
+                    DataTable::new(self.original_connections.clone());
                 let filtered_items = temp_table.filter(query);
                 self.table_widget.items = filtered_items;
                 TableNavigationHandler::clamp_data_table_selection(
