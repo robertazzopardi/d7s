@@ -98,13 +98,12 @@ impl<T: TableData + Clone> DataTable<T> {
 }
 
 impl DataTable<RawTableRow> {
-    /// Create a DataTable from raw data with dynamic column names
     #[must_use]
     pub fn from_raw_data(
         items: Vec<Vec<String>>,
-        column_names: Vec<String>,
+        column_names: &[String],
     ) -> Self {
-        let column_names_arc = Arc::new(column_names.clone());
+        let column_names_arc = Arc::new(column_names.to_owned());
         let raw_rows: Vec<RawTableRow> = items
             .into_iter()
             .map(|values| RawTableRow {
@@ -113,7 +112,7 @@ impl DataTable<RawTableRow> {
             })
             .collect();
         let longest_item_lens =
-            constraint_len_calculator_for_raw_data(&raw_rows, &column_names);
+            constraint_len_calculator_for_raw_data(&raw_rows, column_names);
         Self {
             items: raw_rows,
             longest_item_lens,
@@ -310,28 +309,31 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
         ) = create_table_styles();
 
         // Use dynamic column names if available (for RawTableRow), otherwise use static cols()
-        let header = if let Some(ref dyn_cols) = self.dynamic_column_names {
-            visible_cols
-                .iter()
-                .map(|&idx| {
-                    let col_name =
-                        dyn_cols.get(idx).cloned().unwrap_or_default();
-                    Cell::from(col_name)
-                })
-                .collect::<Row>()
-                .height(1)
-        } else {
-            let all_cols = T::cols();
-            visible_cols
-                .iter()
-                .map(|&idx| {
-                    let col_name =
-                        all_cols.get(idx).copied().unwrap_or_default();
-                    Cell::from(col_name)
-                })
-                .collect::<Row>()
-                .height(1)
-        };
+        let header = self.dynamic_column_names.as_ref().map_or_else(
+            || {
+                let all_cols = T::cols();
+                visible_cols
+                    .iter()
+                    .map(|&idx| {
+                        let col_name =
+                            all_cols.get(idx).copied().unwrap_or_default();
+                        Cell::from(col_name)
+                    })
+                    .collect::<Row>()
+                    .height(1)
+            },
+            |dyn_cols| {
+                visible_cols
+                    .iter()
+                    .map(|&idx| {
+                        let col_name =
+                            dyn_cols.get(idx).cloned().unwrap_or_default();
+                        Cell::from(col_name)
+                    })
+                    .collect::<Row>()
+                    .height(1)
+            },
+        );
 
         let rows = self.items.iter().map(|data| {
             let row_data = data.ref_array();
@@ -383,7 +385,7 @@ fn constraint_len_calculator_for_raw_data(
             if i < longest_lens.len() {
                 let max_width = value
                     .lines()
-                    .map(|line| UnicodeWidthStr::width(line))
+                    .map(UnicodeWidthStr::width)
                     .max()
                     .unwrap_or(0);
                 if let Ok(len) = u16::try_from(max_width) {
