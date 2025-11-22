@@ -13,11 +13,7 @@ pub fn handle_search_filter_input(
     on_filter_change: &mut dyn FnMut(),
 ) -> bool {
     match (key.modifiers, key.code) {
-        (_, KeyCode::Esc) => {
-            search_filter.deactivate();
-            true
-        }
-        (_, KeyCode::Enter) => {
+        (_, KeyCode::Esc | KeyCode::Enter) => {
             search_filter.deactivate();
             true
         }
@@ -94,7 +90,6 @@ pub fn handle_sql_executor_input(
     }
 }
 
-/// Handles connection list navigation keys
 pub fn handle_connection_list_navigation<T: TableData + Clone>(
     key: KeyCode,
     table_widget: &mut DataTable<T>,
@@ -114,8 +109,7 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
                 let num_cols = table_widget
                     .items
                     .first()
-                    .map(d7s_db::TableData::num_columns)
-                    .unwrap_or(0);
+                    .map_or(0, d7s_db::TableData::num_columns);
                 if num_cols > 0 {
                     table_widget
                         .table_state
