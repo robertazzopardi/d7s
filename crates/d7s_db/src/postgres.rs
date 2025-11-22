@@ -237,8 +237,8 @@ impl Postgres {
         for row in rows {
             let mut values = Vec::new();
             for i in 0..row.len() {
-                let value: Option<String> = row.get(i);
-                values.push(value.unwrap_or_else(|| "NULL".to_string()));
+                let value = convert_postgres_value_to_string_simple(&row, i);
+                values.push(value);
             }
             data.push(values);
         }
@@ -275,8 +275,8 @@ impl Postgres {
         for row in rows {
             let mut values = Vec::new();
             for i in 0..row.len() {
-                let value: Option<String> = row.get(i);
-                values.push(value.unwrap_or_else(|| "NULL".to_string()));
+                let value = convert_postgres_value_to_string_simple(&row, i);
+                values.push(value);
             }
             table_rows.push(TableRow {
                 values,
@@ -351,32 +351,91 @@ fn convert_postgres_value_to_string_simple(
     let type_name = col_type.name();
 
     match type_name {
-        "json" | "jsonb" => get_json(row, index),
+        // Special types that need specific handling
+        "json" | "jsonb" => try_get::<serde_json::Value>(row, index),
+        "bool" | "boolean" => try_get::<bool>(row, index),
+        "bytea" => try_get_bytes(row, index),
         _ if type_name.ends_with("[]") => get_vec_string(row, index, type_name),
+
+        // Integer types
+        "int2" | "smallint" => try_get::<i16>(row, index),
+        "int4" | "integer" => try_get::<i32>(row, index),
+        "int8" | "bigint" => try_get::<i64>(row, index),
+
+        // Numeric/decimal - try multiple types
+        "numeric" | "decimal" => {
+            try_get_multiple::<String, i64, f64>(row, index)
+        }
+
+        // UUID
+        "uuid" => try_get::<Uuid>(row, index),
+
+        // Timestamps
+        "timestamp" | "timestamptz" | "date" | "time" => {
+            try_get::<DateTime<Utc>>(row, index)
+        }
+
+        // Text and floating point - can use String
         "text" | "varchar" | "char" | "character varying" | "character"
         | "float4" | "real" | "float8" | "double precision" => {
-            get_string::<String>(row, index)
+            try_get::<String>(row, index)
         }
-        "uuid" => get_string::<Uuid>(row, index),
-        "int2" | "smallint" | "int4" | "integer" | "int8" | "bigint"
-        | "numeric" | "decimal" => get_string::<String>(row, index),
-        "bool" | "boolean" => get_bool(row, index),
-        "timestamp" | "timestamptz" | "date" | "time" => {
-            get_string::<DateTime<Utc>>(row, index)
+
+        // Unknown types - try common conversions
+        _ => {
+            let result =
+                try_get_multiple::<String, serde_json::Value, i64>(row, index);
+            if result == "NULL" {
+                format!("<{type_name}>")
+            } else {
+                result
+            }
         }
-        "bytea" => get_bytes(row, index),
-        _ => get_custom(row, index, type_name),
     }
 }
 
-fn get_string<'a, T: ToString + FromSql<'a>>(
+/// Generic helper to try getting a value as Option<T> and convert to string
+fn try_get<'a, T: ToString + FromSql<'a>>(
     row: &'a tokio_postgres::Row,
     index: usize,
 ) -> String {
-    row.try_get::<_, Option<T>>(index).map_or_else(
-        |_| "NULL".to_string(),
-        |v| v.map_or_else(|| "NULL".to_string(), |x| x.to_string()),
-    )
+    row.try_get::<_, Option<T>>(index)
+        .ok()
+        .flatten()
+        .map_or_else(|| "NULL".to_string(), |v| v.to_string())
+}
+
+/// Try multiple type conversions in order, return first successful one
+fn try_get_multiple<'a, T1, T2, T3>(
+    row: &'a tokio_postgres::Row,
+    index: usize,
+) -> String
+where
+    T1: ToString + FromSql<'a>,
+    T2: ToString + FromSql<'a>,
+    T3: ToString + FromSql<'a>,
+{
+    if let Ok(Some(v)) = row.try_get::<_, Option<T1>>(index) {
+        return v.to_string();
+    }
+    if let Ok(Some(v)) = row.try_get::<_, Option<T2>>(index) {
+        return v.to_string();
+    }
+    if let Ok(Some(v)) = row.try_get::<_, Option<T3>>(index) {
+        return v.to_string();
+    }
+    "NULL".to_string()
+}
+
+/// Special handling for bytea to show byte count
+fn try_get_bytes(row: &tokio_postgres::Row, index: usize) -> String {
+    row.try_get::<_, Option<Vec<u8>>>(index)
+        .ok()
+        .flatten()
+        .map_or_else(
+            || "NULL".to_string(),
+            |bytes| format!("<{} bytes>", bytes.len()),
+        )
 }
 
 fn get_vec_string(
@@ -384,69 +443,15 @@ fn get_vec_string(
     index: usize,
     type_name: &str,
 ) -> String {
-    row.try_get::<_, Option<Vec<String>>>(index).map_or_else(
-        |_| {
-            row.try_get::<_, Option<String>>(index).map_or_else(
-                |_| format!("<{type_name}>"),
-                |value| value.unwrap_or_else(|| "NULL".to_string()),
-            )
-        },
-        |value| {
-            value.map_or_else(
-                || "NULL".to_string(),
-                |arr| format!("[{}]", arr.join(", ")),
-            )
-        },
-    )
-}
-
-fn get_bool(row: &tokio_postgres::Row, index: usize) -> String {
-    row.try_get::<_, Option<bool>>(index).map_or_else(
-        |_| "NULL".to_string(),
-        |value| value.map_or_else(|| "NULL".to_string(), |b| b.to_string()),
-    )
-}
-
-fn get_bytes(row: &tokio_postgres::Row, index: usize) -> String {
-    row.try_get::<_, Option<Vec<u8>>>(index).map_or_else(
-        |_| "NULL".to_string(),
-        |value| {
-            value.map_or_else(
-                || "NULL".to_string(),
-                |bytes| format!("<{} bytes>", bytes.len()),
-            )
-        },
-    )
-}
-
-fn get_json(row: &tokio_postgres::Row, index: usize) -> String {
-    row.try_get::<_, Option<serde_json::Value>>(index)
-        .map_or_else(
-            |_| "NULL".to_string(),
-            |value| value.map_or_else(|| "NULL".to_string(), |v| v.to_string()),
-        )
-}
-
-fn get_custom(
-    row: &tokio_postgres::Row,
-    index: usize,
-    type_name: &str,
-) -> String {
-    row.try_get::<_, Option<String>>(index).map_or_else(
-        |_| {
-            row.try_get::<_, Option<serde_json::Value>>(index)
-                .map_or_else(
-                    |_| format!("<{type_name}>"),
-                    |value| {
-                        value.map_or_else(
-                            || "NULL".to_string(),
-                            |v| v.to_string(),
-                        )
-                    },
-                )
-        },
-        |value| value.unwrap_or_else(|| "NULL".to_string()),
-    )
+    // Try to get as array of strings first
+    if let Ok(Some(arr)) = row.try_get::<_, Option<Vec<String>>>(index) {
+        return format!("[{}]", arr.join(", "));
+    }
+    // Fallback to single string
+    if let Ok(Some(s)) = row.try_get::<_, Option<String>>(index) {
+        return s;
+    }
+    format!("<{type_name}>")
 }
 
 impl TableData for Postgres {

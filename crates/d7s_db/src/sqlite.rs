@@ -1,5 +1,6 @@
 use color_eyre::Result;
 use rusqlite::{Connection as SqliteConnection, params};
+use rusqlite_migration::{M, Migrations};
 
 use crate::{Database, TableRow, connection::Connection, get_db_path};
 
@@ -70,27 +71,30 @@ impl Sqlite {
     }
 }
 
-/// Initialize the database
+/// Initialize the database with migrations
 ///
 /// # Errors
 ///
-/// This function will return an error if the database cannot be opened or if the query fails.
+/// This function will return an error if the database cannot be opened or if migrations fail.
 pub fn init_db() -> Result<()> {
     let db_path = get_db_path()?;
-    let conn = SqliteConnection::open(db_path)?;
+    let mut conn = SqliteConnection::open(db_path)?;
 
-    conn.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS connections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            host TEXT,
-            port TEXT,
-            database TEXT,
-            user TEXT
-        );
-        ",
-    )?;
+    // Define migrations
+    let migrations = Migrations::new(vec![M::up(
+        "CREATE TABLE IF NOT EXISTS connections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                host TEXT,
+                port TEXT,
+                database TEXT,
+                user TEXT,
+                password_storage TEXT
+            );",
+    )]);
+
+    // Apply migrations
+    migrations.to_latest(&mut conn)?;
 
     Ok(())
 }
@@ -107,8 +111,15 @@ pub fn save_connection(
     let conn = SqliteConnection::open(db_path)?;
 
     conn.execute(
-        "INSERT INTO connections (name, host, port, database, user) VALUES (?, ?, ?, ?, ?)",
-        params![connection.name, connection.host, connection.port, connection.database, connection.user],
+        "INSERT INTO connections (name, host, port, database, user, password_storage) VALUES (?, ?, ?, ?, ?, ?)",
+        params![
+            connection.name,
+            connection.host,
+            connection.port,
+            connection.database,
+            connection.user,
+            connection.password_storage
+        ],
     )?;
 
     Ok(())
@@ -135,6 +146,7 @@ pub fn get_connections() -> Result<Vec<Connection>> {
                 schema: None,
                 table: None,
                 password: None,
+                password_storage: row.get(6).ok(), // May be NULL for old connections
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -155,8 +167,16 @@ pub fn update_connection(
     let conn = SqliteConnection::open(db_path)?;
 
     conn.execute(
-        "UPDATE connections SET name = ?, host = ?, port = ?, database = ?, user = ? WHERE name = ?",
-        params![connection.name, connection.host, connection.port, connection.database, connection.user, old_name],
+        "UPDATE connections SET name = ?, host = ?, port = ?, database = ?, user = ?, password_storage = ? WHERE name = ?",
+        params![
+            connection.name,
+            connection.host,
+            connection.port,
+            connection.database,
+            connection.user,
+            connection.password_storage,
+            old_name
+        ],
     )?;
 
     Ok(())
