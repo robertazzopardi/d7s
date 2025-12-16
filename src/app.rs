@@ -238,7 +238,7 @@ impl App<'_> {
                 frame.render_stateful_widget(
                     self.table_widget.clone(),
                     inner_area,
-                    &mut self.table_widget.table_state,
+                    &mut self.table_widget.state,
                 );
             }
             AppState::DatabaseConnected => {
@@ -565,7 +565,7 @@ impl App<'_> {
     /// Get the currently selected connection from the connection list
     fn get_selected_connection(&self) -> Option<&Connection> {
         self.table_widget
-            .table_state
+            .state
             .selected()
             .filter(|&idx| idx < self.table_widget.items.len())
             .and_then(|idx| self.table_widget.items.get(idx))
@@ -811,8 +811,7 @@ impl App<'_> {
             Some(DatabaseExplorerState::Schemas) => {
                 // Navigate to tables in selected schema
                 if let Some(schema_table) = &self.schema_table
-                    && let Some(selected_index) =
-                        schema_table.table_state.selected()
+                    && let Some(selected_index) = schema_table.state.selected()
                     && selected_index < schema_table.items.len()
                     && let Some(schema) = schema_table.items.get(selected_index)
                 {
@@ -826,8 +825,7 @@ impl App<'_> {
             Some(DatabaseExplorerState::Tables(schema_name)) => {
                 // Navigate to table data in selected table (show data first, not columns)
                 if let Some(table_table) = &self.table_table
-                    && let Some(selected_index) =
-                        table_table.table_state.selected()
+                    && let Some(selected_index) = table_table.state.selected()
                     && selected_index < table_table.items.len()
                     && let Some(table) = table_table.items.get(selected_index)
                 {
@@ -850,12 +848,11 @@ impl App<'_> {
             Some(DatabaseExplorerState::TableData(schema_name, table_name)) => {
                 // Show cell value in dialog if a cell is selected
                 if let Some(table_data) = &self.table_data
-                    && let Some(selected_row) =
-                        table_data.table_state.selected()
+                    && let Some(selected_row) = table_data.state.selected()
                     && selected_row < table_data.items.len()
                 {
                     let selected_col =
-                        table_data.table_state.selected_column().unwrap_or(0);
+                        table_data.state.selected_column().unwrap_or(0);
 
                     let selected_index = table_data
                         .items
@@ -1126,26 +1123,21 @@ impl App<'_> {
         schema_name: &str,
         table_name: &str,
     ) -> Result<()> {
-        if let Some(database) = &self.active_database {
-            match database
+        if let Some(database) = &self.active_database
+            && let Ok((data, column_names)) = database
                 .get_table_data_with_columns(schema_name, table_name)
                 .await
-            {
-                Ok((data, column_names)) => {
-                    // Store original data for filtering
-                    self.original_table_data.clone_from(&data);
-                    self.table_data =
-                        Some(DataTable::from_raw_data(data, &column_names));
-                    self.explorer_state =
-                        Some(DatabaseExplorerState::TableData(
-                            schema_name.to_string(),
-                            table_name.to_string(),
-                        ));
-                }
-                Err(e) => {
-                    eprintln!("Failed to load table data: {e}");
-                }
-            }
+        {
+            // Store original data for filtering
+            self.original_table_data.clone_from(&data);
+            self.table_data =
+                Some(DataTable::from_raw_data(data, &column_names));
+            self.explorer_state = Some(DatabaseExplorerState::TableData(
+                schema_name.to_string(),
+                table_name.to_string(),
+            ));
+        } else {
+            self.set_status("Failed to load table data");
         }
         Ok(())
     }
@@ -1161,7 +1153,7 @@ impl App<'_> {
                     DataTable::new(self.original_connections.clone());
                 let filtered_items = temp_table.filter(query);
                 self.table_widget.items = filtered_items;
-                TableNavigationHandler::clamp_selection(&mut self.table_widget);
+                TableNavigationHandler::wrap_rows(&mut self.table_widget);
             }
             AppState::DatabaseConnected => {
                 match self.explorer_state {
@@ -1190,7 +1182,7 @@ impl App<'_> {
         match self.state {
             AppState::ConnectionList => {
                 self.table_widget.items = self.original_connections.clone();
-                TableNavigationHandler::clamp_selection(&mut self.table_widget);
+                TableNavigationHandler::wrap_rows(&mut self.table_widget);
             }
             AppState::DatabaseConnected => {
                 match self.explorer_state {
@@ -1235,7 +1227,7 @@ impl App<'_> {
                                         &table_data.items,
                                     );
                             }
-                            TableNavigationHandler::clamp_selection(table_data);
+                            TableNavigationHandler::wrap_rows(table_data);
                         }
                     }
                     Some(DatabaseExplorerState::SqlExecutor) | None => {
@@ -1263,7 +1255,7 @@ fn filter_table_data<T: TableData + Clone>(
 ) {
     if let Some(table) = table {
         table.items = table.filter(query);
-        TableNavigationHandler::clamp_selection(table);
+        TableNavigationHandler::wrap_rows(table);
     }
 }
 
@@ -1273,7 +1265,7 @@ fn restore_table_data<T: TableData + Clone>(
 ) {
     if let Some(table) = table {
         table.items.clone_from(&original_data.to_vec());
-        TableNavigationHandler::clamp_selection(table);
+        TableNavigationHandler::wrap_rows(table);
     }
 }
 
@@ -1286,7 +1278,7 @@ fn render_data_table<T: TableData + Clone + std::fmt::Debug>(
         frame.render_stateful_widget(
             table.clone(),
             area,
-            &mut table.table_state.clone(),
+            &mut table.state.clone(),
         );
     }
 }
