@@ -116,7 +116,7 @@ impl Widget for SqlExecutor {
                     table_widget.clone().render(
                         area,
                         buf,
-                        &mut table_widget.table_state.clone(),
+                        &mut table_widget.state.clone(),
                     );
                 }
             }

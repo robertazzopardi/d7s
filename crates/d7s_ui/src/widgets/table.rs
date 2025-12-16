@@ -42,7 +42,7 @@ impl TableData for RawTableRow {
 pub struct DataTable<T: TableData + Clone> {
     pub items: Vec<T>,
     pub longest_item_lens: Vec<u16>, // order is (name, address, email)
-    pub table_state: TableState,
+    pub state: TableState,
     pub column_offset: usize,
     // For RawTableRow, we store column names here
     pub dynamic_column_names: Option<Arc<Vec<String>>>,
@@ -76,7 +76,7 @@ impl<T: TableData + Clone> Default for DataTable<T> {
         Self {
             items: Vec::new(),
             longest_item_lens: Vec::new(),
-            table_state: TableState::default().with_selected(0),
+            state: TableState::default().with_selected(0),
             column_offset: 0,
             dynamic_column_names: None,
         }
@@ -90,7 +90,7 @@ impl<T: TableData + Clone> DataTable<T> {
         Self {
             items,
             longest_item_lens,
-            table_state: TableState::default().with_selected(0),
+            state: TableState::default().with_selected(0),
             column_offset: 0,
             dynamic_column_names: None,
         }
@@ -116,7 +116,7 @@ impl DataTable<RawTableRow> {
         Self {
             items: raw_rows,
             longest_item_lens,
-            table_state: TableState::default().with_selected(0),
+            state: TableState::default().with_selected(0),
             column_offset: 0,
             dynamic_column_names: Some(column_names_arc),
         }
