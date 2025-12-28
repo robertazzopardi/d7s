@@ -5,12 +5,13 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, StatefulWidget, Widget},
 };
 
+use crate::widgets::text_input::TextInput;
+
 /// A search filter widget that appears above the main table
 #[derive(Debug, Clone, Default)]
 pub struct SearchFilter {
-    pub query: String,
+    input: TextInput,
     pub is_active: bool,
-    pub cursor_position: usize,
 }
 
 impl SearchFilter {
@@ -19,57 +20,53 @@ impl SearchFilter {
         Self::default()
     }
 
-    pub const fn activate(&mut self) {
+    pub fn activate(&mut self) {
         self.is_active = true;
-        self.cursor_position = self.query.len();
+        self.input.move_cursor_to_end();
     }
 
     pub fn deactivate(&mut self) {
         self.is_active = false;
-        self.query.clear();
-        self.cursor_position = 0;
+        self.input.clear();
     }
 
     pub fn add_char(&mut self, ch: char) {
-        self.query.insert(self.cursor_position, ch);
-        self.cursor_position += 1;
+        self.input.add_char(ch);
     }
 
     pub fn delete_char(&mut self) {
-        if self.cursor_position > 0 {
-            self.query.remove(self.cursor_position - 1);
-            self.cursor_position -= 1;
-        }
+        self.input.delete_char();
     }
 
-    pub const fn move_cursor_left(&mut self) {
-        if self.cursor_position > 0 {
-            self.cursor_position -= 1;
-        }
+    pub fn move_cursor_left(&mut self) {
+        self.input.move_cursor_left();
     }
 
-    pub const fn move_cursor_right(&mut self) {
-        if self.cursor_position < self.query.len() {
-            self.cursor_position += 1;
-        }
+    pub fn move_cursor_right(&mut self) {
+        self.input.move_cursor_right();
     }
 
-    pub const fn move_cursor_to_start(&mut self) {
-        self.cursor_position = 0;
+    pub fn move_cursor_to_start(&mut self) {
+        self.input.move_cursor_to_start();
     }
 
-    pub const fn move_cursor_to_end(&mut self) {
-        self.cursor_position = self.query.len();
+    pub fn move_cursor_to_end(&mut self) {
+        self.input.move_cursor_to_end();
     }
 
     pub fn clear(&mut self) {
-        self.query.clear();
-        self.cursor_position = 0;
+        self.input.clear();
     }
 
     #[must_use]
     pub fn get_filter_query(&self) -> &str {
-        self.query.trim()
+        self.input.text().trim()
+    }
+
+    /// Get the cursor position for rendering
+    #[must_use]
+    pub const fn cursor_position(&self) -> usize {
+        self.input.cursor_position()
     }
 }
 
@@ -100,17 +97,20 @@ impl StatefulWidget for SearchFilter {
         // Create the search input with cursor
         let mut spans = Vec::new();
 
+        let cursor_pos = self.input.cursor_position();
+        let query = self.input.text();
+
         // Add the query text before cursor
-        if self.cursor_position > 0 {
-            spans.push(Span::raw(&self.query[..self.cursor_position]));
+        if cursor_pos > 0 {
+            spans.push(Span::raw(&query[..cursor_pos]));
         }
 
         // Add cursor
         spans.push(Span::styled("█", Style::default().fg(Color::White)));
 
         // Add the query text after cursor
-        if self.cursor_position < self.query.len() {
-            spans.push(Span::raw(&self.query[self.cursor_position..]));
+        if cursor_pos < query.len() {
+            spans.push(Span::raw(&query[cursor_pos..]));
         }
 
         let line = Line::from(spans);

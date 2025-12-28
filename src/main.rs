@@ -1,4 +1,14 @@
 mod app;
+mod app_state;
+mod connection_manager;
+mod database_explorer;
+mod database_explorer_state;
+mod errors;
+mod event_handlers;
+mod filtered_data;
+mod filtering;
+mod rendering;
+mod services;
 
 use app::App;
 

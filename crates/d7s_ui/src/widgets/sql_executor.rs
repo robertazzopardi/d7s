@@ -3,12 +3,11 @@ use ratatui::{
     widgets::{Paragraph, Wrap},
 };
 
-use crate::widgets::table::{DataTable, RawTableRow};
+use crate::widgets::{table::{DataTable, RawTableRow}, text_input::TextInput};
 
 #[derive(Debug, Clone, Default)]
 pub struct SqlExecutor {
-    pub sql_input: String,
-    pub cursor_position: usize,
+    input: TextInput,
     pub results: Option<Vec<Vec<String>>>,
     pub column_names: Vec<String>,
     pub error_message: Option<String>,
@@ -31,42 +30,33 @@ impl SqlExecutor {
     }
 
     pub fn add_char(&mut self, ch: char) {
-        self.sql_input.insert(self.cursor_position, ch);
-        self.cursor_position += 1;
+        self.input.add_char(ch);
         // Clear results when user starts typing a new query
         self.clear_results();
     }
 
     pub fn delete_char(&mut self) {
-        if self.cursor_position > 0 {
-            self.sql_input.remove(self.cursor_position - 1);
-            self.cursor_position -= 1;
-        }
+        self.input.delete_char();
     }
 
-    pub const fn move_cursor_left(&mut self) {
-        if self.cursor_position > 0 {
-            self.cursor_position -= 1;
-        }
+    pub fn move_cursor_left(&mut self) {
+        self.input.move_cursor_left();
     }
 
-    pub const fn move_cursor_right(&mut self) {
-        if self.cursor_position < self.sql_input.len() {
-            self.cursor_position += 1;
-        }
+    pub fn move_cursor_right(&mut self) {
+        self.input.move_cursor_right();
     }
 
-    pub const fn move_cursor_to_start(&mut self) {
-        self.cursor_position = 0;
+    pub fn move_cursor_to_start(&mut self) {
+        self.input.move_cursor_to_start();
     }
 
-    pub const fn move_cursor_to_end(&mut self) {
-        self.cursor_position = self.sql_input.len();
+    pub fn move_cursor_to_end(&mut self) {
+        self.input.move_cursor_to_end();
     }
 
     pub fn clear(&mut self) {
-        self.sql_input.clear();
-        self.cursor_position = 0;
+        self.input.clear();
         // Clear results when clearing input
         self.clear_results();
     }
@@ -93,6 +83,18 @@ impl SqlExecutor {
         self.column_names.clear();
         self.error_message = None;
         self.table_widget = None;
+    }
+
+    /// Get the SQL input text
+    #[must_use]
+    pub fn sql_input(&self) -> &str {
+        self.input.text()
+    }
+
+    /// Get the cursor position
+    #[must_use]
+    pub const fn cursor_position(&self) -> usize {
+        self.input.cursor_position()
     }
 }
 
@@ -123,9 +125,9 @@ impl Widget for SqlExecutor {
         } else {
             // No results yet, show full SQL input area
             let input_text = if self.is_active {
-                format!("{}|", self.sql_input)
+                format!("{}|", self.sql_input())
             } else {
-                self.sql_input.clone()
+                self.sql_input().to_string()
             };
 
             let input_paragraph = Paragraph::new(input_text).style(

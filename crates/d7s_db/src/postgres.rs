@@ -246,47 +246,6 @@ impl Postgres {
         Ok(data)
     }
 
-    /// Get table data as `TableRow` objects
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the query fails.
-    pub async fn get_table_data(
-        &self,
-        schema_name: &str,
-        table_name: &str,
-    ) -> Result<Vec<TableRow>, tokio_postgres::Error> {
-        let client = self.get_connection().await?;
-
-        let query =
-            format!("SELECT * FROM {schema_name}.{table_name} LIMIT 100");
-
-        let rows = client.query(&query, &[]).await?;
-        let mut table_rows = Vec::new();
-        let mut column_names = Vec::new();
-
-        // Get column names from the first row
-        if let Some(first_row) = rows.first() {
-            for i in 0..first_row.len() {
-                column_names.push(first_row.columns()[i].name().to_string());
-            }
-        }
-
-        for row in rows {
-            let mut values = Vec::new();
-            for i in 0..row.len() {
-                let value = convert_postgres_value_to_string_simple(&row, i);
-                values.push(value);
-            }
-            table_rows.push(TableRow {
-                values,
-                column_names: column_names.clone(),
-            });
-        }
-
-        Ok(table_rows)
-    }
-
     /// Get table data with column names (simplified version without extra dependencies)
     ///
     /// # Errors
