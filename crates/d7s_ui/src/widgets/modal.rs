@@ -10,6 +10,14 @@ use ratatui::{
 
 use crate::widgets::buttons::Buttons;
 
+// Modal dimension constants
+const CONNECTION_MODAL_WIDTH: u16 = 40;
+const CONNECTION_MODAL_HEIGHT: u16 = 15;
+const CONFIRMATION_MODAL_WIDTH: u16 = 50;
+const CONFIRMATION_MODAL_HEIGHT: u16 = 8;
+const PASSWORD_MODAL_WIDTH: u16 = 50;
+const PASSWORD_MODAL_HEIGHT: u16 = 8;
+
 #[derive(Clone, Copy, Debug, Default)]
 pub enum Mode {
     #[default]
@@ -96,30 +104,24 @@ impl FromStr for PasswordStorageType {
 }
 
 #[derive(Debug, Clone)]
-pub struct Modal<T: TableData> {
+pub struct Modal {
     pub fields: Vec<ModalField>,
     pub current_field: usize,
     pub is_open: bool,
     pub selected_button: usize,
-    #[allow(dead_code)]
-    pub data: T,
     pub mode: Mode,
     pub test_result: TestResult,
     pub original_name: Option<String>,
     pub password_storage: PasswordStorageType,
 }
 
-impl<T> Default for Modal<T>
-where
-    T: TableData + Default,
-{
+impl Default for Modal {
     fn default() -> Self {
         Self {
             fields: vec![],
             current_field: 0,
             is_open: false,
             selected_button: 0,
-            data: T::default(),
             mode: Mode::default(),
             test_result: TestResult::default(),
             original_name: None,
@@ -151,16 +153,15 @@ pub struct PasswordModal {
     pub prompt: String,
 }
 
-impl<T: TableData> Modal<T> {
-    pub fn new(data: T, mode: Mode) -> Self {
-        let fields = T::cols().iter().map(|c| ModalField::new(c)).collect();
+impl Modal {
+    pub fn new(_connection: Connection, mode: Mode) -> Self {
+        let fields = Connection::cols().iter().map(|c| ModalField::new(c)).collect();
 
         let mut modal = Self {
             fields,
             current_field: 0,
             is_open: false,
             selected_button: 0,
-            data,
             mode,
             test_result: TestResult::NotTested,
             original_name: None,
@@ -476,22 +477,22 @@ pub enum ModalAction {
     Cancel,
 }
 
-impl<T: TableData> Widget for Modal<T> {
+impl Widget for Modal {
     fn render(self, area: Rect, buf: &mut Buffer) {
         if !self.is_open {
             return;
         }
 
         // Center a fixed-size modal
-        let modal_width = 40;
-        let modal_height = 15; // Extra height for storage selector
+        let modal_width = CONNECTION_MODAL_WIDTH;
+        let modal_height = CONNECTION_MODAL_HEIGHT; // Extra height for storage selector
         let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
         let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
         let modal_area = Rect::new(x, y, modal_width, modal_height);
 
         let title = match self.mode {
-            Mode::New => format!("New {}", T::title()),
-            Mode::Edit => format!("Edit {}", T::title()),
+            Mode::New => "New Connection".to_string(),
+            Mode::Edit => "Edit Connection".to_string(),
         };
 
         let block = Block::default()
@@ -533,7 +534,7 @@ impl<T: TableData> Widget for Modal<T> {
     }
 }
 
-impl<T: TableData> Modal<T> {
+impl Modal {
     /// Get the index of the password field (last field)
     const fn password_field_index(&self) -> usize {
         self.fields.len() - 1
@@ -701,8 +702,8 @@ impl Widget for ConfirmationModal {
         }
 
         // Center a fixed-size modal
-        let modal_width = 50;
-        let modal_height = 8;
+        let modal_width = CONFIRMATION_MODAL_WIDTH;
+        let modal_height = CONFIRMATION_MODAL_HEIGHT;
         let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
         let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
         let modal_area = Rect::new(x, y, modal_width, modal_height);
@@ -885,8 +886,8 @@ impl Widget for PasswordModal {
         }
 
         // Center a fixed-size modal
-        let modal_width = 50;
-        let modal_height = 8;
+        let modal_width = PASSWORD_MODAL_WIDTH;
+        let modal_height = PASSWORD_MODAL_HEIGHT;
         let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
         let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
         let modal_area = Rect::new(x, y, modal_width, modal_height);
@@ -936,7 +937,7 @@ impl Widget for PasswordModal {
 /// Manager for handling multiple modals in the application
 #[derive(Default, Debug)]
 pub struct ModalManager {
-    connection_modal: Option<Modal<Connection>>,
+    connection_modal: Option<Modal>,
     confirmation_modal: Option<ConfirmationModal>,
     cell_value_modal: Option<CellValueModal>,
     password_modal: Option<PasswordModal>,
@@ -1112,14 +1113,14 @@ impl ModalManager {
 
     /// Get a reference to the connection modal
     #[must_use]
-    pub const fn get_connection_modal(&self) -> Option<&Modal<Connection>> {
+    pub const fn get_connection_modal(&self) -> Option<&Modal> {
         self.connection_modal.as_ref()
     }
 
     /// Get a mutable reference to the connection modal
     pub const fn get_connection_modal_mut(
         &mut self,
-    ) -> Option<&mut Modal<Connection>> {
+    ) -> Option<&mut Modal> {
         self.connection_modal.as_mut()
     }
 

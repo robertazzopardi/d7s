@@ -6,6 +6,7 @@ pub mod search_filter;
 pub mod sql_executor;
 pub mod status_line;
 pub mod table;
+pub mod text_input;
 pub mod top_bar_view;
 
 use d7s_db::TableData;
