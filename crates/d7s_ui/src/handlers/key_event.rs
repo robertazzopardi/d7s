@@ -62,8 +62,12 @@ pub fn handle_search_filter_input(
     handle_text_input!(
         key,
         search_filter,
-        { on_filter_change(); },
-        { search_filter.deactivate(); },
+        {
+            on_filter_change();
+        },
+        {
+            search_filter.deactivate();
+        },
         true
     )
 }
@@ -73,13 +77,7 @@ pub fn handle_sql_executor_input(
     key: KeyEvent,
     sql_executor: &mut SqlExecutor,
 ) -> bool {
-    handle_text_input!(
-        key,
-        sql_executor,
-        {},
-        {},
-        false
-    )
+    handle_text_input!(key, sql_executor, {}, {}, false)
 }
 
 pub fn handle_connection_list_navigation<T: TableData + Clone>(
@@ -95,10 +93,15 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
             return;
         }
         KeyCode::Char('$') => {
-            if let Some(num_cols) = table_widget.items.first().map(TableData::num_columns) {
+            if let Some(num_cols) =
+                table_widget.items.first().map(TableData::num_columns)
+            {
                 let last_col = num_cols.saturating_sub(1);
                 table_widget.state.select_column(Some(last_col));
-                table_widget.adjust_offset_for_selected_column(last_col, DEFAULT_TERMINAL_WIDTH);
+                table_widget.adjust_offset_for_selected_column(
+                    last_col,
+                    DEFAULT_TERMINAL_WIDTH,
+                );
                 TableNavigationHandler::wrap_columns(table_widget);
             }
             return;

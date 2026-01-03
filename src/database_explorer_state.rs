@@ -1,4 +1,6 @@
-use d7s_db::{Column, Schema, Table, connection::Connection, postgres::Postgres};
+use d7s_db::{
+    Column, Schema, Table, connection::Connection, postgres::Postgres,
+};
 use d7s_ui::widgets::table::RawTableRow;
 
 use crate::{app_state::DatabaseExplorerState, filtered_data::FilteredData};
@@ -22,8 +24,8 @@ pub struct DatabaseExplorer {
 }
 
 impl DatabaseExplorer {
-    /// Create a new DatabaseExplorer with a connection and database client
-    pub fn new(connection: Connection, database: Postgres) -> Self {
+    /// Create a new `DatabaseExplorer` with a connection and database client
+    pub const fn new(connection: Connection, database: Postgres) -> Self {
         Self {
             connection,
             database,

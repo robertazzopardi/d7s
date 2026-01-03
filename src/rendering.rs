@@ -1,9 +1,13 @@
-use ratatui::{Frame, prelude::*, widgets::{Block, Borders}};
 use d7s_db::TableData;
 use d7s_ui::widgets::top_bar_view::TopBarView;
+use ratatui::{
+    Frame,
+    prelude::*,
+    widgets::{Block, Borders},
+};
 
 use crate::{
-    app::{App, APP_NAME, TOPBAR_HEIGHT_PERCENT},
+    app::{APP_NAME, App, TOPBAR_HEIGHT_PERCENT},
     app_state::{AppState, DatabaseExplorerState},
     filtered_data::FilteredData,
 };
@@ -18,8 +22,10 @@ impl App<'_> {
     pub fn render(&mut self, frame: &mut Frame) {
         // Split layout: top bar, main content, and status line
         // Status line gets fixed 1 row, main content takes the rest
-        let mut main_layout =
-            vec![Constraint::Percentage(TOPBAR_HEIGHT_PERCENT), Constraint::Min(0)];
+        let mut main_layout = vec![
+            Constraint::Percentage(TOPBAR_HEIGHT_PERCENT),
+            Constraint::Min(0),
+        ];
 
         if !self.status_line.message().is_empty() {
             main_layout.push(Constraint::Length(1));
@@ -29,7 +35,8 @@ impl App<'_> {
             .direction(Direction::Vertical)
             .constraints(main_layout)
             .split(frame.area());
-        let first_layout = *layout.first().unwrap_or(&Rect::default());
+        let first_layout =
+            layout.first().copied().unwrap_or_else(Rect::default);
 
         let current_connection = self
             .database_explorer
@@ -46,7 +53,8 @@ impl App<'_> {
         );
 
         // Create the main content area (layout[1] is the middle section)
-        let layout_rect = *layout.get(1).unwrap_or(&frame.area());
+        let layout_rect =
+            layout.get(1).copied().unwrap_or_else(|| frame.area());
         let main_area = if self.search_filter.is_active {
             // If search filter is active, create a layout with search filter at top
             let search_layout = Layout::default()
@@ -58,7 +66,7 @@ impl App<'_> {
                 .split(layout_rect);
 
             let search_layout_rect =
-                *search_layout.first().unwrap_or(&Rect::default());
+                search_layout.first().copied().unwrap_or_else(Rect::default);
 
             // Render search filter
             frame.render_stateful_widget(
@@ -67,7 +75,7 @@ impl App<'_> {
                 &mut (),
             );
 
-            *search_layout.get(1).unwrap_or(&Rect::default())
+            search_layout.get(1).copied().unwrap_or_else(Rect::default)
         } else {
             layout_rect
         };
@@ -149,16 +157,32 @@ impl App<'_> {
         if let Some(explorer) = &self.database_explorer {
             match &explorer.state {
                 DatabaseExplorerState::Schemas => {
-                    render_filtered_data_table(frame, &explorer.schemas, area);
+                    render_filtered_data_table(
+                        frame,
+                        explorer.schemas.as_ref(),
+                        area,
+                    );
                 }
                 DatabaseExplorerState::Tables(_) => {
-                    render_filtered_data_table(frame, &explorer.tables, area);
+                    render_filtered_data_table(
+                        frame,
+                        explorer.tables.as_ref(),
+                        area,
+                    );
                 }
                 DatabaseExplorerState::Columns(_, _) => {
-                    render_filtered_data_table(frame, &explorer.columns, area);
+                    render_filtered_data_table(
+                        frame,
+                        explorer.columns.as_ref(),
+                        area,
+                    );
                 }
                 DatabaseExplorerState::TableData(_, _) => {
-                    render_filtered_data_table(frame, &explorer.table_data, area);
+                    render_filtered_data_table(
+                        frame,
+                        explorer.table_data.as_ref(),
+                        area,
+                    );
                 }
                 DatabaseExplorerState::SqlExecutor => {
                     frame.render_widget(self.sql_executor.clone(), area);
@@ -170,8 +194,9 @@ impl App<'_> {
     // TODO use an impl for this
     /// Get the title for the database view based on current state
     pub fn get_database_title(&self) -> String {
-        if let Some(explorer) = &self.database_explorer {
-            match &explorer.state {
+        self.database_explorer.as_ref().map_or_else(
+            || " Database Explorer ".to_string(),
+            |explorer| match &explorer.state {
                 DatabaseExplorerState::Schemas => " Schemas ".to_string(),
                 DatabaseExplorerState::Tables(schema) => {
                     format!(" {schema} ")
@@ -183,16 +208,14 @@ impl App<'_> {
                 DatabaseExplorerState::SqlExecutor => {
                     " SQL Executor ".to_string()
                 }
-            }
-        } else {
-            " Database Explorer ".to_string()
-        }
+            },
+        )
     }
 }
 
 fn render_filtered_data_table<T: TableData + Clone + std::fmt::Debug>(
     frame: &mut Frame,
-    filtered_data: &Option<FilteredData<T>>,
+    filtered_data: Option<&FilteredData<T>>,
     area: Rect,
 ) {
     if let Some(filtered_data) = filtered_data {

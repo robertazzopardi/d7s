@@ -2,7 +2,10 @@ use color_eyre::Result;
 use d7s_db::{Database, connection::Connection};
 use d7s_ui::widgets::top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS};
 
-use crate::{app::App, app_state::AppState, database_explorer_state::DatabaseExplorer};
+use crate::{
+    app::App, app_state::AppState, database_explorer_state::DatabaseExplorer,
+    services::PasswordService,
+};
 
 impl App<'_> {
     /// Get the currently selected connection from the connection list
@@ -15,9 +18,9 @@ impl App<'_> {
             .and_then(|idx| self.connections.table.items.get(idx))
     }
 
-    /// Get the password for a connection (delegates to PasswordService)
-    pub fn get_connection_password(&self, connection: &Connection) -> String {
-        self.password_service.get_connection_password(connection)
+    /// Get the password for a connection (delegates to `PasswordService`)
+    pub fn get_connection_password(connection: &Connection) -> String {
+        PasswordService::get_connection_password(connection)
     }
 
     /// Connect to the selected database
@@ -60,10 +63,8 @@ impl App<'_> {
         let postgres = connection_with_password.to_postgres();
         if postgres.test().await {
             // Connection successful, create database explorer
-            self.database_explorer = Some(DatabaseExplorer::new(
-                connection_with_password,
-                postgres,
-            ));
+            self.database_explorer =
+                Some(DatabaseExplorer::new(connection_with_password, postgres));
             self.state = AppState::DatabaseConnected;
 
             // Update hotkeys for database mode

@@ -3,7 +3,10 @@ use ratatui::{
     widgets::{Paragraph, Wrap},
 };
 
-use crate::widgets::{table::{DataTable, RawTableRow}, text_input::TextInput};
+use crate::widgets::{
+    table::{DataTable, RawTableRow},
+    text_input::TextInput,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct SqlExecutor {
@@ -39,19 +42,19 @@ impl SqlExecutor {
         self.input.delete_char();
     }
 
-    pub fn move_cursor_left(&mut self) {
+    pub const fn move_cursor_left(&mut self) {
         self.input.move_cursor_left();
     }
 
-    pub fn move_cursor_right(&mut self) {
+    pub const fn move_cursor_right(&mut self) {
         self.input.move_cursor_right();
     }
 
-    pub fn move_cursor_to_start(&mut self) {
+    pub const fn move_cursor_to_start(&mut self) {
         self.input.move_cursor_to_start();
     }
 
-    pub fn move_cursor_to_end(&mut self) {
+    pub const fn move_cursor_to_end(&mut self) {
         self.input.move_cursor_to_end();
     }
 
