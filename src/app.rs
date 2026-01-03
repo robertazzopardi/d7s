@@ -1,11 +1,8 @@
 use color_eyre::Result;
 use d7s_db::{connection::Connection, sqlite::init_db};
 use d7s_ui::widgets::{
-    hotkey::Hotkey,
-    modal::ModalManager,
-    search_filter::SearchFilter,
-    sql_executor::SqlExecutor,
-    status_line::StatusLine,
+    hotkey::Hotkey, modal::ModalManager, search_filter::SearchFilter,
+    sql_executor::SqlExecutor, status_line::StatusLine,
     top_bar_view::CONNECTION_HOTKEYS,
 };
 use ratatui::DefaultTerminal;
@@ -33,7 +30,6 @@ _________________
 pub struct App<'a> {
     /// Is the application running?
     pub(crate) running: bool,
-    pub(crate) show_popup: bool,
     pub(crate) modal_manager: ModalManager,
     pub(crate) hotkeys: Vec<Hotkey<'a>>,
     /// Current application state
@@ -56,7 +52,6 @@ impl Default for App<'_> {
     fn default() -> Self {
         Self {
             running: false,
-            show_popup: false,
             modal_manager: ModalManager::new(),
             hotkeys: CONNECTION_HOTKEYS.to_vec(),
             state: AppState::ConnectionList,
@@ -106,17 +101,8 @@ impl App<'_> {
         self.running = false;
     }
 
-    pub(crate) const fn toggle_popup(&mut self) {
-        self.show_popup = !self.show_popup;
-    }
-
     /// Set the status line message
     pub fn set_status(&mut self, message: impl Into<String>) {
         self.status_line.set_message(message);
-    }
-
-    /// Clear the status line
-    pub fn clear_status(&mut self) {
-        self.status_line.clear();
     }
 }

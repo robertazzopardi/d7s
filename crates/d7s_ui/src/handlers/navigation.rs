@@ -49,8 +49,11 @@ impl TableNavigationHandler {
         }
     }
 
-    /// Generic table navigation handler for any DataTable
-    pub fn navigate_table<T: TableData + Clone>(table: &mut DataTable<T>, key: KeyCode) {
+    /// Generic table navigation handler for any `DataTable`
+    pub fn navigate_table<T: TableData + Clone>(
+        table: &mut DataTable<T>,
+        key: KeyCode,
+    ) {
         match key {
             KeyCode::Char('j') | KeyCode::Down => {
                 if let Some(selected) = table.state.selected() {
@@ -73,7 +76,8 @@ impl TableNavigationHandler {
                 }
             }
             KeyCode::Char('h' | 'b') | KeyCode::Left => {
-                let num_cols = table.items.first().map_or(0, TableData::num_columns);
+                let num_cols =
+                    table.items.first().map_or(0, TableData::num_columns);
                 if num_cols == 0 {
                     return;
                 }
@@ -93,7 +97,8 @@ impl TableNavigationHandler {
                 }
             }
             KeyCode::Char('l' | 'w') | KeyCode::Right => {
-                let num_cols = table.items.first().map_or(0, TableData::num_columns);
+                let num_cols =
+                    table.items.first().map_or(0, TableData::num_columns);
                 if num_cols == 0 {
                     return;
                 }

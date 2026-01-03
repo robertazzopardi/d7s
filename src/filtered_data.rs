@@ -6,12 +6,12 @@ use d7s_ui::{handlers::TableNavigationHandler, widgets::table::DataTable};
 pub struct FilteredData<T: TableData + Clone> {
     /// Original unfiltered data
     pub original: Vec<T>,
-    /// DataTable widget with potentially filtered items
+    /// `DataTable` widget with potentially filtered items
     pub table: DataTable<T>,
 }
 
 impl<T: TableData + Clone> FilteredData<T> {
-    /// Create a new FilteredData from a vector of items
+    /// Create a new `FilteredData` from a vector of items
     pub fn new(data: Vec<T>) -> Self {
         Self {
             original: data.clone(),
@@ -29,15 +29,5 @@ impl<T: TableData + Clone> FilteredData<T> {
     pub fn clear_filter(&mut self) {
         self.table.items.clone_from(&self.original);
         TableNavigationHandler::wrap_rows(&mut self.table);
-    }
-
-    /// Get a reference to the table widget
-    pub fn table(&self) -> &DataTable<T> {
-        &self.table
-    }
-
-    /// Get a mutable reference to the table widget
-    pub fn table_mut(&mut self) -> &mut DataTable<T> {
-        &mut self.table
     }
 }
