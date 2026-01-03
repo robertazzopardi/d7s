@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+
 use color_eyre::Result;
 use d7s_auth::Keyring;
 use d7s_db::connection::Connection;
@@ -8,9 +9,6 @@ pub struct PasswordService {
     /// Session password storage (in-memory only, cleared when app exits)
     /// Key format: "{user}@{host}:{port}/{database}"
     session_passwords: HashMap<String, String>,
-    /// Whether to automatically store passwords in session memory when "ask every time" is enabled
-    /// Default: true (auto-store for better UX)
-    auto_store_session: bool,
 }
 
 impl Default for PasswordService {
@@ -20,11 +18,10 @@ impl Default for PasswordService {
 }
 
 impl PasswordService {
-    /// Create a new password service with auto-store enabled
+    /// Create a new password service
     pub fn new() -> Self {
         Self {
             session_passwords: HashMap::new(),
-            auto_store_session: true,
         }
     }
 
@@ -32,7 +29,10 @@ impl PasswordService {
     fn connection_key(connection: &Connection) -> String {
         format!(
             "{}@{}:{}/{}",
-            connection.user, connection.host, connection.port, connection.database
+            connection.user,
+            connection.host,
+            connection.port,
+            connection.database
         )
     }
 
@@ -45,7 +45,10 @@ impl PasswordService {
     }
 
     /// Save password to keyring for a connection
-    pub fn save_to_keyring(connection_name: &str, password: &str) -> Result<()> {
+    pub fn save_to_keyring(
+        connection_name: &str,
+        password: &str,
+    ) -> Result<()> {
         let keyring = Keyring::new(connection_name)?;
         keyring.set_password(password)?;
         Ok(())
@@ -61,22 +64,24 @@ impl PasswordService {
     // Session operations
 
     /// Get password from session storage for a connection
-    pub fn get_session_password(&self, connection: &Connection) -> Option<&String> {
+    pub fn get_session_password(
+        &self,
+        connection: &Connection,
+    ) -> Option<&String> {
         let key = Self::connection_key(connection);
         self.session_passwords.get(&key)
     }
 
     /// Store password in session memory for a connection
-    pub fn store_session_password(&mut self, connection: &Connection, password: String) {
-        if self.auto_store_session && connection.should_ask_every_time() {
+    pub fn store_session_password(
+        &mut self,
+        connection: &Connection,
+        password: String,
+    ) {
+        if connection.should_ask_every_time() {
             let key = Self::connection_key(connection);
             self.session_passwords.insert(key, password);
         }
-    }
-
-    /// Clear all session passwords
-    pub fn clear_session(&mut self) {
-        self.session_passwords.clear();
     }
 
     // High-level API
@@ -93,13 +98,8 @@ impl PasswordService {
         }
     }
 
-    /// Check if we should prompt the user for a password
-    pub fn should_prompt_for_password(&self, connection: &Connection) -> bool {
-        self.get_password(connection).is_none()
-    }
-
     /// Get password for connection, returning empty string if "ask every time" and not in session
-    pub fn get_connection_password(&self, connection: &Connection) -> String {
+    pub fn get_connection_password(connection: &Connection) -> String {
         if connection.should_ask_every_time() {
             String::new()
         } else {

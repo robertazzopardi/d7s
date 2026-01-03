@@ -16,39 +16,29 @@ pub struct ConnectionService;
 impl ConnectionService {
     /// Get all connections from the database
     pub fn get_all() -> Result<Vec<Connection>> {
-        Ok(db_get_connections()?)
-    }
-
-    /// Get a connection by name
-    pub fn get_by_name(name: &str) -> Result<Option<Connection>> {
-        let connections = Self::get_all()?;
-        Ok(connections.into_iter().find(|c| c.name == name))
+        db_get_connections()
     }
 
     /// Create a new connection
     pub fn create(connection: &Connection) -> Result<()> {
-        db_save_connection(connection).map_err(|e| color_eyre::eyre::eyre!("{}", e))?;
+        db_save_connection(connection)
+            .map_err(|e| color_eyre::eyre::eyre!("{}", e))?;
         Ok(())
     }
 
     /// Update an existing connection (handles renames)
     pub fn update(old_name: &str, connection: &Connection) -> Result<()> {
         // update_connection handles renaming automatically via WHERE clause
-        db_update_connection(old_name, connection).map_err(|e| color_eyre::eyre::eyre!("{}", e))?;
+        db_update_connection(old_name, connection)
+            .map_err(|e| color_eyre::eyre::eyre!("{}", e))?;
         Ok(())
     }
 
     /// Delete a connection by name
     pub fn delete(name: &str) -> Result<()> {
-        db_delete_connection(name).map_err(|e| color_eyre::eyre::eyre!("{}", e))?;
+        db_delete_connection(name)
+            .map_err(|e| color_eyre::eyre::eyre!("{}", e))?;
         Ok(())
-    }
-
-    /// Check if a connection exists by name
-    pub fn exists(name: &str) -> bool {
-        Self::get_by_name(name)
-            .map(|opt| opt.is_some())
-            .unwrap_or(false)
     }
 
     /// Validate a connection (check required fields are present)

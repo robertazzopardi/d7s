@@ -1,7 +1,12 @@
 use color_eyre::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+};
 use d7s_ui::{
-    handlers::{handle_connection_list_navigation, handle_search_filter_input, handle_sql_executor_input},
+    handlers::{
+        handle_connection_list_navigation, handle_search_filter_input,
+        handle_sql_executor_input,
+    },
     widgets::modal::{ModalAction, TestResult},
 };
 
@@ -21,142 +26,101 @@ impl App<'_> {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
                 self.on_key_event(key).await?;
             }
-            Event::Key(_) => {} // Ignore non-press key events
-            Event::FocusGained => {}
-            Event::FocusLost => {}
-            Event::Mouse(_) => {}
-            Event::Paste(_) => {}
-            Event::Resize(_, _) => {} // Terminal resize is handled automatically by ratatui
+            Event::Key(_)
+            | Event::FocusGained
+            | Event::FocusLost
+            | Event::Mouse(_)
+            | Event::Paste(_)
+            | Event::Resize(_, _) => {} // Ignore non-press key events
+                                        // Terminal resize is handled automatically by ratatui
         }
 
         Ok(())
     }
 
     /// Handles the key events and updates the state of [`App`].
-    #[allow(clippy::too_many_lines)]
     pub async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Handle search filter input first
-        if self.search_filter.is_active {
-            let mut should_clear = false;
-            let mut should_apply = false;
-            let filter_handled = handle_search_filter_input(
-                key,
-                &mut self.search_filter,
-                &mut || {
-                    if key.code == KeyCode::Esc {
-                        should_clear = true;
-                    } else {
-                        should_apply = true;
-                    }
-                },
-            );
-            if filter_handled {
-                if should_clear {
-                    self.clear_filter();
-                } else if should_apply {
-                    self.apply_filter();
-                }
-                return Ok(());
-            }
-        }
-
-        // Handle SQL executor input
-        let is_sql_executor = self
-            .database_explorer
-            .as_ref()
-            .map(|e| matches!(e.state, DatabaseExplorerState::SqlExecutor))
-            .unwrap_or(false);
-
-        if is_sql_executor && handle_sql_executor_input(key, &mut self.sql_executor) {
+        if self.handle_search_filter(key) {
             return Ok(());
         }
 
-        // Handle modal events first
+        // Handle SQL executor input
+        if self.handle_sql_executor_input(key) {
+            return Ok(());
+        }
+
+        // Handle modal events
         if self.modal_manager.is_any_modal_open() {
             return self.handle_modal_events(key).await;
         }
 
+        // Handle application shortcuts (q, n, d, e, t, s, Esc, Enter)
+        if self.handle_application_shortcuts(key).await? {
+            return Ok(());
+        }
+
+        // Handle navigation keys (j/k/h/l, 0/$, g/G, /)
+        self.handle_navigation_keys(key);
+
+        Ok(())
+    }
+
+    /// Handle application shortcuts (q, n, d, e, t, s, Esc, Enter)
+    /// Returns true if the key was handled and should stop processing
+    async fn handle_application_shortcuts(
+        &mut self,
+        key: KeyEvent,
+    ) -> Result<bool> {
         match (key.modifiers, key.code) {
             (_, KeyCode::Char('q'))
-            | (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
+            | (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
+                self.quit();
+                Ok(true)
+            }
             (_, KeyCode::Char('n')) => {
-                if self.state == AppState::ConnectionList
-                    && !self.modal_manager.is_any_modal_open()
-                {
-                    // Don't initialize keyring yet - it will be initialized when the user fills in the form
+                if self.state == AppState::ConnectionList {
                     self.modal_manager.open_new_connection_modal();
                 }
+                Ok(true)
             }
             (_, KeyCode::Char('d')) => {
-                // Only handle 'd' key if no modals are open and in connection list
-                if self.state == AppState::ConnectionList
-                    && !self.modal_manager.is_any_modal_open()
-                    && let Some(connection) = self.get_selected_connection()
-                {
-                    let message = format!(
-                        "Are you sure you want to delete\nthe connection '{}'?\n\nThis action cannot be undone.",
-                        connection.name
-                    );
-                    self.modal_manager
-                        .open_confirmation_modal(message, connection.clone());
-                    return Ok(()); // Return early to prevent key propagation
+                if self.state == AppState::ConnectionList {
+                    self.handle_delete_connection();
+                    return Ok(true);
                 }
+                Ok(false)
             }
             (_, KeyCode::Char('e')) => {
-                // Only handle 'e' key if no modal is open and in connection list
-                if self.state == AppState::ConnectionList
-                    && !self.modal_manager.is_any_modal_open()
-                    && let Some(connection) = self.get_selected_connection()
-                {
-                    let password = self.get_connection_password(connection);
-                    let connection = connection.clone();
-                    self.modal_manager
-                        .open_edit_connection_modal(&connection, password);
-                    return Ok(()); // Return early to prevent key propagation
+                if self.state == AppState::ConnectionList {
+                    self.handle_edit_connection();
+                    return Ok(true);
                 }
+                Ok(false)
             }
-            (_, KeyCode::Char('p')) => self.toggle_popup(),
             (_, KeyCode::Char('t')) => {
                 if self.state == AppState::DatabaseConnected {
-                    if let Some(explorer) = &self.database_explorer {
-                        if let DatabaseExplorerState::TableData(schema_name, table_name) = &explorer.state {
-                            // Toggle to columns view
-                            let schema_name = schema_name.clone();
-                            let table_name = table_name.clone();
-                            if let Err(e) = self.load_columns(&schema_name, &table_name).await {
-                                self.set_status(format!("Failed to load columns: {e}"));
-                            }
-                        } else if let DatabaseExplorerState::Columns(schema_name, table_name) = &explorer.state {
-                            // Toggle to data view
-                            let schema_name = schema_name.clone();
-                            let table_name = table_name.clone();
-                            if let Err(e) = self.load_table_data(&schema_name, &table_name).await {
-                                self.set_status(format!("Failed to load table data: {e}"));
-                            }
-                        }
-                    }
+                    self.handle_toggle_table_view().await?;
                 }
+                Ok(true)
             }
             (_, KeyCode::Char('s')) => {
                 if self.state == AppState::DatabaseConnected {
-                    // Enter SQL execution mode
-                    if let Some(explorer) = &mut self.database_explorer {
-                        explorer.state = DatabaseExplorerState::SqlExecutor;
-                    }
-                    self.sql_executor.activate();
+                    self.enter_sql_executor_mode();
                 }
+                Ok(true)
             }
             (_, KeyCode::Esc) => {
-                if self.show_popup {
-                    self.toggle_popup();
-                } else if self.modal_manager.is_any_modal_open() {
+                if self.modal_manager.is_any_modal_open() {
                     self.modal_manager.close_active_modal();
                 } else if self.state == AppState::DatabaseConnected {
-                    let is_sql_executor = self
-                        .database_explorer
-                        .as_ref()
-                        .map(|e| matches!(e.state, DatabaseExplorerState::SqlExecutor))
-                        .unwrap_or(false);
+                    let is_sql_executor =
+                        self.database_explorer.as_ref().is_some_and(|e| {
+                            matches!(
+                                e.state,
+                                DatabaseExplorerState::SqlExecutor
+                            )
+                        });
 
                     if is_sql_executor {
                         // Deactivate SQL executor and go back to schemas
@@ -165,7 +129,7 @@ impl App<'_> {
 
                     self.go_back_in_database();
                 }
-                return Ok(());
+                Ok(true)
             }
             (_, KeyCode::Enter) => {
                 if self.state == AppState::ConnectionList {
@@ -174,8 +138,15 @@ impl App<'_> {
                     // Handle database navigation
                     self.handle_database_navigation().await?;
                 }
-                return Ok(());
+                Ok(true)
             }
+            _ => Ok(false),
+        }
+    }
+
+    /// Handle navigation keys (j/k/h/l, 0/$, g/G, /)
+    fn handle_navigation_keys(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
             // Vim keybindings for table navigation
             (_, KeyCode::Char('j') | KeyCode::Down) => {
                 if self.state == AppState::ConnectionList {
@@ -259,108 +230,122 @@ impl App<'_> {
                     self.search_filter.activate();
                 }
             }
-            // Add other key handlers here.
             _ => {}
         }
+    }
 
+    /// Handle search filter input
+    fn handle_search_filter(&mut self, key: KeyEvent) -> bool {
+        if !self.search_filter.is_active {
+            return false;
+        }
+
+        let mut should_clear = false;
+        let mut should_apply = false;
+        let filter_handled = handle_search_filter_input(
+            key,
+            &mut self.search_filter,
+            &mut || {
+                if key.code == KeyCode::Esc {
+                    should_clear = true;
+                } else {
+                    should_apply = true;
+                }
+            },
+        );
+
+        if filter_handled {
+            if should_clear {
+                self.clear_filter();
+            } else if should_apply {
+                self.apply_filter();
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Handle SQL executor input
+    fn handle_sql_executor_input(&mut self, key: KeyEvent) -> bool {
+        let is_sql_executor =
+            self.database_explorer.as_ref().is_some_and(|e| {
+                matches!(e.state, DatabaseExplorerState::SqlExecutor)
+            });
+
+        is_sql_executor
+            && handle_sql_executor_input(key, &mut self.sql_executor)
+    }
+
+    /// Handle delete connection action
+    fn handle_delete_connection(&mut self) {
+        let Some(connection) = self.get_selected_connection() else {
+            return;
+        };
+        let message = format!(
+            "Are you sure you want to delete\nthe connection '{}'?\n\nThis action cannot be undone.",
+            connection.name
+        );
+        self.modal_manager
+            .open_confirmation_modal(message, connection.clone());
+    }
+
+    /// Handle edit connection action
+    fn handle_edit_connection(&mut self) {
+        let Some(connection) = self.get_selected_connection() else {
+            return;
+        };
+        let password = App::get_connection_password(connection);
+        let connection = connection.clone();
+        self.modal_manager
+            .open_edit_connection_modal(&connection, password);
+    }
+
+    /// Handle toggle between table data and columns view
+    async fn handle_toggle_table_view(&mut self) -> Result<()> {
+        let state = self.database_explorer.as_ref().map(|e| e.state.clone());
+
+        match state {
+            Some(DatabaseExplorerState::TableData(schema_name, table_name)) => {
+                if let Err(e) =
+                    self.load_columns(&schema_name, &table_name).await
+                {
+                    self.set_status(format!("Failed to load columns: {e}"));
+                }
+            }
+            Some(DatabaseExplorerState::Columns(schema_name, table_name)) => {
+                if let Err(e) =
+                    self.load_table_data(&schema_name, &table_name).await
+                {
+                    self.set_status(format!("Failed to load table data: {e}"));
+                }
+            }
+            _ => {}
+        }
         Ok(())
     }
 
+    /// Enter SQL executor mode
+    fn enter_sql_executor_mode(&mut self) {
+        if let Some(explorer) = &mut self.database_explorer {
+            explorer.state = DatabaseExplorerState::SqlExecutor;
+        }
+        self.sql_executor.activate();
+    }
+
     /// Handle modal events
-    #[allow(clippy::too_many_lines)]
     pub async fn handle_modal_events(&mut self, key: KeyEvent) -> Result<()> {
-        // Handle modal events (UI only)
         let action = self.modal_manager.handle_key_events_ui(key);
 
-        // Handle business logic based on modal actions
         match action {
             ModalAction::Save => {
-                // Handle password modal save (only used for "ask every time" connections)
-                if let Some(password_modal) = self.modal_manager.get_password_modal_mut() {
-                    let Some(connection) = &password_modal.connection.clone() else {
-                        return Ok(());
-                    };
-
-                    let password = password_modal.password.clone();
-                    password_modal.close();
-
-                    // Store in session memory via PasswordService
-                    self.password_service
-                        .store_session_password(connection, password.clone());
-
-                    // Connect with the provided password
-                    if let Err(e) = self
-                        .connect_with_password(connection.clone(), password)
-                        .await
-                    {
-                        self.set_status(format!("Failed to connect: {e}"));
-                    }
+                if self.handle_password_modal_save().await? {
                     return Ok(());
                 }
-
-                // Handle connection modal save
-                let Some(modal) = self.modal_manager.get_connection_modal_mut() else {
-                    return Ok(());
-                };
-                let Some(connection) = modal.get_connection() else {
-                    return Ok(());
-                };
-
-                let original_name = modal.original_name.clone();
-
-                // Validate the connection
-                if let Err(error_msg) = ConnectionService::validate(&connection) {
-                    modal.test_result = TestResult::Failed(error_msg);
-                    return Ok(());
-                }
-
-                // Save password to keyring if using keyring storage and password is provided
-                if connection.uses_keyring() {
-                    if let Some(ref password) = connection.password {
-                        if let Err(e) = PasswordService::save_to_keyring(&connection.name, password) {
-                            modal.test_result = TestResult::Failed(format!("Failed to save password: {e}"));
-                            return Ok(());
-                        }
-                    }
-                }
-
-                // Save the connection using ConnectionService
-                let save_result = if let Some(ref orig_name) = original_name {
-                    ConnectionService::update(orig_name, &connection)
-                } else {
-                    ConnectionService::create(&connection)
-                };
-
-                match save_result {
-                    Ok(()) => {
-                        modal.close();
-                        self.refresh_connections();
-                    }
-                    Err(e) => {
-                        modal.test_result = TestResult::Failed(e.to_string());
-                    }
-                }
+                self.handle_connection_modal_save();
             }
             ModalAction::Test => {
-                let Some(modal) = self.modal_manager.get_connection_modal_mut() else {
-                    return Ok(());
-                };
-
-                let Some(connection) = modal.get_connection() else {
-                    modal.test_result = TestResult::Failed(
-                        "Please fill in all fields".to_string(),
-                    );
-                    return Ok(());
-                };
-
-                modal.test_result = TestResult::Testing;
-                // Use ConnectionService to test the connection
-                let success = ConnectionService::test(&connection).await;
-                modal.test_result = if success {
-                    TestResult::Success
-                } else {
-                    TestResult::Failed("Connection failed".to_string())
-                };
+                self.handle_connection_modal_test().await;
             }
             ModalAction::Cancel => {
                 if self.modal_manager.was_connection_modal_closed() {
@@ -380,8 +365,7 @@ impl App<'_> {
             }
 
             // Delete connection using ConnectionService
-            if let Err(e) = ConnectionService::delete(&connection.name)
-            {
+            if let Err(e) = ConnectionService::delete(&connection.name) {
                 self.set_status(format!("Failed to delete connection: {e}"));
             } else {
                 self.refresh_connections();
@@ -392,5 +376,92 @@ impl App<'_> {
         self.modal_manager.cleanup_closed_modals();
 
         Ok(())
+    }
+
+    /// Handle password modal save action
+    async fn handle_password_modal_save(&mut self) -> Result<bool> {
+        let Some(password_modal) = self.modal_manager.get_password_modal_mut()
+        else {
+            return Ok(false);
+        };
+
+        let Some(connection) = password_modal.connection.clone() else {
+            return Ok(false);
+        };
+
+        let password = password_modal.password.clone();
+        password_modal.close();
+
+        self.password_service
+            .store_session_password(&connection, password.clone());
+
+        if let Err(e) = self.connect_with_password(connection, password).await {
+            self.set_status(format!("Failed to connect: {e}"));
+        }
+        Ok(true)
+    }
+
+    /// Handle connection modal save action
+    fn handle_connection_modal_save(&mut self) {
+        let Some(modal) = self.modal_manager.get_connection_modal_mut() else {
+            return;
+        };
+
+        let Some(connection) = modal.get_connection() else {
+            return;
+        };
+
+        let original_name = modal.original_name.clone();
+
+        if let Err(error_msg) = ConnectionService::validate(&connection) {
+            modal.test_result = TestResult::Failed(error_msg);
+            return;
+        }
+
+        if connection.uses_keyring()
+            && let Some(ref password) = connection.password
+            && let Err(e) =
+                PasswordService::save_to_keyring(&connection.name, password)
+        {
+            modal.test_result =
+                TestResult::Failed(format!("Failed to save password: {e}"));
+            return;
+        }
+
+        let save_result = original_name.as_ref().map_or_else(
+            || ConnectionService::create(&connection),
+            |orig_name| ConnectionService::update(orig_name, &connection),
+        );
+
+        match save_result {
+            Ok(()) => {
+                modal.close();
+                self.refresh_connections();
+            }
+            Err(e) => {
+                modal.test_result = TestResult::Failed(e.to_string());
+            }
+        }
+    }
+
+    /// Handle connection modal test action
+    async fn handle_connection_modal_test(&mut self) {
+        let Some(modal) = self.modal_manager.get_connection_modal_mut() else {
+            return;
+        };
+
+        let Some(connection) = modal.get_connection() else {
+            modal.test_result =
+                TestResult::Failed("Please fill in all fields".to_string());
+            return;
+        };
+
+        modal.test_result = TestResult::Testing;
+        let success = ConnectionService::test(&connection).await;
+        modal.test_result = if success {
+            TestResult::Success
+        } else {
+            TestResult::Failed("Connection failed".to_string())
+        };
     }
 }

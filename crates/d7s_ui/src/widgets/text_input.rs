@@ -6,15 +6,15 @@ pub struct TextInput {
 }
 
 impl TextInput {
-    /// Create a new empty TextInput
+    /// Create a new empty `TextInput`
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Create a TextInput with initial text and cursor at the end
+    /// Create a `TextInput` with initial text and cursor at the end
     #[must_use]
-    pub fn with_text(text: String) -> Self {
+    pub const fn with_text(text: String) -> Self {
         let cursor_position = text.len();
         Self {
             text,
@@ -55,26 +55,26 @@ impl TextInput {
     }
 
     /// Move cursor one position to the left
-    pub fn move_cursor_left(&mut self) {
+    pub const fn move_cursor_left(&mut self) {
         if self.cursor_position > 0 {
             self.cursor_position -= 1;
         }
     }
 
     /// Move cursor one position to the right
-    pub fn move_cursor_right(&mut self) {
+    pub const fn move_cursor_right(&mut self) {
         if self.cursor_position < self.text.len() {
             self.cursor_position += 1;
         }
     }
 
     /// Move cursor to the start of the text
-    pub fn move_cursor_to_start(&mut self) {
+    pub const fn move_cursor_to_start(&mut self) {
         self.cursor_position = 0;
     }
 
     /// Move cursor to the end of the text
-    pub fn move_cursor_to_end(&mut self) {
+    pub const fn move_cursor_to_end(&mut self) {
         self.cursor_position = self.text.len();
     }
 
@@ -86,13 +86,13 @@ impl TextInput {
 
     /// Check if the text is empty
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.text.is_empty()
     }
 
     /// Get the length of the text
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.text.len()
     }
 }

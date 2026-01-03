@@ -103,7 +103,7 @@ impl FromStr for PasswordStorageType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Modal {
     pub fields: Vec<ModalField>,
     pub current_field: usize,
@@ -113,21 +113,6 @@ pub struct Modal {
     pub test_result: TestResult,
     pub original_name: Option<String>,
     pub password_storage: PasswordStorageType,
-}
-
-impl Default for Modal {
-    fn default() -> Self {
-        Self {
-            fields: vec![],
-            current_field: 0,
-            is_open: false,
-            selected_button: 0,
-            mode: Mode::default(),
-            test_result: TestResult::default(),
-            original_name: None,
-            password_storage: PasswordStorageType::default(),
-        }
-    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -154,8 +139,12 @@ pub struct PasswordModal {
 }
 
 impl Modal {
+    #[must_use]
     pub fn new(_connection: Connection, mode: Mode) -> Self {
-        let fields = Connection::cols().iter().map(|c| ModalField::new(c)).collect();
+        let fields = Connection::cols()
+            .iter()
+            .map(|c| ModalField::new(c))
+            .collect();
 
         let mut modal = Self {
             fields,
@@ -327,6 +316,7 @@ impl Modal {
         }
     }
 
+    #[must_use]
     pub fn get_connection(&self) -> Option<Connection> {
         // Check if all required fields are filled (password is optional when "ask every time" is selected)
         let password_field_index = self.password_field_index();
@@ -363,6 +353,7 @@ impl Modal {
         })
     }
 
+    #[must_use]
     pub fn is_valid(&self) -> bool {
         // Password field is optional when "ask every time" is selected
         let password_field_index = self.password_field_index();
@@ -1118,9 +1109,7 @@ impl ModalManager {
     }
 
     /// Get a mutable reference to the connection modal
-    pub const fn get_connection_modal_mut(
-        &mut self,
-    ) -> Option<&mut Modal> {
+    pub const fn get_connection_modal_mut(&mut self) -> Option<&mut Modal> {
         self.connection_modal.as_mut()
     }
 
