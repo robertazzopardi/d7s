@@ -4,7 +4,6 @@ use d7s_ui::widgets::top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS};
 
 use crate::{
     app::App, app_state::AppState, database_explorer_state::DatabaseExplorer,
-    services::PasswordService,
 };
 
 impl App<'_> {
@@ -16,11 +15,6 @@ impl App<'_> {
             .selected()
             .filter(|&idx| idx < self.connections.table.items.len())
             .and_then(|idx| self.connections.table.items.get(idx))
-    }
-
-    /// Get the password for a connection (delegates to `PasswordService`)
-    pub fn get_connection_password(connection: &Connection) -> String {
-        PasswordService::get_connection_password(connection)
     }
 
     /// Connect to the selected database
@@ -63,8 +57,9 @@ impl App<'_> {
         let postgres = connection_with_password.to_postgres();
         if postgres.test().await {
             // Connection successful, create database explorer
+            let boxed_db: Box<dyn Database> = Box::new(postgres);
             self.database_explorer =
-                Some(DatabaseExplorer::new(connection_with_password, postgres));
+                Some(DatabaseExplorer::new(connection_with_password, boxed_db));
             self.state = AppState::DatabaseConnected;
 
             // Update hotkeys for database mode

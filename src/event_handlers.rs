@@ -295,7 +295,10 @@ impl App<'_> {
         let Some(connection) = self.get_selected_connection() else {
             return;
         };
-        let password = App::get_connection_password(connection);
+        let password =
+            crate::services::PasswordService::get_connection_password(
+                connection,
+            );
         let connection = connection.clone();
         self.modal_manager
             .open_edit_connection_modal(&connection, password);
