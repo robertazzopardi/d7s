@@ -2,13 +2,17 @@ use color_eyre::Result;
 use rusqlite::{Connection as SqliteConnection, params};
 use rusqlite_migration::{M, Migrations};
 
-use crate::{Database, TableRow, connection::Connection, get_db_path};
+use crate::{
+    Column, Database, Schema, Table, TableRow, connection::Connection,
+    get_db_path,
+};
 
 pub struct Sqlite {
     pub name: String,
     pub path: String,
 }
 
+#[async_trait::async_trait]
 impl Database for Sqlite {
     async fn test(&self) -> bool {
         true
@@ -60,6 +64,36 @@ impl Database for Sqlite {
         }
 
         Ok(result)
+    }
+
+    async fn get_schemas(
+        &self,
+    ) -> Result<Vec<Schema>, Box<dyn std::error::Error>> {
+        Ok(vec![])
+    }
+
+    async fn get_tables(
+        &self,
+        _schema_name: &str,
+    ) -> Result<Vec<Table>, Box<dyn std::error::Error>> {
+        Ok(vec![])
+    }
+
+    async fn get_columns(
+        &self,
+        _schema_name: &str,
+        _table_name: &str,
+    ) -> Result<Vec<Column>, Box<dyn std::error::Error>> {
+        Ok(vec![])
+    }
+
+    async fn get_table_data_with_columns(
+        &self,
+        _schema_name: &str,
+        _table_name: &str,
+    ) -> Result<(Vec<Vec<String>>, Vec<String>), Box<dyn std::error::Error>>
+    {
+        Ok((vec![], vec![]))
     }
 }
 

@@ -15,6 +15,7 @@ pub struct Postgres {
     pub password: String,
 }
 
+#[async_trait::async_trait]
 impl Database for Postgres {
     async fn test(&self) -> bool {
         let config = format!(
@@ -70,6 +71,114 @@ impl Database for Postgres {
 
         Ok(result)
     }
+
+    async fn get_schemas(
+        &self,
+    ) -> Result<Vec<Schema>, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+
+        let query = "
+            SELECT schema_name, schema_owner
+            FROM information_schema.schemata
+            WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+            ORDER BY schema_name
+        ";
+
+        let rows = client.query(query, &[]).await?;
+        let mut schemas = Vec::new();
+
+        for row in rows {
+            let schema = Schema {
+                name: row.get(0),
+                owner: row.get(1),
+            };
+            schemas.push(schema);
+        }
+
+        Ok(schemas)
+    }
+
+    async fn get_tables(
+        &self,
+        schema_name: &str,
+    ) -> Result<Vec<Table>, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+
+        let query = "
+            SELECT
+                t.table_name,
+                t.table_schema,
+                pg_size_pretty(pg_total_relation_size(quote_ident(t.table_schema)||'.'||quote_ident(t.table_name))) as size
+            FROM information_schema.tables t
+            WHERE t.table_schema = $1
+            AND t.table_type = 'BASE TABLE'
+            ORDER BY t.table_name;
+        ";
+
+        let rows = client.query(query, &[&schema_name]).await?;
+        let mut tables = Vec::new();
+
+        for row in rows {
+            let table = Table {
+                name: row.get(0),
+                schema: row.get(1),
+                size: row.get(2),
+            };
+            tables.push(table);
+        }
+
+        Ok(tables)
+    }
+
+    async fn get_columns(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<Column>, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+
+        let query = "
+            SELECT
+                c.column_name,
+                c.data_type,
+                c.is_nullable,
+                c.column_default,
+                pgd.description
+            FROM information_schema.columns c
+            LEFT JOIN pg_catalog.pg_statio_all_tables st ON (c.table_schema = st.schemaname AND c.table_name = st.relname)
+            LEFT JOIN pg_catalog.pg_description pgd ON (pgd.objoid = st.relid AND pgd.objsubid = c.ordinal_position)
+            WHERE c.table_schema = $1
+            AND c.table_name = $2
+            ORDER BY c.ordinal_position
+        ";
+
+        let rows = client.query(query, &[&schema_name, &table_name]).await?;
+        let mut columns = Vec::new();
+
+        for row in rows {
+            let column = Column {
+                name: row.get(0),
+                data_type: row.get(1),
+                is_nullable: row.get::<_, String>(2) == "YES",
+                default_value: row.get(3),
+                description: row.get(4),
+            };
+            columns.push(column);
+        }
+
+        Ok(columns)
+    }
+
+    async fn get_table_data_with_columns(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<(Vec<Vec<String>>, Vec<String>), Box<dyn std::error::Error>>
+    {
+        self.get_table_data_with_columns_simple(schema_name, table_name)
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+    }
 }
 
 impl Postgres {
@@ -101,118 +210,6 @@ impl Postgres {
         });
 
         Ok(client)
-    }
-
-    /// Get all schemas in the database
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the query fails.
-    pub async fn get_schemas(
-        &self,
-    ) -> Result<Vec<Schema>, tokio_postgres::Error> {
-        let client = self.get_connection().await?;
-
-        let query = "
-            SELECT schema_name, schema_owner
-            FROM information_schema.schemata 
-            WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
-            ORDER BY schema_name
-        ";
-
-        let rows = client.query(query, &[]).await?;
-        let mut schemas = Vec::new();
-
-        for row in rows {
-            let schema = Schema {
-                name: row.get(0),
-                owner: row.get(1),
-            };
-            schemas.push(schema);
-        }
-
-        Ok(schemas)
-    }
-
-    /// Get all tables in a schema
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the query fails.
-    pub async fn get_tables(
-        &self,
-        schema_name: &str,
-    ) -> Result<Vec<Table>, tokio_postgres::Error> {
-        let client = self.get_connection().await?;
-
-        let query = "
-            SELECT 
-                t.table_name,
-                t.table_schema,
-                pg_size_pretty(pg_total_relation_size(quote_ident(t.table_schema)||'.'||quote_ident(t.table_name))) as size
-            FROM information_schema.tables t
-            WHERE t.table_schema = $1 
-            AND t.table_type = 'BASE TABLE'
-            ORDER BY t.table_name;
-        ";
-
-        let rows = client.query(query, &[&schema_name]).await?;
-        let mut tables = Vec::new();
-
-        for row in rows {
-            let table = Table {
-                name: row.get(0),
-                schema: row.get(1),
-                size: row.get(2),
-            };
-            tables.push(table);
-        }
-
-        Ok(tables)
-    }
-
-    /// Get all columns in a table
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the query fails.
-    pub async fn get_columns(
-        &self,
-        schema_name: &str,
-        table_name: &str,
-    ) -> Result<Vec<Column>, tokio_postgres::Error> {
-        let client = self.get_connection().await?;
-
-        let query = "
-            SELECT 
-                c.column_name,
-                c.data_type,
-                c.is_nullable,
-                c.column_default,
-                pgd.description
-            FROM information_schema.columns c
-            LEFT JOIN pg_catalog.pg_statio_all_tables st ON (c.table_schema = st.schemaname AND c.table_name = st.relname)
-            LEFT JOIN pg_catalog.pg_description pgd ON (pgd.objoid = st.relid AND pgd.objsubid = c.ordinal_position)
-            WHERE c.table_schema = $1 
-            AND c.table_name = $2
-            ORDER BY c.ordinal_position
-        ";
-
-        let rows = client.query(query, &[&schema_name, &table_name]).await?;
-        let mut columns = Vec::new();
-
-        for row in rows {
-            let column = Column {
-                name: row.get(0),
-                data_type: row.get(1),
-                is_nullable: row.get::<_, String>(2) == "YES",
-                default_value: row.get(3),
-                description: row.get(4),
-            };
-            columns.push(column);
-        }
-
-        Ok(columns)
     }
 
     /// Get sample data from a table
@@ -284,20 +281,6 @@ impl Postgres {
         }
 
         Ok((data, column_names))
-    }
-
-    /// Get table data with column names
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the query fails.
-    pub async fn get_table_data_with_columns(
-        &self,
-        schema_name: &str,
-        table_name: &str,
-    ) -> Result<(Vec<Vec<String>>, Vec<String>), tokio_postgres::Error> {
-        self.get_table_data_with_columns_simple(schema_name, table_name)
-            .await
     }
 }
 
