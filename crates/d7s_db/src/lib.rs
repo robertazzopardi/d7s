@@ -17,22 +17,34 @@ pub trait TableData {
     }
 }
 
-#[allow(async_fn_in_trait)]
-pub trait Database {
+#[async_trait::async_trait]
+pub trait Database: Send + Sync {
     async fn test(&self) -> bool;
     async fn execute_sql(
         &self,
         sql: &str,
     ) -> Result<Vec<TableRow>, Box<dyn std::error::Error>>;
-}
 
-/// Database object types for the explorer
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DatabaseObjectType {
-    Schema,
-    Table,
-    View,
-    Column,
+    async fn get_schemas(
+        &self,
+    ) -> Result<Vec<Schema>, Box<dyn std::error::Error>>;
+
+    async fn get_tables(
+        &self,
+        schema_name: &str,
+    ) -> Result<Vec<Table>, Box<dyn std::error::Error>>;
+
+    async fn get_columns(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<Column>, Box<dyn std::error::Error>>;
+
+    async fn get_table_data_with_columns(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<(Vec<Vec<String>>, Vec<String>), Box<dyn std::error::Error>>;
 }
 
 /// Schema information
@@ -58,12 +70,6 @@ pub struct Column {
     pub is_nullable: bool,
     pub default_value: Option<String>,
     pub description: Option<String>,
-}
-
-/// Sample data row
-#[derive(Debug, Clone)]
-pub struct DataRow {
-    pub values: Vec<String>,
 }
 
 /// Table row data
