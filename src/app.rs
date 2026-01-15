@@ -17,8 +17,7 @@ use crate::{
 // Layout constants
 pub const TOPBAR_HEIGHT_PERCENT: u16 = 13;
 
-pub const APP_NAME: &str = r"
-_________________
+pub const APP_NAME: &str = r"_________________
 \______ \______  \______
  |    |  \  /    /  ___/
  |    `   \/    /\___ \

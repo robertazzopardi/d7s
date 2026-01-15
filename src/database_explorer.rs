@@ -1,6 +1,5 @@
 use color_eyre::Result;
 use crossterm::event::KeyCode;
-use d7s_db::Database;
 use d7s_ui::{handlers::TableNavigationHandler, widgets::table::DataTable};
 
 use crate::{
