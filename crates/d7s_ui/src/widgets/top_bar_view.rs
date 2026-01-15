@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use d7s_db::connection::Connection;
 use ratatui::{
-    prelude::{Alignment, Buffer, Constraint, Layout, Rect, Widget},
+    prelude::{Buffer, Constraint, Layout, Rect, Widget},
     widgets::Paragraph,
 };
 
@@ -71,8 +71,23 @@ impl Widget for TopBarView<'_> {
             hotkeys: self.hotkeys,
         }
         .render(cells[1], buf);
-        Paragraph::new(self.app_name.trim_start())
-            .alignment(Alignment::Right)
-            .render(cells[2], buf);
+
+        let app_name_width = self
+            .app_name
+            .trim()
+            .lines()
+            .map(|l| l.len())
+            .max()
+            .unwrap_or(0);
+        let padding = cells[2].width as usize - app_name_width;
+        let padded = self
+            .app_name
+            .lines()
+            .map(|line| {
+                format!("{:>width$}", line, width = line.len() + padding)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        Paragraph::new(padded).render(cells[2], buf);
     }
 }
