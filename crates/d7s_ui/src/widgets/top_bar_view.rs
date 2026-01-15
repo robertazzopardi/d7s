@@ -76,7 +76,7 @@ impl Widget for TopBarView<'_> {
             .app_name
             .trim()
             .lines()
-            .map(|l| l.len())
+            .map(str::len)
             .max()
             .unwrap_or(0);
         let padding = cells[2].width as usize - app_name_width;
