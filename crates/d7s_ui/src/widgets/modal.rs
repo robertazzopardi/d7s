@@ -3,8 +3,11 @@ use std::{fmt::Display, str::FromStr};
 use crossterm::event::{KeyCode, KeyEvent};
 use d7s_db::{TableData, connection::Connection};
 use ratatui::{
-    prelude::{Alignment, Buffer, Constraint, Direction, Layout, Rect, Widget},
+    prelude::{
+        Alignment, Buffer, Constraint, Direction, Layout, Line, Rect, Widget,
+    },
     style::{Color, Style},
+    text::Span,
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
@@ -136,6 +139,8 @@ pub struct PasswordModal {
     pub password: String,
     pub connection: Option<Connection>,
     pub prompt: String,
+    cursor_position: usize,
+    selected_button: usize,
 }
 
 impl Modal {
@@ -828,6 +833,8 @@ impl PasswordModal {
             password: String::new(),
             connection: Some(connection),
             prompt,
+            cursor_position: 0,
+            selected_button: 0,
         }
     }
 
@@ -836,11 +843,27 @@ impl PasswordModal {
     }
 
     pub fn add_char(&mut self, c: char) {
-        self.password.push(c);
+        self.password.insert(self.cursor_position, c);
+        self.cursor_position += 1;
     }
 
     pub fn remove_char(&mut self) {
-        self.password.pop();
+        if self.cursor_position > 0 {
+            self.password.remove(self.cursor_position - 1);
+            self.cursor_position -= 1;
+        }
+    }
+
+    pub const fn move_cursor_left(&mut self) {
+        if self.cursor_position > 0 {
+            self.cursor_position -= 1;
+        }
+    }
+
+    pub const fn move_cursor_right(&mut self) {
+        if self.cursor_position < self.password.len() {
+            self.cursor_position += 1;
+        }
     }
 
     pub fn handle_key_events(&mut self, key: KeyEvent) -> ModalAction {
@@ -849,20 +872,55 @@ impl PasswordModal {
                 self.close();
                 ModalAction::Cancel
             }
-            (_, KeyCode::Enter) => {
-                if self.password.is_empty() {
-                    ModalAction::None
+            (_, KeyCode::Tab | KeyCode::Down) => {
+                if self.selected_button == 0 {
+                    self.selected_button = 1;
+                }
+                ModalAction::None
+            }
+            (_, KeyCode::BackTab | KeyCode::Up) => {
+                if self.selected_button == 1 {
+                    self.selected_button = 0;
+                }
+                ModalAction::None
+            }
+            (_, KeyCode::Left) => {
+                if self.selected_button == 1 {
+                    self.selected_button = 0;
                 } else {
+                    self.move_cursor_left();
+                }
+                ModalAction::None
+            }
+            (_, KeyCode::Right) => {
+                if self.selected_button == 0 {
+                    self.selected_button = 1;
+                } else {
+                    self.move_cursor_right();
+                }
+                ModalAction::None
+            }
+            (_, KeyCode::Enter) => match self.selected_button {
+                0 if !self.password.is_empty() => {
                     self.close();
                     ModalAction::Save
                 }
-            }
+                1 => {
+                    self.close();
+                    ModalAction::Cancel
+                }
+                _ => ModalAction::None,
+            },
             (_, KeyCode::Char(c)) if !c.is_control() => {
-                self.add_char(c);
+                if self.selected_button == 0 {
+                    self.add_char(c);
+                }
                 ModalAction::None
             }
             (_, KeyCode::Backspace) => {
-                self.remove_char();
+                if self.selected_button == 0 {
+                    self.remove_char();
+                }
                 ModalAction::None
             }
             _ => ModalAction::None,
@@ -909,9 +967,38 @@ impl Widget for PasswordModal {
             .alignment(Alignment::Left)
             .render(inner_layout[0], buf);
 
-        // Render password input (masked)
-        let masked_password = "•".repeat(self.password.len());
-        Paragraph::new(masked_password)
+        // Render password input (masked) with cursor
+        let masked_password: String =
+            self.password.chars().map(|_| '•').collect();
+        let cursor_pos =
+            self.cursor_position.min(masked_password.chars().count());
+        let mut spans = Vec::new();
+
+        // Get byte position for cursor
+        let cursor_byte_pos = masked_password
+            .char_indices()
+            .nth(cursor_pos)
+            .map(|(i, _)| i)
+            .unwrap_or(masked_password.len());
+
+        // Add masked password before cursor
+        if cursor_pos > 0 {
+            spans.push(Span::raw(&masked_password[..cursor_byte_pos]));
+        }
+
+        // Add cursor
+        spans.push(Span::styled(
+            "█",
+            Style::default().fg(Color::White).bg(Color::Black),
+        ));
+
+        // Add masked password after cursor
+        if cursor_pos < masked_password.chars().count() {
+            spans.push(Span::raw(&masked_password[cursor_byte_pos..]));
+        }
+
+        let line = Line::from(spans);
+        Paragraph::new(line)
             .style(Style::default().fg(Color::Yellow))
             .alignment(Alignment::Left)
             .render(inner_layout[1], buf);
@@ -919,7 +1006,7 @@ impl Widget for PasswordModal {
         // Render buttons
         let buttons = Buttons {
             buttons: vec!["OK", "Cancel"],
-            selected: usize::from(self.password.is_empty()),
+            selected: self.selected_button,
         };
         buttons.render(inner_layout[2], buf);
     }
