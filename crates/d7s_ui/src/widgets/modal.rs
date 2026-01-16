@@ -978,8 +978,7 @@ impl Widget for PasswordModal {
         let cursor_byte_pos = masked_password
             .char_indices()
             .nth(cursor_pos)
-            .map(|(i, _)| i)
-            .unwrap_or(masked_password.len());
+            .map_or(masked_password.len(), |(i, _)| i);
 
         // Add masked password before cursor
         if cursor_pos > 0 {

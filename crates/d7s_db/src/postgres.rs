@@ -1,11 +1,14 @@
-use chrono::{DateTime, Utc};
-use tokio_postgres::{NoTls, types::FromSql};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use rust_decimal::Decimal;
+use tokio_postgres::{
+    NoTls, Row,
+    types::{FromSql, Type},
+};
 use uuid::Uuid;
 
 use crate::{Column, Database, Schema, Table, TableData, TableRow};
 
 #[derive(Debug, Clone, Default)]
-
 pub struct Postgres {
     pub name: String,
     pub host: Option<String>,
@@ -13,6 +16,30 @@ pub struct Postgres {
     pub user: String,
     pub database: String,
     pub password: String,
+}
+
+impl TableData for Postgres {
+    fn title() -> &'static str {
+        "Postgres"
+    }
+
+    fn ref_array(&self) -> Vec<String> {
+        vec![
+            self.name.clone(),
+            self.host.clone().unwrap_or_default(),
+            self.port.clone().unwrap_or_default(),
+            self.user.clone(),
+            self.password.clone(),
+        ]
+    }
+
+    fn num_columns(&self) -> usize {
+        self.ref_array().len()
+    }
+
+    fn cols() -> Vec<&'static str> {
+        vec!["Name", "Host", "Port", "User", "Password"]
+    }
 }
 
 #[async_trait::async_trait]
@@ -40,28 +67,25 @@ impl Database for Postgres {
         let mut result = Vec::new();
 
         if rows.is_empty() {
-            // For queries that don't return rows (INSERT, UPDATE, DELETE, etc.)
-            // Return a single row with the affected row count
             let affected_rows = client.execute(sql, &[]).await?;
             result.push(TableRow {
                 values: vec![format!("Affected rows: {}", affected_rows)],
                 column_names: vec!["Result".to_string()],
             });
         } else {
-            // Get column names from the first row
             let column_names: Vec<String> = rows[0]
                 .columns()
                 .iter()
                 .map(|col| col.name().to_string())
                 .collect();
 
-            for row in rows {
-                let mut values = Vec::new();
-                for i in 0..row.columns().len() {
-                    let value =
-                        convert_postgres_value_to_string_simple(&row, i);
-                    values.push(value);
-                }
+            for row in &rows {
+                let values = row
+                    .columns()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, col)| column_to_string(row, i, col.type_()))
+                    .collect();
                 result.push(TableRow {
                     values,
                     column_names: column_names.clone(),
@@ -182,11 +206,6 @@ impl Database for Postgres {
 }
 
 impl Postgres {
-    /// Get a connection to the database
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the query fails.
     async fn get_connection(
         &self,
     ) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
@@ -202,7 +221,6 @@ impl Postgres {
         let (client, connection) =
             tokio_postgres::connect(&config, NoTls).await?;
 
-        // Spawn the connection to run in the background
         tokio::spawn(async move {
             if let Err(e) = connection.await {
                 eprintln!("Database connection error: {e}");
@@ -212,11 +230,11 @@ impl Postgres {
         Ok(client)
     }
 
-    /// Get sample data from a table
+    /// Retrieves sample data from a table.
     ///
     /// # Errors
     ///
-    /// This function will return an error if the query fails.
+    /// Returns an error if the database connection fails or the query cannot be executed.
     pub async fn get_sample_data(
         &self,
         schema_name: &str,
@@ -231,23 +249,24 @@ impl Postgres {
         let rows = client.query(&query, &[&limit]).await?;
         let mut data = Vec::new();
 
-        for row in rows {
-            let mut values = Vec::new();
-            for i in 0..row.len() {
-                let value = convert_postgres_value_to_string_simple(&row, i);
-                values.push(value);
-            }
+        for row in &rows {
+            let values = row
+                .columns()
+                .iter()
+                .enumerate()
+                .map(|(i, col)| column_to_string(row, i, col.type_()))
+                .collect();
             data.push(values);
         }
 
         Ok(data)
     }
 
-    /// Get table data with column names (simplified version without extra dependencies)
+    /// Retrieves table data along with column names.
     ///
     /// # Errors
     ///
-    /// This function will return an error if the query fails.
+    /// Returns an error if the database connection fails or the query cannot be executed.
     pub async fn get_table_data_with_columns_simple(
         &self,
         schema_name: &str,
@@ -262,20 +281,19 @@ impl Postgres {
         let mut data = Vec::new();
         let mut column_names = Vec::new();
 
-        // Get column names from the first row
         if let Some(first_row) = rows.first() {
             for i in 0..first_row.len() {
                 column_names.push(first_row.columns()[i].name().to_string());
             }
         }
 
-        for row in rows {
-            let mut values = Vec::new();
-
-            for i in 0..row.len() {
-                let value = convert_postgres_value_to_string_simple(&row, i);
-                values.push(value);
-            }
+        for row in &rows {
+            let values = row
+                .columns()
+                .iter()
+                .enumerate()
+                .map(|(i, col)| column_to_string(row, i, col.type_()))
+                .collect();
 
             data.push(values);
         }
@@ -284,61 +302,238 @@ impl Postgres {
     }
 }
 
-/// Convert a `PostgreSQL` value to a string representation (simplified version)
-fn convert_postgres_value_to_string_simple(
-    row: &tokio_postgres::Row,
-    index: usize,
-) -> String {
-    let col_type = row.columns()[index].type_();
-    let type_name = col_type.name();
+/// Try and convert the value of the row to a string based on the type of the
+/// column.
+///
+/// The types used to check against are gathered from:
+/// <https://docs.rs/tokio-postgres/latest/tokio_postgres/types/struct.Type.html>
+#[allow(clippy::too_many_lines)]
+fn column_to_string(row: &Row, index: usize, ty: &Type) -> String {
+    if row.is_empty() {
+        return "NULL".to_string();
+    }
 
-    match type_name {
-        // Special types that need specific handling
-        "json" | "jsonb" => try_get::<serde_json::Value>(row, index),
-        "bool" | "boolean" => try_get::<bool>(row, index),
-        "bytea" => try_get_bytes(row, index),
-        _ if type_name.ends_with("[]") => get_vec_string(row, index, type_name),
+    match *ty {
+        // Boolean
+        Type::BOOL => try_get::<bool>(row, index),
+
+        // Binary data
+        Type::BYTEA => try_get_bytes(row, index),
 
         // Integer types
-        "int2" | "smallint" => try_get::<i16>(row, index),
-        "int4" | "integer" => try_get::<i32>(row, index),
-        "int8" | "bigint" => try_get::<i64>(row, index),
+        Type::CHAR => try_get::<i8>(row, index),
+        Type::INT2 => try_get::<i16>(row, index),
+        Type::INT4 => try_get::<i32>(row, index),
+        Type::INT8 => try_get::<i64>(row, index),
 
-        // Numeric/decimal - try multiple types
-        "numeric" | "decimal" => {
-            try_get_multiple::<String, i64, f64>(row, index)
-        }
+        // Floating point types
+        Type::FLOAT4 => try_get::<f32>(row, index),
+        Type::FLOAT8 => try_get::<f64>(row, index),
+
+        // Object identifier types
+        Type::OID => try_get::<u32>(row, index),
 
         // UUID
-        "uuid" => try_get::<Uuid>(row, index),
+        Type::UUID => try_get::<Uuid>(row, index),
 
-        // Timestamps
-        "timestamp" | "timestamptz" | "date" | "time" => {
-            try_get::<DateTime<Utc>>(row, index)
-        }
+        // JSON types
+        Type::JSON | Type::JSONB => try_get::<serde_json::Value>(row, index),
 
-        // Text and floating point - can use String
-        "text" | "varchar" | "char" | "character varying" | "character"
-        | "float4" | "real" | "float8" | "double precision" => {
-            try_get::<String>(row, index)
-        }
+        // Date/Time types with special handling
+        Type::TIMESTAMP => try_get_timestamp(row, index),
+        Type::TIMESTAMPTZ => try_get_timestamptz(row, index),
+        Type::DATE => try_get_date(row, index),
+        Type::TIME | Type::TIMETZ => try_get_time(row, index),
 
-        // Unknown types - try common conversions
-        _ => {
-            let result =
-                try_get_multiple::<String, serde_json::Value, i64>(row, index);
-            if result == "NULL" {
-                format!("<{type_name}>")
-            } else {
-                result
-            }
-        }
+        // Typed array types
+        Type::BOOL_ARRAY => try_get_array::<bool>(row, index),
+        Type::CHAR_ARRAY => try_get_array::<i8>(row, index),
+        Type::INT2_ARRAY => try_get_array::<i16>(row, index),
+        Type::INT4_ARRAY => try_get_array::<i32>(row, index),
+        Type::INT8_ARRAY => try_get_array::<i64>(row, index),
+        Type::FLOAT4_ARRAY => try_get_array::<f32>(row, index),
+        Type::FLOAT8_ARRAY => try_get_array::<f64>(row, index),
+        Type::OID_ARRAY => try_get_array::<u32>(row, index),
+        Type::UUID_ARRAY => try_get_array::<Uuid>(row, index),
+        Type::TEXT_ARRAY
+        | Type::VARCHAR_ARRAY
+        | Type::BPCHAR_ARRAY
+        | Type::NAME_ARRAY => try_get_array::<String>(row, index),
+
+        // Numeric types with rust_decimal
+        Type::NUMERIC => try_get_numeric(row, index),
+        Type::NUMERIC_ARRAY => try_get_numeric_array(row, index),
+
+        // All other types as strings - consolidated for clippy::match_same_arms
+        Type::INTERVAL
+        | Type::TEXT
+        | Type::VARCHAR
+        | Type::BPCHAR
+        | Type::NAME
+        | Type::UNKNOWN
+        | Type::INET
+        | Type::CIDR
+        | Type::MACADDR
+        | Type::MACADDR8
+        | Type::XML
+        | Type::BIT
+        | Type::VARBIT
+        | Type::MONEY
+        | Type::TID
+        | Type::XID
+        | Type::CID
+        | Type::REGPROC
+        | Type::REGPROCEDURE
+        | Type::REGOPER
+        | Type::REGOPERATOR
+        | Type::REGCLASS
+        | Type::REGTYPE
+        | Type::REGNAMESPACE
+        | Type::REGROLE
+        | Type::REGCONFIG
+        | Type::REGDICTIONARY
+        | Type::REGCOLLATION
+        | Type::POINT
+        | Type::LSEG
+        | Type::PATH
+        | Type::BOX
+        | Type::POLYGON
+        | Type::LINE
+        | Type::CIRCLE
+        | Type::TS_VECTOR
+        | Type::TSQUERY
+        | Type::GTS_VECTOR
+        | Type::TID_ARRAY
+        | Type::XID_ARRAY
+        | Type::CID_ARRAY
+        | Type::INT4_RANGE
+        | Type::INT8_RANGE
+        | Type::NUM_RANGE
+        | Type::TS_RANGE
+        | Type::TSTZ_RANGE
+        | Type::DATE_RANGE
+        | Type::INT4MULTI_RANGE
+        | Type::INT8MULTI_RANGE
+        | Type::NUMMULTI_RANGE
+        | Type::TSMULTI_RANGE
+        | Type::TSTZMULTI_RANGE
+        | Type::DATEMULTI_RANGE
+        | Type::PG_LSN
+        | Type::PG_SNAPSHOT
+        | Type::TXID_SNAPSHOT
+        | Type::PG_NDISTINCT
+        | Type::PG_DEPENDENCIES
+        | Type::PG_MCV_LIST
+        | Type::PG_BRIN_BLOOM_SUMMARY
+        | Type::PG_BRIN_MINMAX_MULTI_SUMMARY
+        | Type::JSONPATH
+        | Type::XID8
+        | Type::ACLITEM
+        | Type::REFCURSOR
+        | Type::BYTEA_ARRAY
+        | Type::TIMESTAMP_ARRAY
+        | Type::TIMESTAMPTZ_ARRAY
+        | Type::DATE_ARRAY
+        | Type::TIME_ARRAY
+        | Type::TIMETZ_ARRAY
+        | Type::INTERVAL_ARRAY
+        | Type::INET_ARRAY
+        | Type::CIDR_ARRAY
+        | Type::MACADDR_ARRAY
+        | Type::MACADDR8_ARRAY
+        | Type::JSON_ARRAY
+        | Type::JSONB_ARRAY
+        | Type::REGPROC_ARRAY
+        | Type::REGPROCEDURE_ARRAY
+        | Type::REGOPER_ARRAY
+        | Type::REGOPERATOR_ARRAY
+        | Type::REGCLASS_ARRAY
+        | Type::REGTYPE_ARRAY
+        | Type::REGNAMESPACE_ARRAY
+        | Type::REGROLE_ARRAY
+        | Type::REGCONFIG_ARRAY
+        | Type::REGDICTIONARY_ARRAY
+        | Type::REGCOLLATION_ARRAY
+        | Type::POINT_ARRAY
+        | Type::LSEG_ARRAY
+        | Type::PATH_ARRAY
+        | Type::BOX_ARRAY
+        | Type::POLYGON_ARRAY
+        | Type::LINE_ARRAY
+        | Type::CIRCLE_ARRAY
+        | Type::BIT_ARRAY
+        | Type::VARBIT_ARRAY
+        | Type::MONEY_ARRAY
+        | Type::TS_VECTOR_ARRAY
+        | Type::TSQUERY_ARRAY
+        | Type::GTS_VECTOR_ARRAY
+        | Type::INT4_RANGE_ARRAY
+        | Type::INT8_RANGE_ARRAY
+        | Type::NUM_RANGE_ARRAY
+        | Type::TS_RANGE_ARRAY
+        | Type::TSTZ_RANGE_ARRAY
+        | Type::DATE_RANGE_ARRAY
+        | Type::INT4MULTI_RANGE_ARRAY
+        | Type::INT8MULTI_RANGE_ARRAY
+        | Type::NUMMULTI_RANGE_ARRAY
+        | Type::TSMULTI_RANGE_ARRAY
+        | Type::TSTZMULTI_RANGE_ARRAY
+        | Type::DATEMULTI_RANGE_ARRAY
+        | Type::XML_ARRAY
+        | Type::JSONPATH_ARRAY
+        | Type::XID8_ARRAY
+        | Type::PG_LSN_ARRAY
+        | Type::PG_SNAPSHOT_ARRAY
+        | Type::TXID_SNAPSHOT_ARRAY
+        | Type::ACLITEM_ARRAY
+        | Type::REFCURSOR_ARRAY
+        | Type::CSTRING_ARRAY
+        | Type::INT2_VECTOR
+        | Type::OID_VECTOR
+        | Type::INT2_VECTOR_ARRAY
+        | Type::OID_VECTOR_ARRAY
+        | Type::PG_DDL_COMMAND
+        | Type::PG_NODE_TREE
+        | Type::TABLE_AM_HANDLER
+        | Type::INDEX_AM_HANDLER
+        | Type::TSM_HANDLER
+        | Type::FDW_HANDLER
+        | Type::LANGUAGE_HANDLER
+        | Type::INTERNAL
+        | Type::EVENT_TRIGGER
+        | Type::TRIGGER
+        | Type::VOID
+        | Type::RECORD
+        | Type::CSTRING
+        | Type::ANY
+        | Type::ANYARRAY
+        | Type::ANYELEMENT
+        | Type::ANYNONARRAY
+        | Type::ANYENUM
+        | Type::ANY_RANGE
+        | Type::ANYMULTI_RANGE
+        | Type::ANYCOMPATIBLE
+        | Type::ANYCOMPATIBLEARRAY
+        | Type::ANYCOMPATIBLENONARRAY
+        | Type::ANYCOMPATIBLE_RANGE
+        | Type::ANYCOMPATIBLEMULTI_RANGE
+        | Type::RECORD_ARRAY => try_get::<String>(row, index),
+
+        // Fallback for unknown types
+        _ => row
+            .columns()
+            .get(index)
+            .map(|c| c.type_().name())
+            .map_or_else(
+                || try_get::<String>(row, index),
+                |type_name| try_get_or_label::<String>(row, index, type_name),
+            ),
     }
 }
 
-/// Generic helper to try getting a value as Option<T> and convert to string
+/// Generic helper to get a value and convert it to a string, handling NULL values
 fn try_get<'a, T: ToString + FromSql<'a>>(
-    row: &'a tokio_postgres::Row,
+    row: &'a Row,
     index: usize,
 ) -> String {
     row.try_get::<_, Option<T>>(index)
@@ -347,30 +542,25 @@ fn try_get<'a, T: ToString + FromSql<'a>>(
         .map_or_else(|| "NULL".to_string(), |v| v.to_string())
 }
 
-/// Try multiple type conversions in order, return first successful one
-fn try_get_multiple<'a, T1, T2, T3>(
-    row: &'a tokio_postgres::Row,
+/// Helper to get array values and format them as a comma-separated list
+fn try_get_array<'a, T: ToString + FromSql<'a>>(
+    row: &'a Row,
     index: usize,
-) -> String
-where
-    T1: ToString + FromSql<'a>,
-    T2: ToString + FromSql<'a>,
-    T3: ToString + FromSql<'a>,
-{
-    if let Ok(Some(v)) = row.try_get::<_, Option<T1>>(index) {
-        return v.to_string();
-    }
-    if let Ok(Some(v)) = row.try_get::<_, Option<T2>>(index) {
-        return v.to_string();
-    }
-    if let Ok(Some(v)) = row.try_get::<_, Option<T3>>(index) {
-        return v.to_string();
-    }
-    "NULL".to_string()
+) -> String {
+    row.try_get::<_, Option<Vec<T>>>(index)
+        .ok()
+        .flatten()
+        .map(|arr| {
+            arr.iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .map_or_else(|| "NULL".to_string(), |s| format!("[{s}]"))
 }
 
-/// Special handling for bytea to show byte count
-fn try_get_bytes(row: &tokio_postgres::Row, index: usize) -> String {
+/// Helper to get binary data and display the byte count
+fn try_get_bytes(row: &Row, index: usize) -> String {
     row.try_get::<_, Option<Vec<u8>>>(index)
         .ok()
         .flatten()
@@ -380,42 +570,91 @@ fn try_get_bytes(row: &tokio_postgres::Row, index: usize) -> String {
         )
 }
 
-fn get_vec_string(
-    row: &tokio_postgres::Row,
+/// Fallback helper for unknown types - tries to get as string or shows type label
+fn try_get_or_label<'a, T: ToString + FromSql<'a>>(
+    row: &'a Row,
     index: usize,
     type_name: &str,
 ) -> String {
-    // Try to get as array of strings first
-    if let Ok(Some(arr)) = row.try_get::<_, Option<Vec<String>>>(index) {
-        return format!("[{}]", arr.join(", "));
+    if let Ok(Some(v)) = row.try_get::<_, Option<T>>(index) {
+        v.to_string()
+    } else {
+        format!("<{type_name}>")
     }
-    // Fallback to single string
-    if let Ok(Some(s)) = row.try_get::<_, Option<String>>(index) {
-        return s;
-    }
-    format!("<{type_name}>")
 }
 
-impl TableData for Postgres {
-    fn title() -> &'static str {
-        "Postgres"
+/// Helper to get NUMERIC values using `rust_decimal`
+fn try_get_numeric(row: &Row, index: usize) -> String {
+    row.try_get::<_, Option<Decimal>>(index)
+        .ok()
+        .flatten()
+        .map_or_else(|| "NULL".to_string(), |v| v.to_string())
+}
+
+/// Helper to get NUMERIC array values
+fn try_get_numeric_array(row: &Row, index: usize) -> String {
+    row.try_get::<_, Option<Vec<Decimal>>>(index)
+        .ok()
+        .flatten()
+        .map(|arr| {
+            arr.iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .map_or_else(|| "NULL".to_string(), |s| format!("[{s}]"))
+}
+
+/// Helper to get TIMESTAMP values with better compatibility
+/// Tries multiple datetime representations for robustness
+fn try_get_timestamp(row: &Row, index: usize) -> String {
+    // Try NaiveDateTime first (TIMESTAMP WITHOUT TIME ZONE)
+    if let Ok(Some(v)) = row.try_get::<_, Option<NaiveDateTime>>(index) {
+        return v.to_string();
     }
 
-    fn ref_array(&self) -> Vec<String> {
-        vec![
-            self.name.clone(),
-            self.host.clone().unwrap_or_default(),
-            self.port.clone().unwrap_or_default(),
-            self.user.clone(),
-            self.password.clone(),
-        ]
+    // Fallback to DateTime<Utc> in case it's stored with timezone info
+    if let Ok(Some(v)) = row.try_get::<_, Option<DateTime<Utc>>>(index) {
+        return v.naive_utc().to_string();
     }
 
-    fn num_columns(&self) -> usize {
-        self.ref_array().len()
+    // Final fallback to string
+    try_get::<String>(row, index)
+}
+
+/// Helper to get TIMESTAMPTZ values with better compatibility
+/// Handles timezone-aware timestamps
+fn try_get_timestamptz(row: &Row, index: usize) -> String {
+    // Try DateTime<Utc> first (TIMESTAMP WITH TIME ZONE)
+    if let Ok(Some(v)) = row.try_get::<_, Option<DateTime<Utc>>>(index) {
+        return v.to_rfc3339();
     }
 
-    fn cols() -> Vec<&'static str> {
-        vec!["Name", "Host", "Port", "User", "Password"]
+    // Fallback to NaiveDateTime if stored without timezone
+    if let Ok(Some(v)) = row.try_get::<_, Option<NaiveDateTime>>(index) {
+        return v.to_string();
     }
+
+    // Final fallback to string
+    try_get::<String>(row, index)
+}
+
+/// Helper to get DATE values
+fn try_get_date(row: &Row, index: usize) -> String {
+    if let Ok(Some(v)) = row.try_get::<_, Option<NaiveDate>>(index) {
+        return v.format("%Y-%m-%d").to_string();
+    }
+
+    // Fallback to string
+    try_get::<String>(row, index)
+}
+
+/// Helper to get TIME values
+fn try_get_time(row: &Row, index: usize) -> String {
+    if let Ok(Some(v)) = row.try_get::<_, Option<NaiveTime>>(index) {
+        return v.format("%H:%M:%S%.f").to_string();
+    }
+
+    // Fallback to string
+    try_get::<String>(row, index)
 }
