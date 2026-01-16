@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: d7s-test-db
+    environment:
+      POSTGRES_DB: d7s_test
+      POSTGRES_USER: d7s_user
+      POSTGRES_PASSWORD: d7s_password
+      POSTGRES_MULTIPLE_DATABASES: test_db_1,test_db_2
+    ports:
+      - "5432:5432"
+    volumes:
+      # Uncomment the line below for persistent data storage
+      # - postgres_data:/var/lib/postgresql/data
+      - ./docker/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql
+      - ./docker/init-db.sh:/docker-entrypoint-initdb.d/02-init-db.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U d7s_user -d d7s_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - d7s-network
+
+# Uncomment for persistent data storage
+# volumes:
+#   postgres_data:
+
+networks:
+  d7s-network:
+    driver: bridge
