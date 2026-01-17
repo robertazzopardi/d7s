@@ -56,20 +56,22 @@ impl TableNavigationHandler {
     ) {
         match key {
             KeyCode::Char('j') | KeyCode::Down => {
-                if let Some(selected) = table.state.selected() {
-                    if selected + 1 >= table.items.len() {
-                        table.state.select_first();
+                if let Some(selected) = table.state.selected()
+                    && !table.items.is_empty()
+                {
+                    if selected >= table.items.len() - 1 {
+                        table.state.select(Some(0));
                     } else {
                         table.state.select_next();
                     }
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                if let Some(selected) = table.state.selected() {
+                if let Some(selected) = table.state.selected()
+                    && !table.items.is_empty()
+                {
                     if selected == 0 {
-                        if !table.items.is_empty() {
-                            table.state.select_last();
-                        }
+                        table.state.select(Some(table.items.len() - 1));
                     } else {
                         table.state.select_previous();
                     }
