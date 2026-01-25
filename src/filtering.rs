@@ -19,6 +19,11 @@ impl App<'_> {
             AppState::DatabaseConnected => {
                 if let Some(explorer) = &mut self.database_explorer {
                     match explorer.state {
+                        DatabaseExplorerState::Databases => {
+                            if let Some(ref mut databases) = explorer.databases {
+                                databases.clear_filter();
+                            }
+                        }
                         DatabaseExplorerState::Schemas => {
                             if let Some(ref mut schemas) = explorer.schemas {
                                 schemas.clear_filter();
@@ -57,6 +62,11 @@ impl App<'_> {
             AppState::DatabaseConnected => {
                 if let Some(explorer) = &mut self.database_explorer {
                     match explorer.state {
+                        DatabaseExplorerState::Databases => {
+                            if let Some(ref mut databases) = explorer.databases {
+                                databases.apply_filter(query);
+                            }
+                        }
                         DatabaseExplorerState::Schemas => {
                             if let Some(ref mut schemas) = explorer.schemas {
                                 schemas.apply_filter(query);
