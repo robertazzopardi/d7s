@@ -1,5 +1,6 @@
 use color_eyre::Result;
 use crossterm::event::KeyCode;
+use d7s_db::Database;
 use d7s_ui::{handlers::TableNavigationHandler, widgets::table::DataTable};
 
 use crate::{
@@ -7,6 +8,47 @@ use crate::{
 };
 
 impl App<'_> {
+    /// Load databases from the connection
+    pub async fn load_databases(&mut self) -> Result<()> {
+        if let Some(explorer) = &mut self.database_explorer {
+            match explorer.database.get_databases().await {
+                Ok(databases) => {
+                    explorer.databases = Some(FilteredData::new(databases));
+                    explorer.state = DatabaseExplorerState::Databases;
+                }
+                Err(e) => {
+                    self.set_status(format!("Failed to load databases: {e}"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Select a database and reconnect to it
+    pub async fn select_database(&mut self, database_name: &str) -> Result<()> {
+        if let Some(explorer) = &mut self.database_explorer {
+            // Update connection with selected database
+            explorer.connection.database = database_name.to_string();
+
+            // Create new Postgres connection with selected database
+            let postgres = explorer.connection.to_postgres();
+
+            // Test the connection to the selected database
+            if postgres.test().await {
+                // Replace the database client with the new one
+                explorer.database = Box::new(postgres);
+
+                // Load schemas for the selected database
+                self.load_schemas().await?;
+            } else {
+                self.set_status(format!(
+                    "Failed to connect to database: {database_name}",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Load schemas from the database
     pub async fn load_schemas(&mut self) -> Result<()> {
         if let Some(explorer) = &mut self.database_explorer {
@@ -99,6 +141,11 @@ impl App<'_> {
             self.database_explorer.as_ref().map(|e| e.state.clone());
 
         match explorer_state {
+            Some(DatabaseExplorerState::Databases) => {
+                if let Some(database_name) = self.get_selected_database_name() {
+                    self.select_database(&database_name).await?;
+                }
+            }
             Some(DatabaseExplorerState::Schemas) => {
                 if let Some(schema_name) = self.get_selected_schema_name() {
                     if let Some(explorer) = &mut self.database_explorer {
@@ -136,11 +183,20 @@ impl App<'_> {
                 self.execute_sql_query().await;
             }
             None => {
-                // Load schemas if not loaded yet
-                self.load_schemas().await?;
+                // Load databases if not loaded yet
+                self.load_databases().await?;
             }
         }
         Ok(())
+    }
+
+    /// Get the name of the currently selected database
+    fn get_selected_database_name(&self) -> Option<String> {
+        let explorer = self.database_explorer.as_ref()?;
+        let databases = explorer.databases.as_ref()?;
+        let selected_index = databases.table.state.selected()?;
+        let database = databases.table.items.get(selected_index)?;
+        Some(database.name.clone())
     }
 
     /// Get the name of the currently selected schema
@@ -236,6 +292,14 @@ impl App<'_> {
                     explorer.connection.schema = None;
                 }
             }
+            Some(DatabaseExplorerState::Schemas) => {
+                // Go back to databases
+                if let Some(explorer) = &mut self.database_explorer
+                    && explorer.databases.is_some()
+                {
+                    explorer.state = DatabaseExplorerState::Databases;
+                }
+            }
             Some(DatabaseExplorerState::SqlExecutor) => {
                 // Go back to schemas
                 if let Some(explorer) = &mut self.database_explorer
@@ -244,7 +308,7 @@ impl App<'_> {
                     explorer.state = DatabaseExplorerState::Schemas;
                 }
             }
-            Some(DatabaseExplorerState::Schemas) | None => {
+            Some(DatabaseExplorerState::Databases) | None => {
                 // Go back to connection list (disconnect)
                 self.disconnect_from_database();
             }
@@ -257,6 +321,16 @@ impl App<'_> {
             self.database_explorer.as_ref().map(|e| e.state.clone());
 
         match explorer_state {
+            Some(DatabaseExplorerState::Databases) => {
+                if let Some(explorer) = &mut self.database_explorer
+                    && let Some(ref mut databases) = explorer.databases
+                {
+                    TableNavigationHandler::navigate_table(
+                        &mut databases.table,
+                        key,
+                    );
+                }
+            }
             Some(DatabaseExplorerState::Schemas) => {
                 if let Some(explorer) = &mut self.database_explorer
                     && let Some(ref mut schemas) = explorer.schemas

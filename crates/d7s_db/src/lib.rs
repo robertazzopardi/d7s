@@ -45,6 +45,16 @@ pub trait Database: Send + Sync {
         schema_name: &str,
         table_name: &str,
     ) -> Result<(Vec<Vec<String>>, Vec<String>), Box<dyn std::error::Error>>;
+
+    async fn get_databases(
+        &self,
+    ) -> Result<Vec<DatabaseInfo>, Box<dyn std::error::Error>>;
+}
+
+/// Database information
+#[derive(Debug, Clone)]
+pub struct DatabaseInfo {
+    pub name: String,
 }
 
 /// Schema information
@@ -77,6 +87,24 @@ pub struct Column {
 pub struct TableRow {
     pub values: Vec<String>,
     pub column_names: Vec<String>,
+}
+
+impl TableData for DatabaseInfo {
+    fn title() -> &'static str {
+        "Databases"
+    }
+
+    fn ref_array(&self) -> Vec<String> {
+        vec![self.name.clone()]
+    }
+
+    fn num_columns(&self) -> usize {
+        self.ref_array().len()
+    }
+
+    fn cols() -> Vec<&'static str> {
+        vec!["Name"]
+    }
 }
 
 impl TableData for Schema {
