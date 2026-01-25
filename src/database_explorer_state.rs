@@ -1,4 +1,4 @@
-use d7s_db::{Column, Database, Schema, Table, connection::Connection};
+use d7s_db::{Column, Database, DatabaseInfo, Schema, Table, connection::Connection};
 use d7s_ui::widgets::table::RawTableRow;
 
 use crate::{app_state::DatabaseExplorerState, filtered_data::FilteredData};
@@ -11,6 +11,8 @@ pub struct DatabaseExplorer {
     pub database: Box<dyn Database>,
     /// Current navigation state in the database
     pub state: DatabaseExplorerState,
+    /// Cached database list
+    pub databases: Option<FilteredData<DatabaseInfo>>,
     /// Cached schema data
     pub schemas: Option<FilteredData<Schema>>,
     /// Cached table data for current schema
@@ -27,7 +29,8 @@ impl DatabaseExplorer {
         Self {
             connection,
             database,
-            state: DatabaseExplorerState::Schemas,
+            state: DatabaseExplorerState::Databases,
+            databases: None,
             schemas: None,
             tables: None,
             columns: None,

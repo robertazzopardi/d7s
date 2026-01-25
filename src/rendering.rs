@@ -156,6 +156,13 @@ impl App<'_> {
     pub fn render_database_table(&self, frame: &mut Frame, area: Rect) {
         if let Some(explorer) = &self.database_explorer {
             match &explorer.state {
+                DatabaseExplorerState::Databases => {
+                    render_filtered_data_table(
+                        frame,
+                        explorer.databases.as_ref(),
+                        area,
+                    );
+                }
                 DatabaseExplorerState::Schemas => {
                     render_filtered_data_table(
                         frame,
@@ -197,6 +204,7 @@ impl App<'_> {
         self.database_explorer.as_ref().map_or_else(
             || " Database Explorer ".to_string(),
             |explorer| match &explorer.state {
+                DatabaseExplorerState::Databases => " Databases ".to_string(),
                 DatabaseExplorerState::Schemas => " Schemas ".to_string(),
                 DatabaseExplorerState::Tables(schema) => {
                     format!(" {schema} ")

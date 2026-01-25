@@ -6,7 +6,9 @@ use tokio_postgres::{
 };
 use uuid::Uuid;
 
-use crate::{Column, Database, Schema, Table, TableData, TableRow};
+use crate::{
+    Column, Database, DatabaseInfo, Schema, Table, TableData, TableRow,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct Postgres {
@@ -202,6 +204,26 @@ impl Database for Postgres {
         self.get_table_data_with_columns_simple(schema_name, table_name)
             .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+    }
+
+    async fn get_databases(
+        &self,
+    ) -> Result<Vec<DatabaseInfo>, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+
+        let query = "
+            SELECT datname
+            FROM pg_database
+            WHERE datistemplate = false
+            ORDER BY datname
+        ";
+
+        let rows = client.query(query, &[]).await?;
+
+        Ok(rows
+            .iter()
+            .map(|row| DatabaseInfo { name: row.get(0) })
+            .collect())
     }
 }
 

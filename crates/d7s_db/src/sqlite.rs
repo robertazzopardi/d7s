@@ -3,7 +3,7 @@ use rusqlite::{Connection as SqliteConnection, params};
 use rusqlite_migration::{M, Migrations};
 
 use crate::{
-    Column, Database, Schema, Table, TableRow, connection::Connection,
+    Column, Database, DatabaseInfo, Schema, Table, TableRow, connection::Connection,
     get_db_path,
 };
 
@@ -94,6 +94,16 @@ impl Database for Sqlite {
     ) -> Result<(Vec<Vec<String>>, Vec<String>), Box<dyn std::error::Error>>
     {
         Ok((vec![], vec![]))
+    }
+
+    async fn get_databases(
+        &self,
+    ) -> Result<Vec<DatabaseInfo>, Box<dyn std::error::Error>> {
+        // SQLite doesn't have multiple databases per connection
+        // Return a single database with the path as the name
+        Ok(vec![DatabaseInfo {
+            name: self.path.clone(),
+        }])
     }
 }
 

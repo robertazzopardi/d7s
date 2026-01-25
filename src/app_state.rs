@@ -8,6 +8,7 @@ pub enum AppState {
 /// Database explorer state to track what object type is being viewed
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DatabaseExplorerState {
+    Databases,
     Schemas,
     Tables(String),            // schema name
     Columns(String, String),   // schema name, table name

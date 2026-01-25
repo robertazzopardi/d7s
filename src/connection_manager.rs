@@ -53,10 +53,18 @@ impl App<'_> {
         let mut connection_with_password = connection.clone();
         connection_with_password.password = Some(password);
 
-        // Test the connection first
-        let postgres = connection_with_password.to_postgres();
+        // For PostgreSQL, connect to a default database first to list databases
+        // Always try "postgres" first as it's the standard default database
+        // If that fails, we'll fall back to the connection's database field
+        let default_db = "postgres".to_string();
+
+        // Create a temporary connection to the default database
+        let mut temp_connection = connection_with_password.clone();
+        temp_connection.database.clone_from(&default_db);
+        let postgres = temp_connection.to_postgres();
+
         if postgres.test().await {
-            // Connection successful, create database explorer
+            // Connection successful, create database explorer with default database
             let boxed_db: Box<dyn Database> = Box::new(postgres);
             self.database_explorer =
                 Some(DatabaseExplorer::new(connection_with_password, boxed_db));
@@ -65,8 +73,8 @@ impl App<'_> {
             // Update hotkeys for database mode
             self.hotkeys = DATABASE_HOTKEYS.to_vec();
 
-            // Load schemas after successful connection
-            self.load_schemas().await?;
+            // Load databases after successful connection
+            self.load_databases().await?;
         } else {
             self.set_status(format!(
                 "Failed to connect to database: {}",
