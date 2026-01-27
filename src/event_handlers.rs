@@ -128,9 +128,9 @@ impl App<'_> {
                         if let Some(explorer) = &mut self.database_explorer
                             && let Some(previous_state) =
                                 explorer.previous_state.take()
-                            {
-                                explorer.state = previous_state;
-                            }
+                        {
+                            explorer.state = previous_state;
+                        }
                     } else if self.has_active_filter() {
                         self.clear_filter();
                     } else {
@@ -419,7 +419,9 @@ impl App<'_> {
             .await;
 
         // Check if connection succeeded by checking if state changed to DatabaseConnected
-        if self.state == AppState::DatabaseConnected && state_before != AppState::DatabaseConnected {
+        if self.state == AppState::DatabaseConnected
+            && state_before != AppState::DatabaseConnected
+        {
             // Connection succeeded, store password in session and close the modal
             self.password_service
                 .store_session_password(&connection, password);
