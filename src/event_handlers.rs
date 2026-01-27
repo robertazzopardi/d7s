@@ -127,7 +127,11 @@ impl App<'_> {
                         self.sql_executor.deactivate();
                     }
 
-                    self.go_back_in_database();
+                    if self.has_active_filter() {
+                        self.clear_filter();
+                    } else {
+                        self.go_back_in_database();
+                    }
                 }
                 Ok(true)
             }

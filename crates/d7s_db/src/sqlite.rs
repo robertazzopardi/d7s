@@ -3,8 +3,8 @@ use rusqlite::{Connection as SqliteConnection, params};
 use rusqlite_migration::{M, Migrations};
 
 use crate::{
-    Column, Database, DatabaseInfo, Schema, Table, TableRow, connection::Connection,
-    get_db_path,
+    Column, Database, DatabaseInfo, Schema, Table, TableRow,
+    connection::Connection, get_db_path,
 };
 
 pub struct Sqlite {

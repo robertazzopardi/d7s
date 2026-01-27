@@ -1,4 +1,6 @@
-use d7s_db::{Column, Database, DatabaseInfo, Schema, Table, connection::Connection};
+use d7s_db::{
+    Column, Database, DatabaseInfo, Schema, Table, connection::Connection,
+};
 use d7s_ui::widgets::table::RawTableRow;
 
 use crate::{app_state::DatabaseExplorerState, filtered_data::FilteredData};

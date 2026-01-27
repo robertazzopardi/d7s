@@ -30,4 +30,9 @@ impl<T: TableData + Clone> FilteredData<T> {
         self.table.items.clone_from(&self.original);
         TableNavigationHandler::wrap_rows(&mut self.table);
     }
+
+    /// Check if the data is currently filtered
+    pub const fn is_filtered(&self) -> bool {
+        self.table.items.len() != self.original.len()
+    }
 }
