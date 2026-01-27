@@ -866,6 +866,12 @@ impl PasswordModal {
         }
     }
 
+    /// Clear the password field and reset cursor position
+    pub fn clear_password(&mut self) {
+        self.password.clear();
+        self.cursor_position = 0;
+    }
+
     pub fn handle_key_events(&mut self, key: KeyEvent) -> ModalAction {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {

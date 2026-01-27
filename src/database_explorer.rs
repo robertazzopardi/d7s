@@ -241,7 +241,8 @@ impl App<'_> {
 
     /// Execute SQL query from the SQL executor
     async fn execute_sql_query(&mut self) {
-        let sql = self.sql_executor.sql_input().trim();
+        let executor = self.sql_executor.clone();
+        let sql = executor.sql_input().trim();
         if sql.is_empty() {
             return;
         }
@@ -250,17 +251,27 @@ impl App<'_> {
             return;
         };
 
+        // Clear any previous results/errors before executing
+        self.sql_executor.clear_results();
+
         match explorer.database.execute_sql(sql).await {
             Ok(results) => {
                 let data: Vec<Vec<String>> =
                     results.iter().map(|row| row.values.clone()).collect();
-                if let Some(first_result) = results.first() {
+                if data.is_empty() {
+                    // No data returned - show message in status bar
+                    self.set_status(
+                        "Query executed successfully but returned no data",
+                    );
+                } else if let Some(first_result) = results.first() {
+                    // Has data - show results in SQL executor
                     self.sql_executor
                         .set_results(data, &first_result.column_names);
                 }
             }
             Err(e) => {
-                self.sql_executor.set_error(e.to_string());
+                // Error occurred - show in status bar instead of SQL executor widget
+                self.set_status(format!("SQL Error: {e}"));
             }
         }
     }

@@ -13,6 +13,8 @@ pub struct DatabaseExplorer {
     pub database: Box<dyn Database>,
     /// Current navigation state in the database
     pub state: DatabaseExplorerState,
+    /// Previous state before entering SQL executor (to restore on exit)
+    pub previous_state: Option<DatabaseExplorerState>,
     /// Cached database list
     pub databases: Option<FilteredData<DatabaseInfo>>,
     /// Cached schema data
@@ -32,6 +34,7 @@ impl DatabaseExplorer {
             connection,
             database,
             state: DatabaseExplorerState::Databases,
+            previous_state: None,
             databases: None,
             schemas: None,
             tables: None,

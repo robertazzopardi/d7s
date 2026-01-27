@@ -123,11 +123,15 @@ impl App<'_> {
                         });
 
                     if is_sql_executor {
-                        // Deactivate SQL executor and go back to schemas
+                        // Restore the previous state before SQL executor was opened
                         self.sql_executor.deactivate();
-                    }
-
-                    if self.has_active_filter() {
+                        if let Some(explorer) = &mut self.database_explorer
+                            && let Some(previous_state) =
+                                explorer.previous_state.take()
+                            {
+                                explorer.state = previous_state;
+                            }
+                    } else if self.has_active_filter() {
                         self.clear_filter();
                     } else {
                         self.go_back_in_database();
@@ -335,6 +339,8 @@ impl App<'_> {
     /// Enter SQL executor mode
     fn enter_sql_executor_mode(&mut self) {
         if let Some(explorer) = &mut self.database_explorer {
+            // Save the current state before entering SQL executor
+            explorer.previous_state = Some(explorer.state.clone());
             explorer.state = DatabaseExplorerState::SqlExecutor;
         }
         self.sql_executor.activate();
@@ -387,23 +393,52 @@ impl App<'_> {
 
     /// Handle password modal save action
     async fn handle_password_modal_save(&mut self) -> Result<bool> {
-        let Some(password_modal) = self.modal_manager.get_password_modal_mut()
-        else {
-            return Ok(false);
+        // Extract data from modal before attempting connection
+        // This releases the mutable borrow so we can call connect_with_password
+        let (connection, password) = {
+            let Some(password_modal) =
+                self.modal_manager.get_password_modal_mut()
+            else {
+                return Ok(false);
+            };
+
+            let Some(connection) = password_modal.connection.clone() else {
+                return Ok(false);
+            };
+
+            (connection, password_modal.password.clone())
         };
 
-        let Some(connection) = password_modal.connection.clone() else {
-            return Ok(false);
-        };
+        // Store the state before attempting connection to check if it changed
+        let state_before = self.state.clone();
 
-        let password = password_modal.password.clone();
-        password_modal.close();
+        // Try to connect with the password (don't store in session yet)
+        let password_clone = password.clone();
+        let _ = self
+            .connect_with_password(connection.clone(), password_clone)
+            .await;
 
-        self.password_service
-            .store_session_password(&connection, password.clone());
-
-        if let Err(e) = self.connect_with_password(connection, password).await {
-            self.set_status(format!("Failed to connect: {e}"));
+        // Check if connection succeeded by checking if state changed to DatabaseConnected
+        if self.state == AppState::DatabaseConnected && state_before != AppState::DatabaseConnected {
+            // Connection succeeded, store password in session and close the modal
+            self.password_service
+                .store_session_password(&connection, password);
+            if let Some(password_modal) =
+                self.modal_manager.get_password_modal_mut()
+            {
+                password_modal.close();
+            }
+        } else {
+            // Connection failed, keep modal open so user can retry
+            // Remove any password from session that might have been stored
+            self.password_service.remove_session_password(&connection);
+            // The error message is already set by connect_with_password
+            // Clear the password field so user can retry
+            if let Some(password_modal) =
+                self.modal_manager.get_password_modal_mut()
+            {
+                password_modal.clear_password();
+            }
         }
         Ok(true)
     }
