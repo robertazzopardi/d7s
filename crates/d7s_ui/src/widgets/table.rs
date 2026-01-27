@@ -11,7 +11,7 @@ use ratatui::{
 use crate::widgets::constraint_len_calculator;
 
 /// A wrapper type for raw table data with dynamic column names
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct RawTableRow {
     pub values: Vec<String>,
     pub column_names: Arc<Vec<String>>,
@@ -38,7 +38,7 @@ impl TableData for RawTableRow {
 }
 
 /// A ratatui widget for displaying tabular data with selection and styling
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct DataTable<T: TableData + Clone> {
     pub items: Vec<T>,
     pub longest_item_lens: Vec<u16>, // order is (name, address, email)
@@ -48,38 +48,24 @@ pub struct DataTable<T: TableData + Clone> {
     pub dynamic_column_names: Option<Arc<Vec<String>>>,
 }
 
-// Helper function to create table styles
-fn create_table_styles()
--> (Style, Style, Style, Text<'static>, HighlightSpacing) {
-    let selected_row_style = Style::default()
-        .add_modifier(Modifier::REVERSED | Modifier::BOLD)
-        .fg(ratatui::style::Color::Black)
-        .bg(ratatui::style::Color::Yellow);
-    let selected_col_style = Style::default().fg(ratatui::style::Color::Cyan);
-    let selected_cell_style = Style::default()
-        .add_modifier(Modifier::REVERSED)
-        .fg(ratatui::style::Color::Magenta);
-    let bar: &'static str = " █ ";
-    let highlight_symbol =
-        Text::from(vec!["".into(), bar.into(), bar.into(), "".into()]);
-    (
-        selected_row_style,
-        selected_col_style,
-        selected_cell_style,
-        highlight_symbol,
-        HighlightSpacing::Always,
-    )
-}
+impl DataTable<RawTableRow> {
+    pub fn reset(&mut self, items: Vec<Vec<String>>, column_names: &[String]) {
+        let column_names_arc = Arc::new(column_names.to_owned());
+        let raw_rows: Vec<RawTableRow> = items
+            .into_iter()
+            .map(|values| RawTableRow {
+                values,
+                column_names: Arc::clone(&column_names_arc),
+            })
+            .collect();
+        let longest_item_lens =
+            constraint_len_calculator_for_raw_data(&raw_rows, column_names);
 
-impl<T: TableData + Clone> Default for DataTable<T> {
-    fn default() -> Self {
-        Self {
-            items: Vec::new(),
-            longest_item_lens: Vec::new(),
-            state: TableState::default().with_selected(0),
-            column_offset: 0,
-            dynamic_column_names: None,
-        }
+        self.items = raw_rows;
+        self.longest_item_lens = longest_item_lens;
+        self.state.select(Some(0));
+        self.column_offset = 0;
+        self.dynamic_column_names = Some(column_names_arc);
     }
 }
 
@@ -95,35 +81,7 @@ impl<T: TableData + Clone> DataTable<T> {
             dynamic_column_names: None,
         }
     }
-}
 
-impl DataTable<RawTableRow> {
-    #[must_use]
-    pub fn from_raw_data(
-        items: Vec<Vec<String>>,
-        column_names: &[String],
-    ) -> Self {
-        let column_names_arc = Arc::new(column_names.to_owned());
-        let raw_rows: Vec<RawTableRow> = items
-            .into_iter()
-            .map(|values| RawTableRow {
-                values,
-                column_names: Arc::clone(&column_names_arc),
-            })
-            .collect();
-        let longest_item_lens =
-            constraint_len_calculator_for_raw_data(&raw_rows, column_names);
-        Self {
-            items: raw_rows,
-            longest_item_lens,
-            state: TableState::default().with_selected(0),
-            column_offset: 0,
-            dynamic_column_names: Some(column_names_arc),
-        }
-    }
-}
-
-impl<T: TableData + Clone> DataTable<T> {
     #[must_use]
     pub fn filter(&self, query: &str) -> Vec<T> {
         if query.is_empty() {
@@ -146,9 +104,7 @@ impl<T: TableData + Clone> DataTable<T> {
             .cloned()
             .collect()
     }
-}
 
-impl<T: TableData + Clone> DataTable<T> {
     /// Adjusts `column_offset` to ensure the selected column is visible
     pub fn adjust_offset_for_selected_column(
         &mut self,
@@ -275,6 +231,8 @@ fn calculate_visible_columns_for_table(
     }
 }
 
+// pub struct TableWidget;
+
 impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
     type State = TableState;
 
@@ -396,4 +354,27 @@ fn constraint_len_calculator_for_raw_data(
     }
 
     longest_lens
+}
+
+// Helper function to create table styles
+fn create_table_styles()
+-> (Style, Style, Style, Text<'static>, HighlightSpacing) {
+    let selected_row_style = Style::default()
+        .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+        .fg(ratatui::style::Color::Black)
+        .bg(ratatui::style::Color::Yellow);
+    let selected_col_style = Style::default().fg(ratatui::style::Color::Cyan);
+    let selected_cell_style = Style::default()
+        .add_modifier(Modifier::REVERSED)
+        .fg(ratatui::style::Color::Magenta);
+    let bar: &'static str = " █ ";
+    let highlight_symbol =
+        Text::from(vec!["".into(), bar.into(), bar.into(), "".into()]);
+    (
+        selected_row_style,
+        selected_col_style,
+        selected_cell_style,
+        highlight_symbol,
+        HighlightSpacing::Always,
+    )
 }
