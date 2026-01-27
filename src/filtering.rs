@@ -10,6 +10,44 @@ impl App<'_> {
         self.apply_filter_with_query(&query);
     }
 
+    /// Check if any filter is currently active
+    pub fn has_active_filter(&self) -> bool {
+        match self.state {
+            AppState::ConnectionList => self.connections.is_filtered(),
+            AppState::DatabaseConnected => self
+                .database_explorer
+                .as_ref()
+                .is_some_and(|explorer| match explorer.state {
+                    DatabaseExplorerState::Databases => {
+                        explorer.databases.as_ref().is_some_and(
+                            super::filtered_data::FilteredData::is_filtered,
+                        )
+                    }
+                    DatabaseExplorerState::Schemas => {
+                        explorer.schemas.as_ref().is_some_and(
+                            super::filtered_data::FilteredData::is_filtered,
+                        )
+                    }
+                    DatabaseExplorerState::Tables(_) => {
+                        explorer.tables.as_ref().is_some_and(
+                            super::filtered_data::FilteredData::is_filtered,
+                        )
+                    }
+                    DatabaseExplorerState::Columns(_, _) => {
+                        explorer.columns.as_ref().is_some_and(
+                            super::filtered_data::FilteredData::is_filtered,
+                        )
+                    }
+                    DatabaseExplorerState::TableData(_, _) => {
+                        explorer.table_data.as_ref().is_some_and(
+                            super::filtered_data::FilteredData::is_filtered,
+                        )
+                    }
+                    DatabaseExplorerState::SqlExecutor => false,
+                }),
+        }
+    }
+
     /// Clear the current filter and restore original data
     pub fn clear_filter(&mut self) {
         match self.state {
@@ -20,7 +58,8 @@ impl App<'_> {
                 if let Some(explorer) = &mut self.database_explorer {
                     match explorer.state {
                         DatabaseExplorerState::Databases => {
-                            if let Some(ref mut databases) = explorer.databases {
+                            if let Some(ref mut databases) = explorer.databases
+                            {
                                 databases.clear_filter();
                             }
                         }
@@ -63,7 +102,8 @@ impl App<'_> {
                 if let Some(explorer) = &mut self.database_explorer {
                     match explorer.state {
                         DatabaseExplorerState::Databases => {
-                            if let Some(ref mut databases) = explorer.databases {
+                            if let Some(ref mut databases) = explorer.databases
+                            {
                                 databases.apply_filter(query);
                             }
                         }
