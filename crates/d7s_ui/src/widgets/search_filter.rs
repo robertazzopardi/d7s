@@ -20,7 +20,7 @@ impl SearchFilter {
         Self::default()
     }
 
-    pub const fn activate(&mut self) {
+    pub fn activate(&mut self) {
         self.is_active = true;
         self.input.move_cursor_to_end();
     }
@@ -38,11 +38,11 @@ impl SearchFilter {
         self.input.delete_char();
     }
 
-    pub const fn move_cursor_left(&mut self) {
+    pub fn move_cursor_left(&mut self) {
         self.input.move_cursor_left();
     }
 
-    pub const fn move_cursor_right(&mut self) {
+    pub fn move_cursor_right(&mut self) {
         self.input.move_cursor_right();
     }
 
@@ -50,7 +50,7 @@ impl SearchFilter {
         self.input.move_cursor_to_start();
     }
 
-    pub const fn move_cursor_to_end(&mut self) {
+    pub fn move_cursor_to_end(&mut self) {
         self.input.move_cursor_to_end();
     }
 
