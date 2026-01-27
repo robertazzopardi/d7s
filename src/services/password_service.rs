@@ -84,6 +84,14 @@ impl PasswordService {
         }
     }
 
+    /// Remove password from session storage for a connection
+    pub fn remove_session_password(&mut self, connection: &Connection) {
+        if connection.should_ask_every_time() {
+            let key = Self::connection_key(connection);
+            self.session_passwords.remove(&key);
+        }
+    }
+
     // High-level API
 
     /// Get password for a connection from the appropriate source

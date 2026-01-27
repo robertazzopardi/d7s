@@ -42,11 +42,11 @@ impl SqlExecutor {
         self.input.delete_char();
     }
 
-    pub const fn move_cursor_left(&mut self) {
+    pub fn move_cursor_left(&mut self) {
         self.input.move_cursor_left();
     }
 
-    pub const fn move_cursor_right(&mut self) {
+    pub fn move_cursor_right(&mut self) {
         self.input.move_cursor_right();
     }
 
@@ -54,7 +54,7 @@ impl SqlExecutor {
         self.input.move_cursor_to_start();
     }
 
-    pub const fn move_cursor_to_end(&mut self) {
+    pub fn move_cursor_to_end(&mut self) {
         self.input.move_cursor_to_end();
     }
 
@@ -127,13 +127,7 @@ impl Widget for SqlExecutor {
             }
         } else {
             // No results yet, show full SQL input area
-            let input_text = if self.is_active {
-                format!("{}|", self.sql_input())
-            } else {
-                self.sql_input().to_string()
-            };
-
-            let input_paragraph = Paragraph::new(input_text).style(
+            let input_paragraph = Paragraph::new(self.sql_input()).style(
                 Style::default().fg(if self.is_active {
                     Color::White
                 } else {

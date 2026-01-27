@@ -192,7 +192,49 @@ impl App<'_> {
                     );
                 }
                 DatabaseExplorerState::SqlExecutor => {
-                    frame.render_widget(self.sql_executor.clone(), area);
+                    let sql_executor = self.sql_executor.clone();
+                    frame.render_widget(sql_executor.clone(), area);
+                    
+                    // Set cursor position if SQL executor is active and showing input
+                    if sql_executor.is_active
+                        && sql_executor.results.is_none()
+                        && sql_executor.error_message.is_none()
+                    {
+                        let cursor_pos = sql_executor.cursor_position();
+                        let text = sql_executor.sql_input();
+                        
+                        // Calculate cursor position accounting for text wrapping
+                        // Paragraph wraps text at area width
+                        let area_width = area.width as usize;
+                        
+                        if area_width > 0 {
+                            // Get characters before cursor
+                            let chars_before_cursor: Vec<char> = text
+                                .chars()
+                                .take(cursor_pos)
+                                .collect();
+                            
+                            // Calculate which line the cursor is on by simulating wrapping
+                            let mut current_line = 0;
+                            let mut current_line_length = 0;
+                            
+                            for _ch in &chars_before_cursor {
+                                if current_line_length >= area_width {
+                                    current_line += 1;
+                                    current_line_length = 0;
+                                }
+                                current_line_length += 1;
+                            }
+                            
+                            // Calculate x position on the current line
+                            // Clamp to area bounds
+                            let cursor_x = (area.x + current_line_length as u16).min(area.x + area.width.saturating_sub(1));
+                            let cursor_y = (area.y + current_line as u16).min(area.y + area.height.saturating_sub(1));
+                            
+                            use ratatui::prelude::Position;
+                            frame.set_cursor_position(Position::new(cursor_x, cursor_y));
+                        }
+                    }
                 }
             }
         }
