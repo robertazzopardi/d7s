@@ -1,6 +1,6 @@
 use ratatui::{
     prelude::*,
-    widgets::{Paragraph, Wrap},
+    widgets::{Paragraph, StatefulWidget, Wrap},
 };
 
 use crate::widgets::{
@@ -8,17 +8,18 @@ use crate::widgets::{
     text_input::TextInput,
 };
 
+/// State for the SQL executor widget
 #[derive(Debug, Clone, Default)]
-pub struct SqlExecutor {
+pub struct SqlExecutorState {
     input: TextInput,
     pub results: Option<Vec<Vec<String>>>,
     pub column_names: Vec<String>,
     pub error_message: Option<String>,
     pub is_active: bool,
-    pub table_widget: Option<DataTable<RawTableRow>>,
+    pub table_widget: DataTable<RawTableRow>,
 }
 
-impl SqlExecutor {
+impl SqlExecutorState {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -72,8 +73,7 @@ impl SqlExecutor {
         self.results = Some(results.clone());
         self.column_names.clone_from(&column_names.to_vec());
         self.error_message = None;
-        self.table_widget =
-            Some(DataTable::from_raw_data(results, column_names));
+        self.table_widget.reset(results, column_names);
     }
 
     pub fn set_error(&mut self, error: String) {
@@ -85,7 +85,7 @@ impl SqlExecutor {
         self.results = None;
         self.column_names.clear();
         self.error_message = None;
-        self.table_widget = None;
+        self.table_widget.reset(vec![], &[]);
     }
 
     /// Get the SQL input text
@@ -101,34 +101,41 @@ impl SqlExecutor {
     }
 }
 
-impl Widget for SqlExecutor {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+/// SQL executor widget, which is stateless, only handles rendering
+pub struct SqlExecutor;
+
+impl StatefulWidget for SqlExecutor {
+    type State = SqlExecutorState;
+
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         // If we have results or an error, show them
-        if self.results.is_some() || self.error_message.is_some() {
-            if let Some(error) = &self.error_message {
+        if state.results.is_some() || state.error_message.is_some() {
+            if let Some(error) = &state.error_message {
                 // Render error message
                 let error_paragraph = Paragraph::new(error.clone())
                     .style(Style::default().fg(Color::Red))
                     .wrap(Wrap { trim: true });
                 error_paragraph.render(area, buf);
-            } else if let Some(results) = &self.results {
+            } else if let Some(results) = &state.results {
                 if results.is_empty() {
                     let empty_paragraph = Paragraph::new("No results")
                         .style(Style::default().fg(Color::Gray));
                     empty_paragraph.render(area, buf);
-                } else if let Some(table_widget) = &self.table_widget {
+                } else {
                     // Render results using the table widget
-                    table_widget.clone().render(
+                    state.table_widget.clone().render(
                         area,
                         buf,
-                        &mut table_widget.state.clone(),
+                        &mut state.table_widget.state,
                     );
+                    // Update the state with the modified table state
+                    state.table_widget.state = state.table_widget.state.clone();
                 }
             }
         } else {
             // No results yet, show full SQL input area
-            let input_paragraph = Paragraph::new(self.sql_input()).style(
-                Style::default().fg(if self.is_active {
+            let input_paragraph = Paragraph::new(state.sql_input()).style(
+                Style::default().fg(if state.is_active {
                     Color::White
                 } else {
                     Color::Gray

@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use d7s_db::TableData;
 
-use crate::widgets::{sql_executor::SqlExecutor, table::DataTable};
+use crate::widgets::table::DataTable;
 
 /// Helper for table navigation operations
 pub struct TableNavigationHandler;
@@ -139,16 +139,6 @@ impl TableNavigationHandler {
         key: KeyCode,
     ) {
         if let Some(table) = table_data {
-            Self::navigate_table(table, key);
-        }
-    }
-
-    /// Handles navigation for SQL executor results
-    pub fn handle_sql_results_navigation(
-        sql_executor: &mut SqlExecutor,
-        key: KeyCode,
-    ) {
-        if let Some(table) = &mut sql_executor.table_widget {
             Self::navigate_table(table, key);
         }
     }

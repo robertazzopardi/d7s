@@ -117,7 +117,8 @@ impl App<'_> {
                 .get_table_data_with_columns(schema_name, table_name)
                 .await
             {
-                let table = DataTable::from_raw_data(data, &column_names);
+                let mut table = DataTable::default();
+                table.reset(data, &column_names);
                 // Convert to FilteredData
                 let filtered = FilteredData {
                     original: table.items.clone(),
@@ -241,8 +242,7 @@ impl App<'_> {
 
     /// Execute SQL query from the SQL executor
     async fn execute_sql_query(&mut self) {
-        let executor = self.sql_executor.clone();
-        let sql = executor.sql_input().trim();
+        let sql = self.sql_executor.sql_input().trim().to_string();
         if sql.is_empty() {
             return;
         }
@@ -254,7 +254,7 @@ impl App<'_> {
         // Clear any previous results/errors before executing
         self.sql_executor.clear_results();
 
-        match explorer.database.execute_sql(sql).await {
+        match explorer.database.execute_sql(&sql).await {
             Ok(results) => {
                 let data: Vec<Vec<String>> =
                     results.iter().map(|row| row.values.clone()).collect();
@@ -383,13 +383,10 @@ impl App<'_> {
                 }
             }
             Some(DatabaseExplorerState::SqlExecutor) => {
-                // If we have results, handle table navigation
-                if self.sql_executor.table_widget.is_some() {
-                    TableNavigationHandler::handle_sql_results_navigation(
-                        &mut self.sql_executor,
-                        key,
-                    );
-                }
+                TableNavigationHandler::navigate_table(
+                    &mut self.sql_executor.table_widget,
+                    key,
+                );
             }
             None => {}
         }

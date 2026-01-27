@@ -2,7 +2,7 @@ use color_eyre::Result;
 use d7s_db::{connection::Connection, sqlite::init_db};
 use d7s_ui::widgets::{
     hotkey::Hotkey, modal::ModalManager, search_filter::SearchFilter,
-    sql_executor::SqlExecutor, status_line::StatusLine,
+    sql_executor::SqlExecutorState, status_line::StatusLine,
     top_bar_view::CONNECTION_HOTKEYS,
 };
 use ratatui::DefaultTerminal;
@@ -37,8 +37,8 @@ pub struct App<'a> {
     pub(crate) connections: FilteredData<Connection>,
     /// Database explorer state (when connected to a database)
     pub(crate) database_explorer: Option<DatabaseExplorer>,
-    /// SQL executor widget
-    pub(crate) sql_executor: SqlExecutor,
+    /// SQL executor state
+    pub(crate) sql_executor: SqlExecutorState,
     /// Search filter widget
     pub(crate) search_filter: SearchFilter,
     /// Status line widget
@@ -56,7 +56,7 @@ impl Default for App<'_> {
             state: AppState::ConnectionList,
             connections: FilteredData::new(Vec::new()),
             database_explorer: None,
-            sql_executor: SqlExecutor::new(),
+            sql_executor: SqlExecutorState::new(),
             search_filter: SearchFilter::new(),
             status_line: StatusLine::new(),
             password_service: PasswordService::new(),

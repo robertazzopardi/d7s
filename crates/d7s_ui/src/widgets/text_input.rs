@@ -71,12 +71,14 @@ impl TextInput {
             let current_index = self.character_index;
             let from_left_to_current_index = current_index - 1;
             // Getting all characters before the selected character.
-            let before_char_to_delete = self.text.chars().take(from_left_to_current_index);
+            let before_char_to_delete =
+                self.text.chars().take(from_left_to_current_index);
             // Getting all characters after selected character.
             let after_char_to_delete = self.text.chars().skip(current_index);
             // Put all characters together except the selected one.
             // By leaving the selected one out, it is forgotten and therefore deleted.
-            self.text = before_char_to_delete.chain(after_char_to_delete).collect();
+            self.text =
+                before_char_to_delete.chain(after_char_to_delete).collect();
             self.move_cursor_left();
         }
     }
