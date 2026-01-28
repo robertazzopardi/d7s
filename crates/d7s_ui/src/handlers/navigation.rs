@@ -1,14 +1,14 @@
 use crossterm::event::KeyCode;
 use d7s_db::TableData;
 
-use crate::widgets::table::DataTable;
+use crate::widgets::table::TableDataState;
 
 /// Helper for table navigation operations
 pub struct TableNavigationHandler;
 
 impl TableNavigationHandler {
-    /// Wraps the selection for a `DataTable` - going past the end wraps to the beginning and vice versa
-    pub fn wrap_rows<T: TableData + Clone>(table: &mut DataTable<T>) {
+    /// Wraps the selection for a `TableState` - going past the end wraps to the beginning and vice versa
+    pub fn wrap_rows<T: TableData + Clone>(table: &mut TableDataState<T>) {
         if let Some(selected) = table.view.state.selected() {
             if table.model.items.is_empty() {
                 table.view.state.select(None);
@@ -22,8 +22,8 @@ impl TableNavigationHandler {
         }
     }
 
-    /// Wraps the column selection for a `DataTable` - going past the end wraps to the beginning and vice versa
-    pub fn wrap_columns<T: TableData + Clone>(table: &mut DataTable<T>) {
+    /// Wraps the column selection for a `TableState` - going past the end wraps to the beginning and vice versa
+    pub fn wrap_columns<T: TableData + Clone>(table: &mut TableDataState<T>) {
         let num_columns = table
             .model
             .items
@@ -50,9 +50,9 @@ impl TableNavigationHandler {
         }
     }
 
-    /// Generic table navigation handler for any `DataTable`
+    /// Generic table navigation handler for any `TableState`
     pub fn navigate_table<T: TableData + Clone>(
-        table: &mut DataTable<T>,
+        table: &mut TableDataState<T>,
         key: KeyCode,
     ) {
         match key {
@@ -72,7 +72,10 @@ impl TableNavigationHandler {
                     && !table.model.items.is_empty()
                 {
                     if selected == 0 {
-                        table.view.state.select(Some(table.model.items.len() - 1));
+                        table
+                            .view
+                            .state
+                            .select(Some(table.model.items.len() - 1));
                     } else {
                         table.view.state.select_previous();
                     }
@@ -136,7 +139,7 @@ impl TableNavigationHandler {
 
     /// Handles navigation for table data widget
     pub fn navigate<T: TableData + Clone>(
-        table_data: &mut Option<DataTable<T>>,
+        table_data: &mut Option<TableDataState<T>>,
         key: KeyCode,
     ) {
         if let Some(table) = table_data {

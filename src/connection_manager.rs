@@ -3,7 +3,8 @@ use d7s_db::{Database, connection::Connection};
 use d7s_ui::widgets::top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS};
 
 use crate::{
-    app::App, app_state::AppState, database_explorer_state::DatabaseExplorer,
+    app::App, app_state::{AppState, DatabaseExplorerState},
+    database_explorer_state::DatabaseExplorer,
 };
 
 impl App<'_> {
@@ -67,8 +68,10 @@ impl App<'_> {
         if postgres.test().await {
             // Connection successful, create database explorer with default database
             let boxed_db: Box<dyn Database> = Box::new(postgres);
-            self.database_explorer =
-                Some(DatabaseExplorer::new(connection_with_password, boxed_db));
+            self.database_explorer = DatabaseExplorer::new(
+                connection_with_password,
+                Some(boxed_db),
+            );
             self.state = AppState::DatabaseConnected;
 
             // Update hotkeys for database mode
@@ -87,7 +90,7 @@ impl App<'_> {
 
     /// Disconnect from the current database
     pub fn disconnect_from_database(&mut self) {
-        self.database_explorer = None;
+        self.database_explorer.state = DatabaseExplorerState::Connections;
         self.state = AppState::ConnectionList;
 
         // Update hotkeys for connection mode

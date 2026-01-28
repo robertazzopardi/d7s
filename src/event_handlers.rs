@@ -3,10 +3,7 @@ use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
 use d7s_ui::{
-    handlers::{
-        handle_connection_list_navigation, handle_search_filter_input,
-        handle_sql_executor_input,
-    },
+    handlers::{handle_search_filter_input, handle_sql_executor_input},
     widgets::modal::{ModalAction, TestResult},
 };
 
@@ -79,20 +76,29 @@ impl App<'_> {
                 Ok(true)
             }
             (_, KeyCode::Char('n')) => {
-                if self.state == AppState::ConnectionList {
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::Connections
+                ) {
                     self.modal_manager.open_new_connection_modal();
                 }
                 Ok(true)
             }
             (_, KeyCode::Char('d')) => {
-                if self.state == AppState::ConnectionList {
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::Connections
+                ) {
                     self.handle_delete_connection();
                     return Ok(true);
                 }
                 Ok(false)
             }
             (_, KeyCode::Char('e')) => {
-                if self.state == AppState::ConnectionList {
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::Connections
+                ) {
                     self.handle_edit_connection();
                     return Ok(true);
                 }
@@ -114,22 +120,18 @@ impl App<'_> {
                 if self.modal_manager.is_any_modal_open() {
                     self.modal_manager.close_active_modal();
                 } else if self.state == AppState::DatabaseConnected {
-                    let is_sql_executor =
-                        self.database_explorer.as_ref().is_some_and(|e| {
-                            matches!(
-                                e.state,
-                                DatabaseExplorerState::SqlExecutor
-                            )
-                        });
+                    let is_sql_executor = matches!(
+                        self.database_explorer.state,
+                        DatabaseExplorerState::SqlExecutor
+                    );
 
                     if is_sql_executor {
                         // Restore the previous state before SQL executor was opened
                         self.sql_executor.deactivate();
-                        if let Some(explorer) = &mut self.database_explorer
-                            && let Some(previous_state) =
-                                explorer.previous_state.take()
+                        if let Some(previous_state) =
+                            self.database_explorer.previous_state.take()
                         {
-                            explorer.state = previous_state;
+                            self.database_explorer.state = previous_state;
                         }
                     } else if self.has_active_filter() {
                         self.clear_filter();
@@ -140,10 +142,12 @@ impl App<'_> {
                 Ok(true)
             }
             (_, KeyCode::Enter) => {
-                if self.state == AppState::ConnectionList {
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::Connections
+                ) {
                     self.connect_to_database().await?;
-                } else if self.state == AppState::DatabaseConnected {
-                    // Handle database navigation
+                } else {
                     self.handle_database_navigation().await?;
                 }
                 Ok(true)
@@ -155,83 +159,31 @@ impl App<'_> {
     /// Handle navigation keys (j/k/h/l, 0/$, g/G, /)
     fn handle_navigation_keys(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            // Vim keybindings for table navigation
+            // Vim keybindings for table navigation (Connections and DatabaseConnected use same handler)
             (_, KeyCode::Char('j') | KeyCode::Down) => {
-                if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(
-                        KeyCode::Down,
-                        &mut self.connections.table,
-                    );
-                } else if self.state == AppState::DatabaseConnected {
-                    self.handle_database_table_navigation(KeyCode::Down);
-                }
+                self.handle_database_table_navigation(KeyCode::Down);
             }
             (_, KeyCode::Char('k') | KeyCode::Up) => {
-                if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(
-                        KeyCode::Up,
-                        &mut self.connections.table,
-                    );
-                } else if self.state == AppState::DatabaseConnected {
-                    self.handle_database_table_navigation(KeyCode::Up);
-                }
+                self.handle_database_table_navigation(KeyCode::Up);
             }
             (_, KeyCode::Char('h' | 'b') | KeyCode::Left) => {
-                if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(
-                        KeyCode::Left,
-                        &mut self.connections.table,
-                    );
-                } else if self.state == AppState::DatabaseConnected {
-                    self.handle_database_table_navigation(KeyCode::Left);
-                }
+                self.handle_database_table_navigation(KeyCode::Left);
             }
             (_, KeyCode::Char('l' | 'w') | KeyCode::Right) => {
-                if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(
-                        KeyCode::Right,
-                        &mut self.connections.table,
-                    );
-                } else if self.state == AppState::DatabaseConnected {
-                    self.handle_database_table_navigation(KeyCode::Right);
-                }
+                self.handle_database_table_navigation(KeyCode::Right);
             }
             // Jump to edges
             (_, KeyCode::Char('0')) => {
-                if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(
-                        KeyCode::Char('0'),
-                        &mut self.connections.table,
-                    );
-                }
+                self.handle_database_table_navigation(KeyCode::Char('0'));
             }
             (_, KeyCode::Char('$')) => {
-                if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(
-                        KeyCode::Char('$'),
-                        &mut self.connections.table,
-                    );
-                }
+                self.handle_database_table_navigation(KeyCode::Char('$'));
             }
             (_, KeyCode::Char('g')) => {
-                if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(
-                        KeyCode::Char('g'),
-                        &mut self.connections.table,
-                    );
-                } else if self.state == AppState::DatabaseConnected {
-                    self.handle_database_table_navigation(KeyCode::Char('g'));
-                }
+                self.handle_database_table_navigation(KeyCode::Char('g'));
             }
             (_, KeyCode::Char('G')) => {
-                if self.state == AppState::ConnectionList {
-                    handle_connection_list_navigation(
-                        KeyCode::Char('G'),
-                        &mut self.connections.table,
-                    );
-                } else if self.state == AppState::DatabaseConnected {
-                    self.handle_database_table_navigation(KeyCode::Char('G'));
-                }
+                self.handle_database_table_navigation(KeyCode::Char('G'));
             }
             (_, KeyCode::Char('/')) => {
                 if !self.modal_manager.is_any_modal_open() {
@@ -276,10 +228,10 @@ impl App<'_> {
 
     /// Handle SQL executor input
     fn handle_sql_executor_input(&mut self, key: KeyEvent) -> bool {
-        let is_sql_executor =
-            self.database_explorer.as_ref().is_some_and(|e| {
-                matches!(e.state, DatabaseExplorerState::SqlExecutor)
-            });
+        let is_sql_executor = matches!(
+            self.database_explorer.state,
+            DatabaseExplorerState::SqlExecutor
+        );
 
         is_sql_executor
             && handle_sql_executor_input(key, &mut self.sql_executor)
@@ -314,35 +266,38 @@ impl App<'_> {
 
     /// Handle toggle between table data and columns view
     async fn handle_toggle_table_view(&mut self) -> Result<()> {
-        let state = self.database_explorer.as_ref().map(|e| e.state.clone());
+        let state = self.database_explorer.state.clone();
 
         match state {
-            Some(DatabaseExplorerState::TableData(schema_name, table_name)) => {
+            DatabaseExplorerState::TableData(schema_name, table_name) => {
                 if let Err(e) =
                     self.load_columns(&schema_name, &table_name).await
                 {
                     self.set_status(format!("Failed to load columns: {e}"));
                 }
             }
-            Some(DatabaseExplorerState::Columns(schema_name, table_name)) => {
+            DatabaseExplorerState::Columns(schema_name, table_name) => {
                 if let Err(e) =
                     self.load_table_data(&schema_name, &table_name).await
                 {
                     self.set_status(format!("Failed to load table data: {e}"));
                 }
             }
-            _ => {}
+            DatabaseExplorerState::Connections => todo!(),
+            DatabaseExplorerState::Databases => todo!(),
+            DatabaseExplorerState::Schemas => todo!(),
+            DatabaseExplorerState::Tables(_) => todo!(),
+            DatabaseExplorerState::SqlExecutor => todo!(),
         }
         Ok(())
     }
 
     /// Enter SQL executor mode
     fn enter_sql_executor_mode(&mut self) {
-        if let Some(explorer) = &mut self.database_explorer {
-            // Save the current state before entering SQL executor
-            explorer.previous_state = Some(explorer.state.clone());
-            explorer.state = DatabaseExplorerState::SqlExecutor;
-        }
+        let explorer = &mut self.database_explorer;
+        // Save the current state before entering SQL executor
+        explorer.previous_state = Some(explorer.state.clone());
+        explorer.state = DatabaseExplorerState::SqlExecutor;
         self.sql_executor.activate();
     }
 
