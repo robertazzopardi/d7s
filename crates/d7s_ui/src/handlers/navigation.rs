@@ -9,15 +9,15 @@ pub struct TableNavigationHandler;
 impl TableNavigationHandler {
     /// Wraps the selection for a `DataTable` - going past the end wraps to the beginning and vice versa
     pub fn wrap_rows<T: TableData + Clone>(table: &mut DataTable<T>) {
-        if let Some(selected) = table.state.selected() {
-            if table.items.is_empty() {
-                table.state.select(None);
-            } else if selected == table.items.len() {
+        if let Some(selected) = table.view.state.selected() {
+            if table.model.items.is_empty() {
+                table.view.state.select(None);
+            } else if selected == table.model.items.len() {
                 // Past the end - wrap to beginning
-                table.state.select_first();
-            } else if selected > table.items.len() {
+                table.view.state.select_first();
+            } else if selected > table.model.items.len() {
                 // Underflow (wrapped from 0) - wrap to end
-                table.state.select_last();
+                table.view.state.select_last();
             }
         }
     }
@@ -25,27 +25,28 @@ impl TableNavigationHandler {
     /// Wraps the column selection for a `DataTable` - going past the end wraps to the beginning and vice versa
     pub fn wrap_columns<T: TableData + Clone>(table: &mut DataTable<T>) {
         let num_columns = table
+            .model
             .items
             .first()
             .map_or_else(|| 0, TableData::num_columns);
 
         if num_columns == 0 {
-            table.state.select_column(None);
-            table.column_offset = 0;
+            table.view.state.select_column(None);
+            table.view.column_offset = 0;
             return;
         }
 
         // Wrap selected column
-        if let Some(selected_col) = table.state.selected_column()
+        if let Some(selected_col) = table.view.state.selected_column()
             && selected_col >= num_columns
         {
             // Past the end or underflow - wrap to beginning
-            table.state.select_column(Some(0));
+            table.view.state.select_column(Some(0));
         }
 
         // Clamp column offset (offset doesn't wrap, just clamps)
-        if table.column_offset >= num_columns {
-            table.column_offset = num_columns.saturating_sub(1);
+        if table.view.column_offset >= num_columns {
+            table.view.column_offset = num_columns.saturating_sub(1);
         }
     }
 
@@ -56,77 +57,77 @@ impl TableNavigationHandler {
     ) {
         match key {
             KeyCode::Char('j') | KeyCode::Down => {
-                if let Some(selected) = table.state.selected()
-                    && !table.items.is_empty()
+                if let Some(selected) = table.view.state.selected()
+                    && !table.model.items.is_empty()
                 {
-                    if selected >= table.items.len() - 1 {
-                        table.state.select(Some(0));
+                    if selected >= table.model.items.len() - 1 {
+                        table.view.state.select(Some(0));
                     } else {
-                        table.state.select_next();
+                        table.view.state.select_next();
                     }
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                if let Some(selected) = table.state.selected()
-                    && !table.items.is_empty()
+                if let Some(selected) = table.view.state.selected()
+                    && !table.model.items.is_empty()
                 {
                     if selected == 0 {
-                        table.state.select(Some(table.items.len() - 1));
+                        table.view.state.select(Some(table.model.items.len() - 1));
                     } else {
-                        table.state.select_previous();
+                        table.view.state.select_previous();
                     }
                 }
             }
             KeyCode::Char('h' | 'b') | KeyCode::Left => {
                 let num_cols =
-                    table.items.first().map_or(0, TableData::num_columns);
+                    table.model.items.first().map_or(0, TableData::num_columns);
                 if num_cols == 0 {
                     return;
                 }
 
-                if let Some(selected_col) = table.state.selected_column() {
+                if let Some(selected_col) = table.view.state.selected_column() {
                     if selected_col == 0 {
-                        table.state.select_column(Some(num_cols - 1));
+                        table.view.state.select_column(Some(num_cols - 1));
                     } else {
-                        table.state.select_previous_column();
+                        table.view.state.select_previous_column();
                     }
                 } else {
-                    table.state.select_column(Some(num_cols - 1));
+                    table.view.state.select_column(Some(num_cols - 1));
                 }
 
-                if let Some(selected_col) = table.state.selected_column() {
+                if let Some(selected_col) = table.view.state.selected_column() {
                     table.adjust_offset_for_selected_column(selected_col, 80);
                 }
             }
             KeyCode::Char('l' | 'w') | KeyCode::Right => {
                 let num_cols =
-                    table.items.first().map_or(0, TableData::num_columns);
+                    table.model.items.first().map_or(0, TableData::num_columns);
                 if num_cols == 0 {
                     return;
                 }
 
-                if let Some(selected_col) = table.state.selected_column() {
+                if let Some(selected_col) = table.view.state.selected_column() {
                     if selected_col + 1 >= num_cols {
-                        table.state.select_column(Some(0));
+                        table.view.state.select_column(Some(0));
                     } else {
-                        table.state.select_next_column();
+                        table.view.state.select_next_column();
                     }
                 } else {
-                    table.state.select_column(Some(0));
+                    table.view.state.select_column(Some(0));
                 }
 
-                if let Some(selected_col) = table.state.selected_column() {
+                if let Some(selected_col) = table.view.state.selected_column() {
                     table.adjust_offset_for_selected_column(selected_col, 80);
                 }
             }
             KeyCode::Char('g') => {
-                table.state.select(Some(0));
+                table.view.state.select(Some(0));
                 Self::wrap_rows(table);
-                table.column_offset = 0;
+                table.view.column_offset = 0;
             }
             KeyCode::Char('G') => {
-                if !table.items.is_empty() {
-                    table.state.select(Some(table.items.len() - 1));
+                if !table.model.items.is_empty() {
+                    table.view.state.select(Some(table.model.items.len() - 1));
                 }
             }
             _ => {}

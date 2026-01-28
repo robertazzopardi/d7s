@@ -101,7 +101,7 @@ impl App<'_> {
                 frame.render_stateful_widget(
                     self.connections.table.clone(),
                     inner_area,
-                    &mut self.connections.table.state,
+                    &mut self.connections.table.view,
                 );
             }
             AppState::DatabaseConnected => {
@@ -284,7 +284,7 @@ fn render_filtered_data_table<T: TableData + Clone + std::fmt::Debug>(
         frame.render_stateful_widget(
             filtered_data.table.clone(),
             area,
-            &mut filtered_data.table.state.clone(),
+            &mut filtered_data.table.view.clone(),
         );
     }
 }

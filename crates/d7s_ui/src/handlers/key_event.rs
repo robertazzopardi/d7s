@@ -87,17 +87,17 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
     // Handle special column navigation keys
     match key {
         KeyCode::Char('0') => {
-            table_widget.state.select_column(Some(0));
-            table_widget.column_offset = 0;
+            table_widget.view.state.select_column(Some(0));
+            table_widget.view.column_offset = 0;
             TableNavigationHandler::wrap_columns(table_widget);
             return;
         }
         KeyCode::Char('$') => {
             if let Some(num_cols) =
-                table_widget.items.first().map(TableData::num_columns)
+                table_widget.model.items.first().map(TableData::num_columns)
             {
                 let last_col = num_cols.saturating_sub(1);
-                table_widget.state.select_column(Some(last_col));
+                table_widget.view.state.select_column(Some(last_col));
                 table_widget.adjust_offset_for_selected_column(
                     last_col,
                     DEFAULT_TERMINAL_WIDTH,
@@ -108,7 +108,7 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
         }
         KeyCode::Char('g') => {
             // Note: Connection list uses index 1 instead of 0 for first row
-            table_widget.state.select(Some(1));
+            table_widget.view.state.select(Some(1));
             TableNavigationHandler::wrap_rows(table_widget);
             return;
         }
