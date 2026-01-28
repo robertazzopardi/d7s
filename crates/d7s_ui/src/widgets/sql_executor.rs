@@ -126,10 +126,10 @@ impl StatefulWidget for SqlExecutor {
                     state.table_widget.clone().render(
                         area,
                         buf,
-                        &mut state.table_widget.state,
+                        &mut state.table_widget.view,
                     );
                     // Update the state with the modified table state
-                    state.table_widget.state = state.table_widget.state.clone();
+                    state.table_widget.view = state.table_widget.view.clone();
                 }
             }
         } else {

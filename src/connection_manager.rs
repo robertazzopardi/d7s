@@ -11,10 +11,11 @@ impl App<'_> {
     pub fn get_selected_connection(&self) -> Option<&Connection> {
         self.connections
             .table
+            .view
             .state
             .selected()
-            .filter(|&idx| idx < self.connections.table.items.len())
-            .and_then(|idx| self.connections.table.items.get(idx))
+            .filter(|&idx| idx < self.connections.table.model.items.len())
+            .and_then(|idx| self.connections.table.model.items.get(idx))
     }
 
     /// Connect to the selected database

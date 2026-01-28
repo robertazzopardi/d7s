@@ -121,7 +121,7 @@ impl App<'_> {
                 table.reset(data, &column_names);
                 // Convert to FilteredData
                 let filtered = FilteredData {
-                    original: table.items.clone(),
+                    original: table.model.items.clone(),
                     table,
                 };
                 explorer.table_data = Some(filtered);
@@ -195,8 +195,8 @@ impl App<'_> {
     fn get_selected_database_name(&self) -> Option<String> {
         let explorer = self.database_explorer.as_ref()?;
         let databases = explorer.databases.as_ref()?;
-        let selected_index = databases.table.state.selected()?;
-        let database = databases.table.items.get(selected_index)?;
+        let selected_index = databases.table.view.state.selected()?;
+        let database = databases.table.model.items.get(selected_index)?;
         Some(database.name.clone())
     }
 
@@ -204,8 +204,8 @@ impl App<'_> {
     fn get_selected_schema_name(&self) -> Option<String> {
         let explorer = self.database_explorer.as_ref()?;
         let schemas = explorer.schemas.as_ref()?;
-        let selected_index = schemas.table.state.selected()?;
-        let schema = schemas.table.items.get(selected_index)?;
+        let selected_index = schemas.table.view.state.selected()?;
+        let schema = schemas.table.model.items.get(selected_index)?;
         Some(schema.name.clone())
     }
 
@@ -213,8 +213,8 @@ impl App<'_> {
     fn get_selected_table_name(&self) -> Option<String> {
         let explorer = self.database_explorer.as_ref()?;
         let tables = explorer.tables.as_ref()?;
-        let selected_index = tables.table.state.selected()?;
-        let table = tables.table.items.get(selected_index)?;
+        let selected_index = tables.table.view.state.selected()?;
+        let table = tables.table.model.items.get(selected_index)?;
         Some(table.name.clone())
     }
 
@@ -224,10 +224,10 @@ impl App<'_> {
         let table_data_filtered = explorer.table_data.as_ref()?;
         let table_data = &table_data_filtered.table;
 
-        let selected_row = table_data.state.selected()?;
-        let row = table_data.items.get(selected_row)?;
-        let selected_col = table_data.state.selected_column().unwrap_or(0);
-        let column_names = table_data.dynamic_column_names.as_ref()?;
+        let selected_row = table_data.view.state.selected()?;
+        let row = table_data.model.items.get(selected_row)?;
+        let selected_col = table_data.view.state.selected_column().unwrap_or(0);
+        let column_names = table_data.model.dynamic_column_names.as_ref()?;
 
         if selected_col >= column_names.len()
             || selected_col >= row.values.len()
