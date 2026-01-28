@@ -4,7 +4,7 @@ use ratatui::{
 };
 
 use crate::widgets::{
-    table::{DataTable, RawTableRow},
+    table::{DataTable, RawTableRow, TableDataState},
     text_input::TextInput,
 };
 
@@ -16,7 +16,7 @@ pub struct SqlExecutorState {
     pub column_names: Vec<String>,
     pub error_message: Option<String>,
     pub is_active: bool,
-    pub table_widget: DataTable<RawTableRow>,
+    pub table_state: TableDataState<RawTableRow>,
 }
 
 impl SqlExecutorState {
@@ -73,7 +73,7 @@ impl SqlExecutorState {
         self.results = Some(results.clone());
         self.column_names.clone_from(&column_names.to_vec());
         self.error_message = None;
-        self.table_widget.reset(results, column_names);
+        self.table_state.reset(results, column_names);
     }
 
     pub fn set_error(&mut self, error: String) {
@@ -85,7 +85,7 @@ impl SqlExecutorState {
         self.results = None;
         self.column_names.clear();
         self.error_message = None;
-        self.table_widget.reset(vec![], &[]);
+        self.table_state.reset(vec![], &[]);
     }
 
     /// Get the SQL input text
@@ -123,13 +123,11 @@ impl StatefulWidget for SqlExecutor {
                     empty_paragraph.render(area, buf);
                 } else {
                     // Render results using the table widget
-                    state.table_widget.clone().render(
+                    DataTable::<RawTableRow>::default().render(
                         area,
                         buf,
-                        &mut state.table_widget.view,
+                        &mut state.table_state,
                     );
-                    // Update the state with the modified table state
-                    state.table_widget.view = state.table_widget.view.clone();
                 }
             }
         } else {

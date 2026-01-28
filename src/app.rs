@@ -36,7 +36,7 @@ pub struct App<'a> {
     /// Connection list with filtering
     pub(crate) connections: FilteredData<Connection>,
     /// Database explorer state (when connected to a database)
-    pub(crate) database_explorer: Option<DatabaseExplorer>,
+    pub(crate) database_explorer: DatabaseExplorer,
     /// SQL executor state
     pub(crate) sql_executor: SqlExecutorState,
     /// Search filter widget
@@ -55,7 +55,7 @@ impl Default for App<'_> {
             hotkeys: CONNECTION_HOTKEYS.to_vec(),
             state: AppState::ConnectionList,
             connections: FilteredData::new(Vec::new()),
-            database_explorer: None,
+            database_explorer: DatabaseExplorer::default(),
             sql_executor: SqlExecutorState::new(),
             search_filter: SearchFilter::new(),
             status_line: StatusLine::new(),

@@ -1,5 +1,7 @@
 use d7s_db::TableData;
+use d7s_db::connection::Connection;
 use d7s_ui::sql_executor::SqlExecutor;
+use d7s_ui::widgets::table::DataTable;
 use d7s_ui::widgets::top_bar_view::TopBarView;
 use ratatui::prelude::Position;
 use ratatui::{
@@ -10,7 +12,7 @@ use ratatui::{
 
 use crate::{
     app::{APP_NAME, App, TOPBAR_HEIGHT_PERCENT},
-    app_state::{AppState, DatabaseExplorerState},
+    app_state::DatabaseExplorerState,
     filtered_data::FilteredData,
 };
 
@@ -40,11 +42,14 @@ impl App<'_> {
         let first_layout =
             layout.first().copied().unwrap_or_else(Rect::default);
 
-        let current_connection = self
-            .database_explorer
-            .as_ref()
-            .map(|e| e.connection.clone())
-            .unwrap_or_default();
+        let current_connection = if matches!(
+            self.database_explorer.state,
+            DatabaseExplorerState::Connections
+        ) {
+            d7s_db::connection::Connection::default()
+        } else {
+            self.database_explorer.connection.clone()
+        };
         frame.render_widget(
             TopBarView {
                 current_connection,
@@ -82,45 +87,16 @@ impl App<'_> {
             layout_rect
         };
 
-        match self.state {
-            AppState::ConnectionList => {
-                // Create the inner block
-                let block = Block::new()
-                    .borders(Borders::ALL)
-                    .title(" Connections ")
-                    .title_alignment(Alignment::Center);
+        // Use explorer state for title and content (Connections uses same path as other states)
+        let title = format!("{}", self.database_explorer.state);
+        let block = Block::new()
+            .borders(Borders::ALL)
+            .title(title)
+            .title_alignment(Alignment::Center);
 
-                // Get the inner area of the block (content area)
-                let inner_area = block.inner(main_area);
-
-                // Render the block itself (borders and title)
-                frame.render_widget(block, main_area);
-
-                // Render content inside the block
-                // Use the data table directly
-                frame.render_stateful_widget(
-                    self.connections.table.clone(),
-                    inner_area,
-                    &mut self.connections.table.view,
-                );
-            }
-            AppState::DatabaseConnected => {
-                // Create the inner block for database view
-                let block = Block::new()
-                    .borders(Borders::ALL)
-                    .title(self.get_database_title())
-                    .title_alignment(Alignment::Center);
-
-                // Get the inner area of the block (content area)
-                let inner_area = block.inner(main_area);
-
-                // Render the block itself (borders and title)
-                frame.render_widget(block, main_area);
-
-                // Render the appropriate table based on explorer state
-                self.render_database_table(frame, inner_area);
-            }
-        }
+        let inner_area = block.inner(main_area);
+        frame.render_widget(block, main_area);
+        self.render_database_table(frame, inner_area);
 
         // Render status line at the bottom
         if !self.status_line.message().is_empty()
@@ -156,8 +132,15 @@ impl App<'_> {
 
     /// Render the appropriate database table based on explorer state
     pub fn render_database_table(&mut self, frame: &mut Frame, area: Rect) {
-        if let Some(explorer) = &self.database_explorer {
-            match &explorer.state {
+        let explorer = &self.database_explorer;
+        match &explorer.state {
+                DatabaseExplorerState::Connections => {
+                    frame.render_stateful_widget(
+                        DataTable::<Connection>::default(),
+                        area,
+                        &mut self.connections.table,
+                    );
+                }
                 DatabaseExplorerState::Databases => {
                     render_filtered_data_table(
                         frame,
@@ -248,30 +231,7 @@ impl App<'_> {
                         }
                     }
                 }
-            }
         }
-    }
-
-    // TODO use an impl for this
-    /// Get the title for the database view based on current state
-    pub fn get_database_title(&self) -> String {
-        self.database_explorer.as_ref().map_or_else(
-            || " Database Explorer ".to_string(),
-            |explorer| match &explorer.state {
-                DatabaseExplorerState::Databases => " Databases ".to_string(),
-                DatabaseExplorerState::Schemas => " Schemas ".to_string(),
-                DatabaseExplorerState::Tables(schema) => {
-                    format!(" {schema} ")
-                }
-                DatabaseExplorerState::Columns(schema, table)
-                | DatabaseExplorerState::TableData(schema, table) => {
-                    format!(" {schema}.{table} ")
-                }
-                DatabaseExplorerState::SqlExecutor => {
-                    " SQL Executor ".to_string()
-                }
-            },
-        )
     }
 }
 
@@ -282,9 +242,9 @@ fn render_filtered_data_table<T: TableData + Clone + std::fmt::Debug>(
 ) {
     if let Some(filtered_data) = filtered_data {
         frame.render_stateful_widget(
-            filtered_data.table.clone(),
+            DataTable::<T>::default(),
             area,
-            &mut filtered_data.table.view.clone(),
+            &mut filtered_data.table.clone(),
         );
     }
 }

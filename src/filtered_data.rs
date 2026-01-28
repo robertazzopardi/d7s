@@ -1,13 +1,15 @@
 use d7s_db::TableData;
-use d7s_ui::{handlers::TableNavigationHandler, widgets::table::DataTable};
+use d7s_ui::{
+    handlers::TableNavigationHandler, widgets::table::TableDataState,
+};
 
 /// A wrapper for managing filtered data with original data preservation
 #[derive(Clone)]
 pub struct FilteredData<T: TableData + Clone> {
     /// Original unfiltered data
     pub original: Vec<T>,
-    /// `DataTable` widget with potentially filtered items
-    pub table: DataTable<T>,
+    /// Table state with potentially filtered items
+    pub table: TableDataState<T>,
 }
 
 impl<T: TableData + Clone> FilteredData<T> {
@@ -15,7 +17,7 @@ impl<T: TableData + Clone> FilteredData<T> {
     pub fn new(data: Vec<T>) -> Self {
         Self {
             original: data.clone(),
-            table: DataTable::new(data),
+            table: TableDataState::new(data),
         }
     }
 
