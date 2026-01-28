@@ -3,7 +3,8 @@ use d7s_db::TableData;
 
 use super::navigation::TableNavigationHandler;
 use crate::widgets::{
-    search_filter::SearchFilter, sql_executor::SqlExecutorState, table::DataTable,
+    search_filter::SearchFilter, sql_executor::SqlExecutorState,
+    table::TableDataState,
 };
 
 /// Default terminal width used for column offset calculations
@@ -82,39 +83,39 @@ pub fn handle_sql_executor_input(
 
 pub fn handle_connection_list_navigation<T: TableData + Clone>(
     key: KeyCode,
-    table_widget: &mut DataTable<T>,
+    table_state: &mut TableDataState<T>,
 ) {
     // Handle special column navigation keys
     match key {
         KeyCode::Char('0') => {
-            table_widget.view.state.select_column(Some(0));
-            table_widget.view.column_offset = 0;
-            TableNavigationHandler::wrap_columns(table_widget);
+            table_state.view.state.select_column(Some(0));
+            table_state.view.column_offset = 0;
+            TableNavigationHandler::wrap_columns(table_state);
             return;
         }
         KeyCode::Char('$') => {
             if let Some(num_cols) =
-                table_widget.model.items.first().map(TableData::num_columns)
+                table_state.model.items.first().map(TableData::num_columns)
             {
                 let last_col = num_cols.saturating_sub(1);
-                table_widget.view.state.select_column(Some(last_col));
-                table_widget.adjust_offset_for_selected_column(
+                table_state.view.state.select_column(Some(last_col));
+                table_state.adjust_offset_for_selected_column(
                     last_col,
                     DEFAULT_TERMINAL_WIDTH,
                 );
-                TableNavigationHandler::wrap_columns(table_widget);
+                TableNavigationHandler::wrap_columns(table_state);
             }
             return;
         }
         KeyCode::Char('g') => {
             // Note: Connection list uses index 1 instead of 0 for first row
-            table_widget.view.state.select(Some(1));
-            TableNavigationHandler::wrap_rows(table_widget);
+            table_state.view.state.select(Some(1));
+            TableNavigationHandler::wrap_rows(table_state);
             return;
         }
         _ => {}
     }
 
     // Use standard navigation for common keys (j/k/h/l/G/etc)
-    TableNavigationHandler::navigate_table(table_widget, key);
+    TableNavigationHandler::navigate_table(table_state, key);
 }
