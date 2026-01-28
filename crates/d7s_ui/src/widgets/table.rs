@@ -37,15 +37,27 @@ impl TableData for RawTableRow {
     }
 }
 
-/// A ratatui widget for displaying tabular data with selection and styling
+/// Model (data) for the table view
 #[derive(Clone, Debug, Default)]
-pub struct DataTable<T: TableData + Clone> {
+pub struct TableModel<T: TableData + Clone> {
     pub items: Vec<T>,
-    pub longest_item_lens: Vec<u16>, // order is (name, address, email)
-    pub state: TableState,
-    pub column_offset: usize,
+    pub longest_item_lens: Vec<u16>,
     // For RawTableRow, we store column names here
     pub dynamic_column_names: Option<Arc<Vec<String>>>,
+}
+
+/// View state for the table (UI state like selection, scrolling)
+#[derive(Clone, Debug, Default)]
+pub struct TableViewState {
+    pub state: TableState,
+    pub column_offset: usize,
+}
+
+/// Table widget wrapper that holds the model and state
+#[derive(Clone, Debug, Default)]
+pub struct DataTable<T: TableData + Clone> {
+    pub model: TableModel<T>,
+    pub view: TableViewState,
 }
 
 impl DataTable<RawTableRow> {
@@ -61,11 +73,11 @@ impl DataTable<RawTableRow> {
         let longest_item_lens =
             constraint_len_calculator_for_raw_data(&raw_rows, column_names);
 
-        self.items = raw_rows;
-        self.longest_item_lens = longest_item_lens;
-        self.state.select(Some(0));
-        self.column_offset = 0;
-        self.dynamic_column_names = Some(column_names_arc);
+        self.model.items = raw_rows;
+        self.model.longest_item_lens = longest_item_lens;
+        self.model.dynamic_column_names = Some(column_names_arc);
+        self.view.state.select(Some(0));
+        self.view.column_offset = 0;
     }
 }
 
@@ -74,22 +86,27 @@ impl<T: TableData + Clone> DataTable<T> {
     pub fn new(items: Vec<T>) -> Self {
         let longest_item_lens = constraint_len_calculator(&items);
         Self {
-            items,
-            longest_item_lens,
-            state: TableState::default().with_selected(0),
-            column_offset: 0,
-            dynamic_column_names: None,
+            model: TableModel {
+                items,
+                longest_item_lens,
+                dynamic_column_names: None,
+            },
+            view: TableViewState {
+                state: TableState::default().with_selected(0),
+                column_offset: 0,
+            },
         }
     }
 
     #[must_use]
     pub fn filter(&self, query: &str) -> Vec<T> {
         if query.is_empty() {
-            return self.items.clone();
+            return self.model.items.clone();
         }
 
         let query_lower = query.to_lowercase();
-        self.items
+        self.model
+            .items
             .iter()
             .filter(|item| {
                 // Check if any column contains the query
@@ -111,18 +128,19 @@ impl<T: TableData + Clone> DataTable<T> {
         selected_col: usize,
         area_width: u16,
     ) {
-        if self.longest_item_lens.is_empty() {
+        if self.model.longest_item_lens.is_empty() {
             return;
         }
 
         // Calculate cumulative widths to determine visible range
         let mut cumulative_width = 0u16;
-        let mut visible_end = self.column_offset;
+        let mut visible_end = self.view.column_offset;
         for (idx, &len) in self
+            .model
             .longest_item_lens
             .iter()
             .enumerate()
-            .skip(self.column_offset)
+            .skip(self.view.column_offset)
         {
             let col_width = len + 1; // Add 1 for padding
             if cumulative_width + col_width > area_width {
@@ -133,22 +151,22 @@ impl<T: TableData + Clone> DataTable<T> {
         }
 
         // Adjust offset if selected column is not visible
-        if selected_col < self.column_offset {
-            self.column_offset = selected_col;
+        if selected_col < self.view.column_offset {
+            self.view.column_offset = selected_col;
         } else if selected_col >= visible_end {
             // Scroll to show selected column - try to show it at the start
-            self.column_offset = selected_col;
+            self.view.column_offset = selected_col;
         }
 
         // Clamp offset to valid range
-        if self.column_offset >= self.longest_item_lens.len() {
-            self.column_offset = self.longest_item_lens.len().saturating_sub(1);
+        if self.view.column_offset >= self.model.longest_item_lens.len() {
+            self.view.column_offset =
+                self.model.longest_item_lens.len().saturating_sub(1);
         }
     }
 }
 
-// Helper function to calculate visible columns for DataTable
-#[allow(clippy::option_if_let_else)]
+/// Helper function to calculate visible columns for DataTable
 fn calculate_visible_columns_for_table(
     longest_item_lens: &[u16],
     column_offset: usize,
@@ -234,7 +252,7 @@ fn calculate_visible_columns_for_table(
 // pub struct TableWidget;
 
 impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
-    type State = TableState;
+    type State = TableViewState;
 
     fn render(
         self,
@@ -242,21 +260,21 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
         buf: &mut ratatui::buffer::Buffer,
         state: &mut Self::State,
     ) {
-        if self.longest_item_lens.is_empty() {
+        if self.model.longest_item_lens.is_empty() {
             return;
         }
 
-        let selected_col_opt = state.selected_column();
+        let selected_col_opt = state.state.selected_column();
         let (visible_cols, relative_selected_col) =
             calculate_visible_columns_for_table(
-                &self.longest_item_lens,
-                self.column_offset,
+                &self.model.longest_item_lens,
+                state.column_offset,
                 selected_col_opt,
                 area.width,
             );
 
-        let original_col = state.selected_column();
-        state.select_column(relative_selected_col);
+        let original_col = state.state.selected_column();
+        state.state.select_column(relative_selected_col);
 
         let (
             selected_row_style,
@@ -267,7 +285,7 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
         ) = create_table_styles();
 
         // Use dynamic column names if available (for RawTableRow), otherwise use static cols()
-        let header = self.dynamic_column_names.as_ref().map_or_else(
+        let header = self.model.dynamic_column_names.as_ref().map_or_else(
             || {
                 let all_cols = T::cols();
                 visible_cols
@@ -293,7 +311,7 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
             },
         );
 
-        let rows = self.items.iter().map(|data| {
+        let rows = self.model.items.iter().map(|data| {
             let row_data = data.ref_array();
             visible_cols
                 .iter()
@@ -308,7 +326,9 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
 
         let constraints = visible_cols
             .iter()
-            .map(|&idx| Constraint::Length(self.longest_item_lens[idx] + 1))
+            .map(|&idx| {
+                Constraint::Length(self.model.longest_item_lens[idx] + 1)
+            })
             .collect::<Vec<_>>();
 
         let t = Table::new(rows, constraints)
@@ -319,8 +339,8 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
             .highlight_symbol(highlight_symbol)
             .highlight_spacing(highlight_spacing);
 
-        StatefulWidget::render(t, area, buf, state);
-        state.select_column(original_col);
+        StatefulWidget::render(t, area, buf, &mut state.state);
+        state.state.select_column(original_col);
     }
 }
 

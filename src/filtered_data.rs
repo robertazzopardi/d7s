@@ -21,18 +21,18 @@ impl<T: TableData + Clone> FilteredData<T> {
 
     /// Apply a filter to the data
     pub fn apply_filter(&mut self, query: &str) {
-        self.table.items = self.table.filter(query);
+        self.table.model.items = self.table.filter(query);
         TableNavigationHandler::wrap_rows(&mut self.table);
     }
 
     /// Clear the filter and restore original data
     pub fn clear_filter(&mut self) {
-        self.table.items.clone_from(&self.original);
+        self.table.model.items.clone_from(&self.original);
         TableNavigationHandler::wrap_rows(&mut self.table);
     }
 
     /// Check if the data is currently filtered
     pub const fn is_filtered(&self) -> bool {
-        self.table.items.len() != self.original.len()
+        self.table.model.items.len() != self.original.len()
     }
 }
