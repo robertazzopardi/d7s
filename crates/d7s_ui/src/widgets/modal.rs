@@ -8,14 +8,14 @@ use ratatui::{
     },
     style::{Color, Style},
     text::Span,
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, StatefulWidget},
 };
+use tui_menu::{MenuEvent, MenuItem, MenuState};
 
 use crate::widgets::buttons::Buttons;
 
 // Modal dimension constants
 const CONNECTION_MODAL_WIDTH: u16 = 40;
-const CONNECTION_MODAL_HEIGHT: u16 = 15;
 const CONFIRMATION_MODAL_WIDTH: u16 = 50;
 const CONFIRMATION_MODAL_HEIGHT: u16 = 8;
 const PASSWORD_MODAL_WIDTH: u16 = 50;
@@ -51,15 +51,18 @@ pub struct ModalField {
     pub label: &'static str,
     pub value: String,
     pub is_focused: bool,
+    /// When set, this field is a dropdown; value must be one of these options.
+    pub options: Option<Vec<&'static str>>,
 }
 
 impl ModalField {
     #[must_use]
-    pub const fn new(label: &'static str) -> Self {
+    pub fn new(label: &'static str) -> Self {
         Self {
             label,
             value: String::new(),
             is_focused: false,
+            options: None,
         }
     }
 
@@ -68,11 +71,40 @@ impl ModalField {
     }
 
     pub fn add_char(&mut self, c: char) {
-        self.value.push(c);
+        if self.options.is_none() {
+            self.value.push(c);
+        }
     }
 
     pub fn remove_char(&mut self) {
-        self.value.pop();
+        if self.options.is_none() {
+            self.value.pop();
+        }
+    }
+
+    /// Set dropdown options. If value is empty, sets value to first option.
+    pub fn set_options(&mut self, options: Vec<&'static str>) {
+        if !options.is_empty() {
+            let first = options[0].to_string();
+            self.options = Some(options);
+            if self.value.is_empty() {
+                self.value = first;
+            }
+        }
+    }
+
+    /// Ensure value is one of the options. Sets to first option if invalid.
+    pub fn clamp_to_options(&mut self) {
+        if let Some(ref opts) = self.options {
+            if !opts.is_empty() && !opts.iter().any(|o| *o == self.value) {
+                self.value = opts[0].to_string();
+            }
+        }
+    }
+
+    #[must_use]
+    pub const fn is_dropdown(&self) -> bool {
+        self.options.is_some()
     }
 }
 
@@ -106,7 +138,7 @@ impl FromStr for PasswordStorageType {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Default)]
 pub struct Modal {
     pub fields: Vec<ModalField>,
     pub current_field: usize,
@@ -116,6 +148,27 @@ pub struct Modal {
     pub test_result: TestResult,
     pub original_name: Option<String>,
     pub password_storage: PasswordStorageType,
+    /// When Some(field_index), that dropdown field's menu is open (tui-menu).
+    pub dropdown_open: Option<usize>,
+    /// tui-menu state when a dropdown is open (not Debug).
+    pub menu_state: Option<MenuState<&'static str>>,
+}
+
+impl std::fmt::Debug for Modal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Modal")
+            .field("fields", &self.fields)
+            .field("current_field", &self.current_field)
+            .field("is_open", &self.is_open)
+            .field("selected_button", &self.selected_button)
+            .field("mode", &self.mode)
+            .field("test_result", &self.test_result)
+            .field("original_name", &self.original_name)
+            .field("password_storage", &self.password_storage)
+            .field("dropdown_open", &self.dropdown_open)
+            .field("menu_state", &self.menu_state.is_some())
+            .finish()
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -146,10 +199,20 @@ pub struct PasswordModal {
 impl Modal {
     #[must_use]
     pub fn new(_connection: Connection, mode: Mode) -> Self {
-        let fields = Connection::cols()
+        let mut fields: Vec<ModalField> = Connection::cols()
             .iter()
             .map(|c| ModalField::new(c))
             .collect();
+
+        for field in &mut fields {
+            match field.label {
+                "Type" => field.set_options(vec!["postgres", "sqlite"]),
+                "Environment" => {
+                    field.set_options(vec!["dev", "staging", "prod"])
+                }
+                _ => {}
+            }
+        }
 
         let mut modal = Self {
             fields,
@@ -160,9 +223,10 @@ impl Modal {
             test_result: TestResult::NotTested,
             original_name: None,
             password_storage: PasswordStorageType::default(),
+            dropdown_open: None,
+            menu_state: None,
         };
 
-        // Set focus on first field
         if !modal.fields.is_empty() {
             modal.fields[0].set_focus(true);
         }
@@ -180,18 +244,21 @@ impl Modal {
     pub fn open(&mut self) {
         self.is_open = true;
         self.current_field = 0;
+
         // Clear all fields
         for field in &mut self.fields {
             field.value.clear();
             field.set_focus(false);
         }
-        // Set default values for Connection modals: Type=postgres, Environment=dev, Connection URL
+
+        // Set default values for the connection modal
         if self.fields.len() >= 5 {
             if self.fields[1].label == "Type" {
                 self.fields[1].value = "postgres".to_string();
             }
-            if self.fields[2].label == "Connection URL" {
-                self.fields[2].value = "postgres://localhost:5432/postgres".to_string();
+            if self.fields[2].label == "Url" {
+                self.fields[2].value =
+                    "postgres://localhost:5432/postgres".to_string();
             }
             if self.fields[3].label == "Environment" {
                 self.fields[3].value = "dev".to_string();
@@ -200,7 +267,14 @@ impl Modal {
                 self.fields[4].value = "{}".to_string();
             }
         }
-        // Set focus on first field
+
+        for field in &mut self.fields {
+            field.clamp_to_options();
+        }
+
+        self.dropdown_open = None;
+        self.menu_state = None;
+
         if !self.fields.is_empty() {
             self.fields[0].set_focus(true);
         }
@@ -209,6 +283,8 @@ impl Modal {
     pub fn open_for_edit(&mut self, connection: &Connection) {
         self.is_open = true;
         self.current_field = 0;
+        self.dropdown_open = None;
+        self.menu_state = None;
         self.mode = Mode::Edit;
         self.original_name = Some(connection.name.clone());
 
@@ -221,14 +297,15 @@ impl Modal {
             field.set_focus(false);
         }
 
-        // Load password storage preference from connection
         self.password_storage = connection
             .password_storage
             .as_ref()
             .map(|s| PasswordStorageType::from_str(s).unwrap_or_default())
             .unwrap_or_default();
 
-        // Set focus on first field
+        for field in &mut self.fields {
+            field.clamp_to_options();
+        }
         if !self.fields.is_empty() {
             self.fields[0].set_focus(true);
         }
@@ -236,6 +313,57 @@ impl Modal {
 
     pub const fn close(&mut self) {
         self.is_open = false;
+    }
+
+    /// Build and open the tui-menu dropdown for the current field if it is a dropdown field.
+    fn open_dropdown_if_focused(&mut self) {
+        if self.current_field >= self.visible_fields_count() {
+            return;
+        }
+        let idx = self.current_field;
+        let Some(field) = self.fields.get(idx) else {
+            return;
+        };
+        let Some(ref opts) = field.options else {
+            return;
+        };
+        if opts.is_empty() {
+            return;
+        }
+        // Order options with current value first so tui-menu highlights it after push().
+        let current = field.value.as_str();
+        let mut children: Vec<MenuItem<&'static str>> =
+            opts.iter().map(|&o| MenuItem::item(o, o)).collect();
+        if let Some(pos) = children.iter().position(|m| m.data == Some(current))
+        {
+            if pos != 0 {
+                let item = children.remove(pos);
+                children.insert(0, item);
+            }
+        }
+        let mut state = MenuState::new(vec![MenuItem::group("", children)]);
+        state.activate();
+        let _ = state.push();
+        self.menu_state = Some(state);
+        self.dropdown_open = Some(idx);
+    }
+
+    /// Close dropdown; if apply is true, set field value from selected menu item.
+    fn close_dropdown(&mut self, apply: bool) {
+        let field_idx = self.dropdown_open.take();
+        let mut state = self.menu_state.take();
+        if let (Some(idx), Some(ref mut s)) = (field_idx, state.as_mut()) {
+            if apply {
+                for event in s.drain_events() {
+                    let MenuEvent::Selected(value) = event;
+                    if let Some(field) = self.fields.get_mut(idx) {
+                        field.value = value.to_string();
+                    }
+                    break;
+                }
+            }
+            s.reset();
+        }
     }
 
     /// Get total number of navigable items (fields + storage selector + buttons)
@@ -350,7 +478,8 @@ impl Modal {
         let metadata = if metadata.is_empty() {
             serde_json::Value::Object(serde_json::Map::new())
         } else {
-            serde_json::from_str(metadata).unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
+            serde_json::from_str(metadata)
+                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
         };
 
         Some(Connection {
@@ -386,13 +515,17 @@ impl Modal {
     /// Handle key events for UI navigation only
     /// Returns an enum indicating what action was triggered
     pub fn handle_key_events_ui(&mut self, key: KeyEvent) -> ModalAction {
+        // When a tui-menu dropdown is open, forward navigation to the menu
+        if self.menu_state.is_some() {
+            return self.handle_menu_key(key);
+        }
+
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 self.close();
                 ModalAction::Cancel
             }
             (_, KeyCode::BackTab | KeyCode::Up) => {
-                // If on buttons, go to last item above buttons
                 if self.is_on_button().is_some() {
                     self.current_field = self.visible_fields_count();
                 } else {
@@ -401,14 +534,12 @@ impl Modal {
                 ModalAction::None
             }
             (_, KeyCode::Tab | KeyCode::Down) => {
-                // If on buttons, don't navigate (nothing below buttons)
                 if self.is_on_button().is_none() {
                     self.next_field();
                 }
                 ModalAction::None
             }
             (_, KeyCode::Enter) => {
-                // Check if we're on a button
                 if let Some(button_idx) = self.is_on_button() {
                     match button_idx {
                         0 if self.is_valid() => ModalAction::Save,
@@ -419,23 +550,28 @@ impl Modal {
                         }
                         _ => ModalAction::None,
                     }
-                } else {
-                    // If on a field or storage selector, treat Enter as Save if valid
-                    if self.is_valid() {
+                } else if self.current_field < self.visible_fields_count() {
+                    let idx = self.current_field;
+                    if self.fields.get(idx).is_some_and(|f| f.is_dropdown()) {
+                        self.open_dropdown_if_focused();
+                        ModalAction::None
+                    } else if self.is_valid() {
                         ModalAction::Save
                     } else {
                         ModalAction::None
                     }
+                } else if self.is_valid() {
+                    ModalAction::Save
+                } else {
+                    ModalAction::None
                 }
             }
             (_, KeyCode::Char(c)) => {
-                // If focused on storage selector, Space toggles it
                 if self.current_field == self.visible_fields_count() && c == ' '
                 {
                     self.toggle_password_storage();
                     return ModalAction::None;
                 }
-                // Only add characters when on a field (not on buttons)
                 if self.current_field < self.visible_fields_count() {
                     self.add_char(c);
                 }
@@ -446,27 +582,63 @@ impl Modal {
                 ModalAction::None
             }
             (_, KeyCode::Left) => {
-                // If on buttons, navigate left between buttons
                 if let Some(button_idx) = self.is_on_button() {
                     let new_button_idx = (button_idx + 2) % 3;
                     self.current_field =
                         self.visible_fields_count() + 1 + new_button_idx;
                 } else {
-                    // Otherwise, move to previous item
                     self.prev_field();
                 }
                 ModalAction::None
             }
             (_, KeyCode::Right) => {
-                // If on buttons, navigate right between buttons
                 if let Some(button_idx) = self.is_on_button() {
                     let new_button_idx = (button_idx + 1) % 3;
                     self.current_field =
                         self.visible_fields_count() + 1 + new_button_idx;
                 } else {
-                    // Otherwise, move to next item
                     self.next_field();
                 }
+                ModalAction::None
+            }
+            _ => ModalAction::None,
+        }
+    }
+
+    /// Handle keys when tui-menu dropdown is open: Escape to close; Up/Down/j/k to navigate; Enter to select.
+    fn handle_menu_key(&mut self, key: KeyEvent) -> ModalAction {
+        let Some(ref mut state) = self.menu_state else {
+            return ModalAction::None;
+        };
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                self.close_dropdown(false);
+                ModalAction::None
+            }
+            (_, KeyCode::Up)
+            | (_, KeyCode::Char('k'))
+            | (_, KeyCode::Char('K')) => {
+                state.up();
+                ModalAction::None
+            }
+            (_, KeyCode::Down)
+            | (_, KeyCode::Char('j'))
+            | (_, KeyCode::Char('J')) => {
+                state.down();
+                ModalAction::None
+            }
+            (_, KeyCode::Enter) => {
+                state.select();
+                for event in state.drain_events() {
+                    let MenuEvent::Selected(value) = event;
+                    if let Some(field_idx) = self.dropdown_open {
+                        if let Some(field) = self.fields.get_mut(field_idx) {
+                            field.value = value.to_string();
+                        }
+                    }
+                    break;
+                }
+                self.close_dropdown(false);
                 ModalAction::None
             }
             _ => ModalAction::None,
@@ -482,18 +654,31 @@ pub enum ModalAction {
     Cancel,
 }
 
-impl Widget for Modal {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+/// Stateful widget for the connection modal (required because modal holds tui-menu state that is not Clone).
+pub struct ConnectionModalWidget;
+
+impl StatefulWidget for ConnectionModalWidget {
+    type State = Modal;
+
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        state.render_into(area, buf);
+    }
+}
+
+impl Modal {
+    /// Render the connection modal into the buffer (used by ConnectionModalWidget).
+    pub fn render_into(&self, area: Rect, buf: &mut Buffer) {
         if !self.is_open {
             return;
         }
 
-        // Center a fixed-size modal
         let modal_width = CONNECTION_MODAL_WIDTH;
-        let modal_height = CONNECTION_MODAL_HEIGHT; // Extra height for storage selector
+        let field_height = self.fields_section_height();
+        let modal_height = 1 + field_height + 1 + 1 + 2;
         let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
         let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
-        let modal_area = Rect::new(x, y, modal_width, modal_height);
+        let modal_area =
+            Rect::new(x, y, modal_width, modal_height.min(area.height));
 
         let title = match self.mode {
             Mode::New => "New Connection".to_string(),
@@ -509,33 +694,29 @@ impl Widget for Modal {
         Clear.render(modal_area, buf);
         block.render(modal_area, buf);
 
-        // Layout inside the modal: Title, Subtitle, Fields, Storage selector, Test result, Buttons
-        // Adjust height based on whether password field is visible
-        let field_height = if self.is_password_field_hidden() {
-            8
-        } else {
-            9
-        }; // fields + storage selector + padding
-
         let inner_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),         // Title
-                Constraint::Min(field_height), // Fields
-                Constraint::Length(1),         // Test result
-                Constraint::Length(1),         // Buttons
+                Constraint::Length(1),
+                Constraint::Min(field_height),
+                Constraint::Length(1),
+                Constraint::Length(1),
             ])
             .margin(1)
             .split(modal_area);
 
-        // Render form fields inside the modal
         self.render_fields(inner_layout[1], buf);
-
-        // Render test result
         self.render_test_result(inner_layout[2], buf);
-
-        // Render buttons at the bottom
         self.render_buttons(inner_layout[3], buf);
+    }
+
+    /// Fixed height for fields section; dropdown is drawn as overlay and does not expand layout.
+    fn fields_section_height(&self) -> u16 {
+        if self.is_password_field_hidden() {
+            8
+        } else {
+            9
+        }
     }
 }
 
@@ -560,60 +741,74 @@ impl Modal {
     }
 
     fn render_fields(&self, area: Rect, buf: &mut Buffer) {
-        // Each field is a row: label left, value right after colon
-        // +1 for storage selector
+        // Fixed one row per field (+ storage); dropdown list is drawn as overlay, not in layout.
         let num_rows = self.visible_fields_count() + 1;
-
         let field_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints((0..num_rows).map(|_| Constraint::Length(1)))
             .split(area);
 
+        let highlighted_value = self
+            .menu_state
+            .as_ref()
+            .and_then(|s| s.highlight())
+            .and_then(|m| m.data);
+
+        let mut overlay: Option<(Rect, &[&'static str], usize)> = None;
         let mut visible_index = 0;
+
         for (i, field) in self.fields.iter().enumerate() {
-            // Skip password field if it should be hidden
             if self.is_password_field_hidden()
                 && i == self.password_field_index()
             {
                 continue;
             }
 
-            let label = format!("{}:", field.label);
-            let value = if field.value.is_empty() {
-                " ".repeat(18)
+            let row_area = field_layout[visible_index];
+            let is_dropdown_open =
+                self.dropdown_open == Some(i) && field.is_dropdown();
+
+            if is_dropdown_open {
+                let opts = field.options.as_deref().unwrap_or(&[]);
+                let hi = highlighted_value
+                    .and_then(|v| opts.iter().position(|o| *o == v))
+                    .unwrap_or(0)
+                    .min(opts.len().saturating_sub(1));
+                self.render_trigger_row(row_area, buf, field, true);
+                if !opts.is_empty() {
+                    overlay = Some((row_area, opts, hi));
+                }
             } else {
-                // Check if this is a password field (last field)
-                if i == self.password_field_index() {
+                let label = format!("{}:", field.label);
+                let value = if field.value.is_empty() {
+                    " ".repeat(18)
+                } else if i == self.password_field_index() {
                     "•".repeat(field.value.len())
+                } else if field.is_dropdown() {
+                    format!("{} ▼", field.value)
                 } else {
                     field.value.clone()
-                }
-            };
-            let text = format!("{label:<12} {value}");
-
-            // Apply different styling based on focus state
-            let style = if field.is_focused {
-                Style::default().fg(Color::Yellow).bg(Color::DarkGray)
-            } else {
-                Style::default().fg(Color::White)
-            };
-
-            Paragraph::new(text)
-                .style(style)
-                .alignment(Alignment::Left)
-                .render(field_layout[visible_index], buf);
-
+                };
+                let text = format!("{label:<12} {value}");
+                let style = if field.is_focused {
+                    Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                Paragraph::new(text)
+                    .style(style)
+                    .alignment(Alignment::Left)
+                    .render(row_area, buf);
+            }
             visible_index += 1;
         }
 
-        // Render password storage selector as a checkbox toggle
         let checkbox_text = match self.password_storage {
             PasswordStorageType::Keyring => "[ ] Ask every time",
             PasswordStorageType::DontSave => "[x] Ask every time",
         };
         let storage_style = if self.current_field == self.visible_fields_count()
         {
-            // Focused on storage selector
             Style::default().fg(Color::Yellow).bg(Color::DarkGray)
         } else {
             Style::default().fg(Color::Cyan)
@@ -622,6 +817,98 @@ impl Modal {
             .style(storage_style)
             .alignment(Alignment::Left)
             .render(field_layout[self.visible_fields_count()], buf);
+
+        // Draw dropdown list as overlay so it hovers over content below without shifting layout.
+        if let Some((trigger_rect, options, highlighted_index)) = overlay {
+            self.render_dropdown_overlay(
+                buf,
+                trigger_rect,
+                options,
+                highlighted_index,
+            );
+        }
+    }
+
+    fn render_trigger_row(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        field: &ModalField,
+        is_open: bool,
+    ) {
+        let trigger_style = if field.is_focused {
+            Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        let arrow = if is_open { " ▲" } else { " ▼" };
+        let value_display = if field.value.is_empty() {
+            " ".to_string()
+        } else {
+            format!("{}{}", field.value, arrow)
+        };
+        let label = format!("{}:", field.label);
+        let trigger_text = format!("{label:<12} {value_display}");
+        Paragraph::new(trigger_text)
+            .style(trigger_style)
+            .alignment(Alignment::Left)
+            .render(area, buf);
+    }
+
+    /// Render dropdown list as a floating overlay below the trigger row (does not affect layout).
+    fn render_dropdown_overlay(
+        &self,
+        buf: &mut Buffer,
+        trigger_rect: Rect,
+        options: &[&'static str],
+        highlighted_index: usize,
+    ) {
+        if options.is_empty() {
+            return;
+        }
+        // Height: top border + one row per option + bottom border
+        let list_height = 2 + options.len() as u16;
+        let list_width = trigger_rect.width.max(
+            options
+                .iter()
+                .map(|o| o.len() as u16 + 2)
+                .max()
+                .unwrap_or(10),
+        );
+
+        let overlay_rect = Rect {
+            x: trigger_rect.x,
+            y: trigger_rect.y + 1,
+            width: list_width,
+            height: list_height,
+        };
+
+        Clear.render(overlay_rect, buf);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .style(Style::default().bg(Color::Black));
+        let inner = block.inner(overlay_rect);
+        block.render(overlay_rect, buf);
+
+        for (i, opt) in options.iter().enumerate() {
+            let row_area = Rect {
+                x: inner.x,
+                y: inner.y + i as u16,
+                width: inner.width,
+                height: 1,
+            };
+            let is_highlighted = i == highlighted_index;
+            let style = if is_highlighted {
+                Style::default().fg(Color::Black).bg(Color::Cyan)
+            } else {
+                Style::default().fg(Color::White).bg(Color::Black)
+            };
+            let line =
+                Line::from(vec![Span::styled(format!(" {}", opt), style)]);
+            Paragraph::new(line).render(row_area, buf);
+        }
     }
 
     fn render_buttons(&self, area: Rect, buf: &mut Buffer) {

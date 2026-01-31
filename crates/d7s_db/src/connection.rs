@@ -149,14 +149,7 @@ impl TableData for Connection {
     }
 
     fn cols() -> Vec<&'static str> {
-        vec![
-            "Name",
-            "Type",
-            "Connection URL",
-            "Environment",
-            "Metadata",
-            "Password",
-        ]
+        vec!["Name", "Type", "Url", "Environment", "Metadata", "Password"]
     }
 }
 
@@ -232,7 +225,7 @@ impl Connection {
         self.name.clone()
     }
 
-    /// Values for the connection form (Name, Type, Connection URL, Environment, Metadata, Password).
+    /// Values for the connection form (Name, Type, Url, Environment, Metadata, Password).
     #[must_use]
     pub fn form_values(&self) -> Vec<String> {
         vec![

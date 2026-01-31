@@ -110,11 +110,15 @@ impl App<'_> {
     }
 
     /// Render all active modals
-    pub fn render_modals(&self, frame: &mut Frame) {
+    pub fn render_modals(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
-        if let Some(modal) = self.modal_manager.get_connection_modal() {
-            frame.render_widget(modal.clone(), area);
+        if let Some(modal) = self.modal_manager.get_connection_modal_mut() {
+            frame.render_stateful_widget(
+                d7s_ui::widgets::modal::ConnectionModalWidget,
+                area,
+                modal,
+            );
         }
 
         if let Some(modal) = self.modal_manager.get_confirmation_modal() {
