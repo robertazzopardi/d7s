@@ -37,7 +37,7 @@ impl App<'_> {
         let explorer = &mut self.database_explorer;
         if explorer.database.is_some() {
             // Update connection with selected database
-            explorer.connection.database = database_name.to_string();
+            explorer.connection.selected_database = Some(database_name.to_string());
 
             // Create new Postgres connection with selected database
             let postgres = explorer.connection.to_postgres();

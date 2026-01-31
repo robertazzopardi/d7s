@@ -27,13 +27,7 @@ impl PasswordService {
 
     /// Generate a unique key for a connection to use in session password storage
     fn connection_key(connection: &Connection) -> String {
-        format!(
-            "{}@{}:{}/{}",
-            connection.user,
-            connection.host,
-            connection.port,
-            connection.database
-        )
+        connection.name.clone()
     }
 
     // Keyring operations

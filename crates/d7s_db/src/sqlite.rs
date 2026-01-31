@@ -3,13 +3,32 @@ use rusqlite::{Connection as SqliteConnection, params};
 use rusqlite_migration::{M, Migrations};
 
 use crate::{
-    Column, Database, DatabaseInfo, Schema, Table, TableRow,
-    connection::Connection, get_db_path,
+    Column, Database, DatabaseInfo, Schema, Table, TableData, TableRow,
+    connection::{Connection, ConnectionType, Environment},
+    get_db_path,
 };
 
 pub struct Sqlite {
     pub name: String,
     pub path: String,
+}
+
+impl TableData for Sqlite {
+    fn title() -> &'static str {
+        "Sqlite"
+    }
+
+    fn ref_array(&self) -> Vec<String> {
+        vec![self.name.clone(), self.path.clone()]
+    }
+
+    fn num_columns(&self) -> usize {
+        self.ref_array().len()
+    }
+
+    fn cols() -> Vec<&'static str> {
+        vec!["Name", "Path"]
+    }
 }
 
 #[async_trait::async_trait]
@@ -115,7 +134,9 @@ impl Sqlite {
     }
 }
 
-/// Initialize the database with migrations
+/// Initialize the database with migrations.
+///
+/// Base schema: Name, Type, Url, Environment, Metadata (JSONB stored as TEXT).
 ///
 /// # Errors
 ///
@@ -124,23 +145,58 @@ pub fn init_db() -> Result<()> {
     let db_path = get_db_path()?;
     let mut conn = SqliteConnection::open(db_path)?;
 
-    // Define migrations
-    let migrations = Migrations::new(vec![M::up(
-        "CREATE TABLE IF NOT EXISTS connections (
+    // Base schema: Name, Type, Url, Environment, Metadata (JSONB as TEXT).
+    // M1 drops any old connections table; M2 creates the new schema.
+    let migrations = Migrations::new(vec![
+        M::up(
+            "CREATE TABLE IF NOT EXISTS connections (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
-                host TEXT,
-                port TEXT,
-                database TEXT,
-                user TEXT,
-                password_storage TEXT
+                type TEXT NOT NULL CHECK( type IN ('postgres','sqlite') ),
+                url TEXT NOT NULL,
+                environment TEXT NOT NULL CHECK( environment IN ('local', 'dev','staging','prod') ),
+                metadata TEXT
             );",
-    )]);
+        )
+        .down("DROP TABLE connections"),
+    ]);
 
-    // Apply migrations
     migrations.to_latest(&mut conn)?;
 
     Ok(())
+}
+
+/// Build metadata JSON for storage (includes password_storage if set).
+fn metadata_for_save(connection: &Connection) -> String {
+    let mut obj = match &connection.metadata {
+        serde_json::Value::Object(m) => m.clone(),
+        _ => serde_json::Map::new(),
+    };
+    if let Some(ref ps) = connection.password_storage {
+        obj.insert(
+            "password_storage".to_string(),
+            serde_json::Value::String(ps.clone()),
+        );
+    }
+    serde_json::Value::Object(obj).to_string()
+}
+
+/// Parse metadata from DB and extract password_storage.
+fn metadata_from_row(
+    metadata_json: Option<String>,
+) -> (serde_json::Value, Option<String>) {
+    let mut password_storage = None;
+    let value = metadata_json
+        .as_ref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+
+    if let Some(obj) = value.as_object() {
+        if let Some(ps) = obj.get("password_storage").and_then(|v| v.as_str()) {
+            password_storage = Some(ps.to_string());
+        }
+    }
+    (value, password_storage)
 }
 
 /// Save a connection to the database
@@ -154,15 +210,16 @@ pub fn save_connection(
     let db_path = get_db_path()?;
     let conn = SqliteConnection::open(db_path)?;
 
+    let metadata = metadata_for_save(connection);
+
     conn.execute(
-        "INSERT INTO connections (name, host, port, database, user, password_storage) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO connections (name, type, url, environment, metadata) VALUES (?, ?, ?, ?, ?)",
         params![
             connection.name,
-            connection.host,
-            connection.port,
-            connection.database,
-            connection.user,
-            connection.password_storage
+            connection.r#type.to_string(),
+            connection.url,
+            connection.environment.to_string(),
+            metadata,
         ],
     )?;
 
@@ -178,19 +235,32 @@ pub fn get_connections() -> Result<Vec<Connection>> {
     let db_path = get_db_path()?;
     let conn = SqliteConnection::open(db_path)?;
 
-    let mut stmt = conn.prepare("SELECT * FROM connections")?;
+    let mut stmt = conn.prepare(
+        "SELECT name, type, url, environment, metadata FROM connections ORDER BY name",
+    )?;
     let connections = stmt
         .query_map([], |row| {
+            let name: String = row.get(0)?;
+            let type_str: String = row.get(1)?;
+            let url: String = row.get(2)?;
+            let env_str: String = row.get(3)?;
+            let metadata_str: Option<String> = row.get(4)?;
+
+            let r#type = type_str.parse().unwrap_or(ConnectionType::Postgres);
+            let environment = env_str.parse().unwrap_or(Environment::Dev);
+            let (metadata, password_storage) = metadata_from_row(metadata_str);
+
             Ok(Connection {
-                name: row.get(1)?,
-                host: row.get(2)?,
-                port: row.get(3)?,
-                database: row.get(4)?,
-                user: row.get(5)?,
+                name,
+                r#type,
+                url,
+                environment,
+                metadata,
+                selected_database: None,
                 schema: None,
                 table: None,
                 password: None,
-                password_storage: row.get(6).ok(), // May be NULL for old connections
+                password_storage,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -202,7 +272,7 @@ pub fn get_connections() -> Result<Vec<Connection>> {
 ///
 /// # Errors
 ///
-/// This function will return an error if the database cannot be opened or if the query fails.
+/// This function will return an error if the urlUrlUrlurlurlot be opened or if the query fails.
 pub fn update_connection(
     old_name: &str,
     connection: &Connection,
@@ -210,16 +280,17 @@ pub fn update_connection(
     let db_path = get_db_path()?;
     let conn = SqliteConnection::open(db_path)?;
 
+    let metadata = metadata_for_save(connection);
+
     conn.execute(
-        "UPDATE connections SET name = ?, host = ?, port = ?, database = ?, user = ?, password_storage = ? WHERE name = ?",
+        "UPDATE connections SET name = ?, type = ? = ?, environment = ?, metadata = ? WHERE name = ?",
         params![
             connection.name,
-            connection.host,
-            connection.port,
-            connection.database,
-            connection.user,
-            connection.password_storage,
-            old_name
+            connection.r#type.to_string(),
+            connection.url,
+            connection.environment.to_string(),
+            metadata,
+            old_name,
         ],
     )?;
 

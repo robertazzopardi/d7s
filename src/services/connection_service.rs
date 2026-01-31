@@ -46,21 +46,21 @@ impl ConnectionService {
         if connection.name.trim().is_empty() {
             return Err("Connection name is required".to_string());
         }
-        if connection.host.trim().is_empty() {
-            return Err("Host is required".to_string());
-        }
-        if connection.user.trim().is_empty() {
-            return Err("User is required".to_string());
-        }
-        if connection.database.trim().is_empty() {
-            return Err("Database is required".to_string());
+        if connection.url.trim().is_empty() {
+            return Err("Connection URL is required".to_string());
         }
         Ok(())
     }
 
-    /// Test a connection by attempting to connect
+    /// Test a connection by attempting to connect (postgres or sqlite)
     pub async fn test(connection: &Connection) -> bool {
-        let postgres = connection.to_postgres();
-        postgres.test().await
+        match connection.r#type {
+            d7s_db::connection::ConnectionType::Postgres => {
+                connection.to_postgres().test().await
+            }
+            d7s_db::connection::ConnectionType::Sqlite => {
+                connection.to_sqlite().test().await
+            }
+        }
     }
 }

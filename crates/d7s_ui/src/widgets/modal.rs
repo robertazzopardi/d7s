@@ -185,14 +185,19 @@ impl Modal {
             field.value.clear();
             field.set_focus(false);
         }
-        // Set default values for Host and Port (for Connection modals)
-        // Host is at index 1, Port is at index 2
-        if self.fields.len() > 2 {
-            if self.fields[1].label == "Host" {
-                self.fields[1].value = "localhost".to_string();
+        // Set default values for Connection modals: Type=postgres, Environment=dev, Connection URL
+        if self.fields.len() >= 5 {
+            if self.fields[1].label == "Type" {
+                self.fields[1].value = "postgres".to_string();
             }
-            if self.fields[2].label == "Port" {
-                self.fields[2].value = "5432".to_string();
+            if self.fields[2].label == "Connection URL" {
+                self.fields[2].value = "postgres://localhost:5432/postgres".to_string();
+            }
+            if self.fields[3].label == "Environment" {
+                self.fields[3].value = "dev".to_string();
+            }
+            if self.fields[4].label == "Metadata" {
+                self.fields[4].value = "{}".to_string();
             }
         }
         // Set focus on first field
@@ -207,17 +212,11 @@ impl Modal {
         self.mode = Mode::Edit;
         self.original_name = Some(connection.name.clone());
 
-        // Populate fields with existing data
-        let connection_data = connection.ref_array();
+        // Populate fields with existing data (form_values: Name, Type, URL, Environment, Metadata, Password)
+        let connection_data = connection.form_values();
         for (i, field) in self.fields.iter_mut().enumerate() {
             if i < connection_data.len() {
-                // For password field (last field), use actual password instead of masked version
-                if i == connection_data.len() - 1 {
-                    field.value =
-                        connection.password.clone().unwrap_or_default();
-                } else {
-                    field.value.clone_from(&connection_data[i]);
-                }
+                field.value.clone_from(&connection_data[i]);
             }
             field.set_focus(false);
         }
@@ -345,15 +344,25 @@ impl Modal {
             Some(self.fields[password_field_index].value.clone())
         };
 
+        let r#type = self.fields[1].value.parse().unwrap_or_default();
+        let environment = self.fields[3].value.parse().unwrap_or_default();
+        let metadata = self.fields[4].value.trim();
+        let metadata = if metadata.is_empty() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            serde_json::from_str(metadata).unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
+        };
+
         Some(Connection {
             name: self.fields[0].value.clone(),
-            host: self.fields[1].value.clone(),
-            port: self.fields[2].value.clone(),
-            user: self.fields[3].value.clone(),
-            database: self.fields[4].value.clone(),
-            password,
+            r#type,
+            url: self.fields[2].value.clone(),
+            environment,
+            metadata,
+            selected_database: None,
             schema: None,
             table: None,
+            password,
             password_storage: Some(self.password_storage.to_string()),
         })
     }
