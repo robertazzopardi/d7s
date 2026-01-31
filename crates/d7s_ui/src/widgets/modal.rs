@@ -256,10 +256,10 @@ impl Modal {
             if self.fields[1].label == "Type" {
                 self.fields[1].value = "postgres".to_string();
             }
-            if self.fields[2].label == "Url" {
-                self.fields[2].value =
-                    "postgres://localhost:5432/postgres".to_string();
-            }
+            // if self.fields[2].label == "Url" {
+            //     self.fields[2].value =
+            //         "postgres://localhost:5432/postgres".to_string();
+            // }
             if self.fields[3].label == "Environment" {
                 self.fields[3].value = "dev".to_string();
             }
@@ -366,14 +366,24 @@ impl Modal {
         }
     }
 
-    /// Get total number of navigable items (fields + storage selector + buttons)
+    /// Get total number of navigable items (fields + storage selector when visible + buttons)
     fn total_items(&self) -> usize {
-        self.visible_fields_count() + 1 + 3 // visible fields + storage selector + 3 buttons
+        let storage = if self.is_password_storage_row_visible() {
+            1
+        } else {
+            0
+        };
+        self.visible_fields_count() + storage + 3
     }
 
     /// Check if `current_field` is on a button
     fn is_on_button(&self) -> Option<usize> {
-        let button_start = self.visible_fields_count() + 1;
+        let storage = if self.is_password_storage_row_visible() {
+            1
+        } else {
+            0
+        };
+        let button_start = self.visible_fields_count() + storage;
         if self.current_field >= button_start
             && self.current_field < button_start + 3
         {
@@ -482,6 +492,13 @@ impl Modal {
                 .unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
         };
 
+        // SQLite does not support passwords; omit password and storage for that type.
+        let (password, password_storage) = if self.is_sqlite() {
+            (None, None)
+        } else {
+            (password, Some(self.password_storage.to_string()))
+        };
+
         Some(Connection {
             name: self.fields[0].value.clone(),
             r#type,
@@ -492,7 +509,7 @@ impl Modal {
             schema: None,
             table: None,
             password,
-            password_storage: Some(self.password_storage.to_string()),
+            password_storage,
         })
     }
 
@@ -527,7 +544,12 @@ impl Modal {
             }
             (_, KeyCode::BackTab | KeyCode::Up) => {
                 if self.is_on_button().is_some() {
-                    self.current_field = self.visible_fields_count();
+                    let storage = if self.is_password_storage_row_visible() {
+                        1
+                    } else {
+                        0
+                    };
+                    self.current_field = self.visible_fields_count() + storage;
                 } else {
                     self.prev_field();
                 }
@@ -567,7 +589,9 @@ impl Modal {
                 }
             }
             (_, KeyCode::Char(c)) => {
-                if self.current_field == self.visible_fields_count() && c == ' '
+                if self.is_password_storage_row_visible()
+                    && self.current_field == self.visible_fields_count()
+                    && c == ' '
                 {
                     self.toggle_password_storage();
                     return ModalAction::None;
@@ -712,11 +736,13 @@ impl Modal {
 
     /// Fixed height for fields section; dropdown is drawn as overlay and does not expand layout.
     fn fields_section_height(&self) -> u16 {
-        if self.is_password_field_hidden() {
-            8
-        } else {
-            9
-        }
+        let rows = self.visible_fields_count() as u16
+            + if self.is_password_storage_row_visible() {
+                1
+            } else {
+                0
+            };
+        (rows + 2).min(9) // rows + padding, cap for modal
     }
 }
 
@@ -726,9 +752,23 @@ impl Modal {
         self.fields.len() - 1
     }
 
-    /// Check if password field should be hidden
+    /// True when connection type is SQLite (password not supported).
+    fn is_sqlite(&self) -> bool {
+        self.fields
+            .get(1)
+            .map(|f| f.value.eq_ignore_ascii_case("sqlite"))
+            .unwrap_or(false)
+    }
+
+    /// Check if password field should be hidden (Ask every time, or SQLite which has no passwords).
     fn is_password_field_hidden(&self) -> bool {
         self.password_storage == PasswordStorageType::DontSave
+            || self.is_sqlite()
+    }
+
+    /// Show password storage row only for Postgres (SQLite has no passwords).
+    fn is_password_storage_row_visible(&self) -> bool {
+        !self.is_sqlite()
     }
 
     /// Get the number of visible fields (excluding password if hidden)
@@ -741,8 +781,13 @@ impl Modal {
     }
 
     fn render_fields(&self, area: Rect, buf: &mut Buffer) {
-        // Fixed one row per field (+ storage); dropdown list is drawn as overlay, not in layout.
-        let num_rows = self.visible_fields_count() + 1;
+        // Fixed one row per field (+ storage row only for Postgres); dropdown list is overlay.
+        let storage_row = if self.is_password_storage_row_visible() {
+            1
+        } else {
+            0
+        };
+        let num_rows = self.visible_fields_count() + storage_row;
         let field_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints((0..num_rows).map(|_| Constraint::Length(1)))
@@ -803,20 +848,22 @@ impl Modal {
             visible_index += 1;
         }
 
-        let checkbox_text = match self.password_storage {
-            PasswordStorageType::Keyring => "[ ] Ask every time",
-            PasswordStorageType::DontSave => "[x] Ask every time",
-        };
-        let storage_style = if self.current_field == self.visible_fields_count()
-        {
-            Style::default().fg(Color::Yellow).bg(Color::DarkGray)
-        } else {
-            Style::default().fg(Color::Cyan)
-        };
-        Paragraph::new(checkbox_text)
-            .style(storage_style)
-            .alignment(Alignment::Left)
-            .render(field_layout[self.visible_fields_count()], buf);
+        if self.is_password_storage_row_visible() {
+            let checkbox_text = match self.password_storage {
+                PasswordStorageType::Keyring => "[ ] Ask every time",
+                PasswordStorageType::DontSave => "[x] Ask every time",
+            };
+            let storage_style =
+                if self.current_field == self.visible_fields_count() {
+                    Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+                } else {
+                    Style::default().fg(Color::Cyan)
+                };
+            Paragraph::new(checkbox_text)
+                .style(storage_style)
+                .alignment(Alignment::Left)
+                .render(field_layout[self.visible_fields_count()], buf);
+        }
 
         // Draw dropdown list as overlay so it hovers over content below without shifting layout.
         if let Some((trigger_rect, options, highlighted_index)) = overlay {

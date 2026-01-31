@@ -1,6 +1,6 @@
 use color_eyre::Result;
 use crossterm::event::KeyCode;
-use d7s_db::Database;
+use d7s_db::{Database, connection::ConnectionType};
 use d7s_ui::{
     handlers::TableNavigationHandler, widgets::table::TableDataState,
 };
@@ -37,22 +37,36 @@ impl App<'_> {
         let explorer = &mut self.database_explorer;
         if explorer.database.is_some() {
             // Update connection with selected database
-            explorer.connection.selected_database = Some(database_name.to_string());
+            explorer.connection.selected_database =
+                Some(database_name.to_string());
 
-            // Create new Postgres connection with selected database
-            let postgres = explorer.connection.to_postgres();
+            match explorer.connection.r#type {
+                ConnectionType::Postgres => {
+                    let postgres = explorer.connection.to_postgres();
 
-            // Test the connection to the selected database
-            if postgres.test().await {
-                // Replace the database client with the new one
-                explorer.database = Some(Box::new(postgres));
+                    if postgres.test().await {
+                        explorer.database = Some(Box::new(postgres));
+                        self.load_schemas().await?;
+                    } else {
+                        // TODO probably dont need database name here or at all
+                        self.set_status(format!(
+                            "Failed to connect to database: {database_name}",
+                        ));
+                    }
+                }
+                ConnectionType::Sqlite => {
+                    let sqlite = explorer.connection.to_sqlite();
 
-                // Load schemas for the selected database
-                self.load_schemas().await?;
-            } else {
-                self.set_status(format!(
-                    "Failed to connect to database: {database_name}",
-                ));
+                    if sqlite.test().await {
+                        explorer.database = Some(Box::new(sqlite));
+                        self.load_tables("").await?;
+                    } else {
+                        // TODO probably dont need database name here or at all
+                        self.set_status(format!(
+                            "Failed to connect to database: {database_name}",
+                        ));
+                    }
+                }
             }
         }
 

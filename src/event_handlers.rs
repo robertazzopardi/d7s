@@ -7,6 +7,8 @@ use d7s_ui::{
     widgets::modal::{ModalAction, TestResult},
 };
 
+use d7s_db::connection::ConnectionType;
+
 use crate::{
     app::App,
     app_state::{AppState, DatabaseExplorerState},
@@ -327,8 +329,10 @@ impl App<'_> {
         if let Some(connection) =
             self.modal_manager.was_confirmation_modal_confirmed()
         {
-            // Delete from keyring if not using "ask every time"
-            if !connection.should_ask_every_time() {
+            // Delete from keyring only for Postgres (SQLite has no passwords)
+            if connection.r#type == ConnectionType::Postgres
+                && !connection.should_ask_every_time()
+            {
                 let _ = PasswordService::delete_from_keyring(&connection.name);
             }
 

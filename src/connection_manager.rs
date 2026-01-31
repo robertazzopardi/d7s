@@ -1,5 +1,5 @@
 use color_eyre::Result;
-use d7s_db::{Database, connection::Connection};
+use d7s_db::{Database, connection::{Connection, ConnectionType}};
 use d7s_ui::widgets::top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS};
 
 use crate::{
@@ -26,6 +26,11 @@ impl App<'_> {
             return Ok(());
         };
 
+        // SQLite does not use passwords; connect directly without prompting
+        if connection.r#type == ConnectionType::Sqlite {
+            return self.connect_sqlite_direct(connection.clone()).await;
+        }
+
         // Try to get password from service (checks session first, then keyring)
         if let Some(password) = self.password_service.get_password(connection) {
             self.connect_with_password(connection.clone(), password)
@@ -43,6 +48,25 @@ impl App<'_> {
             self.modal_manager
                 .open_password_modal(connection.clone(), prompt);
         }
+        Ok(())
+    }
+
+    /// Connect to SQLite database (no password)
+    async fn connect_sqlite_direct(&mut self, connection: Connection) -> Result<()> {
+        let sqlite = connection.to_sqlite();
+        if !sqlite.test().await {
+            self.set_status(format!(
+                "Failed to connect to database: {}",
+                connection.name
+            ));
+            return Ok(());
+        }
+        let boxed_db: Box<dyn Database> = Box::new(sqlite);
+        self.database_explorer =
+            DatabaseExplorer::new(connection, Some(boxed_db));
+        self.state = AppState::DatabaseConnected;
+        self.hotkeys = DATABASE_HOTKEYS.to_vec();
+        self.load_databases().await?;
         Ok(())
     }
 

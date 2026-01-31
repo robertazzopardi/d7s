@@ -34,7 +34,7 @@ impl TableData for Sqlite {
 #[async_trait::async_trait]
 impl Database for Sqlite {
     async fn test(&self) -> bool {
-        true
+        SqliteConnection::open(&self.path).is_ok()
     }
 
     async fn execute_sql(
@@ -95,24 +95,79 @@ impl Database for Sqlite {
         &self,
         _schema_name: &str,
     ) -> Result<Vec<Table>, Box<dyn std::error::Error>> {
-        Ok(vec![])
+        let conn = SqliteConnection::open(&self.path)?;
+
+        let mut stmt =
+            conn.prepare("SELECT name FROM sqlite_schema WHERE type='table';")?;
+        let tables = stmt
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+
+                Ok(Table {
+                    name,
+                    schema: "sqlite_schema".to_string(),
+                    size: None,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(tables)
     }
 
     async fn get_columns(
         &self,
         _schema_name: &str,
-        _table_name: &str,
+        table_name: &str,
     ) -> Result<Vec<Column>, Box<dyn std::error::Error>> {
-        Ok(vec![])
+        let conn = SqliteConnection::open(&self.path)?;
+
+        let mut stmt =
+            conn.prepare(&format!("PRAGMA table_info('{table_name}')"))?;
+        let columns = stmt
+            .query_map([], |row| {
+                let name = row.get(1)?;
+                let data_type = row.get(2)?;
+                let is_nullable = row.get(3)?;
+                Ok(Column {
+                    name,
+                    data_type,
+                    is_nullable,
+                    default_value: None,
+                    description: None,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(columns)
     }
 
     async fn get_table_data_with_columns(
         &self,
-        _schema_name: &str,
-        _table_name: &str,
+        schema_name: &str,
+        table_name: &str,
     ) -> Result<(Vec<Vec<String>>, Vec<String>), Box<dyn std::error::Error>>
     {
-        Ok((vec![], vec![]))
+        let columns: Vec<String> = self
+            .get_columns(schema_name, table_name)
+            .await?
+            .into_iter()
+            .map(|col| col.name)
+            .collect();
+
+        let conn = SqliteConnection::open(&self.path)?;
+
+        let column_count = columns.len();
+        let mut stmt = conn.prepare(&format!("SELECT * FROM {table_name};"))?;
+        let data = stmt
+            .query_map([], |row| {
+                let values = (0..column_count)
+                    .map(|i| convert_sqlite_value_to_string(row, i))
+                    .collect();
+                Ok(values)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((data, columns))
     }
 
     async fn get_databases(
@@ -130,6 +185,7 @@ impl Sqlite {
     fn get_connection(
         &self,
     ) -> Result<SqliteConnection, Box<dyn std::error::Error>> {
+        // TODO move to field in Sqlite
         Ok(SqliteConnection::open(&self.path)?)
     }
 }
@@ -273,6 +329,7 @@ pub fn get_connections() -> Result<Vec<Connection>> {
 /// # Errors
 ///
 /// This function will return an error if the urlUrlUrlurlurlot be opened or if the query fails.
+/// // TODO test that the path exists
 pub fn update_connection(
     old_name: &str,
     connection: &Connection,
