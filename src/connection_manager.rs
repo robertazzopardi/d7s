@@ -1,5 +1,8 @@
 use color_eyre::Result;
-use d7s_db::{Database, connection::{Connection, ConnectionType}};
+use d7s_db::{
+    Database,
+    connection::{Connection, ConnectionType},
+};
 use d7s_ui::widgets::top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS};
 
 use crate::{
@@ -38,7 +41,10 @@ impl App<'_> {
         } else {
             // Need to prompt for password
             let prompt = if connection.should_ask_every_time() {
-                format!("Enter password for user '{}':", connection.user_display())
+                format!(
+                    "Enter password for user '{}':",
+                    connection.user_display()
+                )
             } else {
                 format!(
                     "Password not found for user '{}'.\nPlease enter password:",
@@ -52,7 +58,10 @@ impl App<'_> {
     }
 
     /// Connect to SQLite database (no password)
-    async fn connect_sqlite_direct(&mut self, connection: Connection) -> Result<()> {
+    async fn connect_sqlite_direct(
+        &mut self,
+        connection: Connection,
+    ) -> Result<()> {
         let sqlite = connection.to_sqlite();
         if !sqlite.test().await {
             self.set_status(format!(

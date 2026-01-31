@@ -2,12 +2,11 @@ use color_eyre::Result;
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
+use d7s_db::connection::ConnectionType;
 use d7s_ui::{
     handlers::{handle_search_filter_input, handle_sql_executor_input},
     widgets::modal::{ModalAction, TestResult},
 };
-
-use d7s_db::connection::ConnectionType;
 
 use crate::{
     app::App,

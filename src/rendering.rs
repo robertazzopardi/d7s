@@ -1,12 +1,11 @@
-use d7s_db::TableData;
-use d7s_db::connection::Connection;
-use d7s_ui::sql_executor::SqlExecutor;
-use d7s_ui::widgets::table::DataTable;
-use d7s_ui::widgets::top_bar_view::TopBarView;
-use ratatui::prelude::Position;
+use d7s_db::{TableData, connection::Connection};
+use d7s_ui::{
+    sql_executor::SqlExecutor,
+    widgets::{table::DataTable, top_bar_view::TopBarView},
+};
 use ratatui::{
     Frame,
-    prelude::*,
+    prelude::{Position, *},
     widgets::{Block, Borders},
 };
 
