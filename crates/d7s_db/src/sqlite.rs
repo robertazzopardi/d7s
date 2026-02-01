@@ -107,10 +107,16 @@ impl Database for Sqlite {
             .query_map([], |row| {
                 let name: String = row.get(0)?;
 
+                // TODO can probably query the whole db, store it in a hashmap and then key access it here
+                let mut size_stmt = conn.prepare(&format!(
+                    r#"SELECT SUM("pgsize") FROM "dbstat" WHERE name='{name}';"#
+                ))?;
+                let size: u32 = size_stmt.query_one([], |row| row.get(0))?;
+
                 Ok(Table {
                     name,
                     schema: schema_name.to_string(),
-                    size: None,
+                    size: Some(size.to_string()),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
