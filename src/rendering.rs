@@ -45,7 +45,7 @@ impl App<'_> {
             self.database_explorer.state,
             DatabaseExplorerState::Connections
         ) {
-            d7s_db::connection::Connection::default()
+            Connection::default()
         } else {
             self.database_explorer.connection.clone()
         };

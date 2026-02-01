@@ -1,4 +1,7 @@
-use std::fmt::Display;
+use std::{
+    fmt::{Display, Formatter},
+    str::FromStr,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +18,7 @@ pub enum ConnectionType {
 }
 
 impl Display for ConnectionType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Postgres => write!(f, "postgres"),
             Self::Sqlite => write!(f, "sqlite"),
@@ -23,7 +26,7 @@ impl Display for ConnectionType {
     }
 }
 
-impl std::str::FromStr for ConnectionType {
+impl FromStr for ConnectionType {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -48,7 +51,7 @@ pub enum Environment {
 }
 
 impl Display for Environment {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Dev => write!(f, "dev"),
             Self::Staging => write!(f, "staging"),
@@ -57,7 +60,7 @@ impl Display for Environment {
     }
 }
 
-impl std::str::FromStr for Environment {
+impl FromStr for Environment {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -95,37 +98,38 @@ pub struct Connection {
 }
 
 impl Display for Connection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (host, port, user, database_from_url) =
-            parse_postgres_url(&self.url);
-        let database = self
-            .selected_database
-            .as_deref()
-            .unwrap_or(&database_from_url);
-
-        let (host, port, user, database) = match self.r#type {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.r#type {
             ConnectionType::Postgres => {
-                (host, port, user, database.to_string())
-            }
-            ConnectionType::Sqlite => (
-                "-".to_string(),
-                "-".to_string(),
-                "-".to_string(),
-                self.url.clone(),
-            ),
-        };
+                let (host, port, user, database_from_url) =
+                    parse_postgres_url(&self.url);
+                let database = self
+                    .selected_database
+                    .as_deref()
+                    .unwrap_or(&database_from_url);
 
-        write!(
-            f,
-            " Name: {}\n Host: {}\n Port: {}\n User: {}\n Database: {}\n Schema: {}\n Table: {}",
-            self.name,
-            host,
-            port,
-            user,
-            database,
-            self.schema.clone().unwrap_or_default(),
-            self.table.clone().unwrap_or_default(),
-        )
+                write!(
+                    f,
+                    " Name: {}\n Host: {}\n Port: {}\n User: {}\n Database: {}\n Schema: {}\n Table: {}",
+                    self.name,
+                    host,
+                    port,
+                    user,
+                    database,
+                    self.schema.clone().unwrap_or_default(),
+                    self.table.clone().unwrap_or_default(),
+                )
+            }
+            ConnectionType::Sqlite => {
+                write!(
+                    f,
+                    " Name: {}\n Database: {}\n Table: {}",
+                    self.name,
+                    self.url,
+                    self.table.clone().unwrap_or_default(),
+                )
+            }
+        }
     }
 }
 

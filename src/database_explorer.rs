@@ -67,6 +67,12 @@ impl App<'_> {
             return Ok(());
         };
 
+        // SQLite doesn't need the Schemas navigation step
+        // Skip directly to loading tables from the default sqlite_schema
+        if explorer.connection.r#type == ConnectionType::Sqlite {
+            return self.load_tables("sqlite_schema").await;
+        }
+
         match database.get_schemas().await {
             Ok(schemas) => {
                 explorer.schemas = Some(FilteredData::new(schemas));
@@ -303,6 +309,7 @@ impl App<'_> {
     pub fn go_back_in_database(&mut self) {
         let explorer_state = self.database_explorer.state.clone();
         let explorer = &mut self.database_explorer;
+        let is_sqlite = explorer.connection.r#type == ConnectionType::Sqlite;
 
         match explorer_state {
             DatabaseExplorerState::Connections => {
@@ -317,8 +324,11 @@ impl App<'_> {
                 }
             }
             DatabaseExplorerState::Tables(_) => {
-                // Go back to schemas
-                if explorer.schemas.is_some() {
+                // SQLite: Go back to connections (disconnect)
+                // Postgres: Go back to schemas
+                if is_sqlite {
+                    self.disconnect_from_database();
+                } else if explorer.schemas.is_some() {
                     explorer.state = DatabaseExplorerState::Schemas;
                     explorer.connection.schema = None;
                 }
@@ -330,8 +340,13 @@ impl App<'_> {
                 }
             }
             DatabaseExplorerState::SqlExecutor => {
-                // Go back to schemas
-                if explorer.schemas.is_some() {
+                // SQLite: Go back to tables
+                // Postgres: Go back to schemas
+                if is_sqlite {
+                    if explorer.tables.is_some() {
+                        explorer.state = DatabaseExplorerState::Tables("sqlite_schema".to_string());
+                    }
+                } else if explorer.schemas.is_some() {
                     explorer.state = DatabaseExplorerState::Schemas;
                 }
             }

@@ -72,7 +72,10 @@ impl App<'_> {
             DatabaseExplorer::new(connection, Some(sqlite));
         self.state = AppState::DatabaseConnected;
         self.hotkeys = DATABASE_HOTKEYS.to_vec();
-        self.load_databases().await?;
+
+        // SQLite doesn't need the Databases/Schemas navigation steps
+        // Load tables directly from the default sqlite_schema
+        self.load_tables("sqlite_schema").await?;
         Ok(())
     }
 
