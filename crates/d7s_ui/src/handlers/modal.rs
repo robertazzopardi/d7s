@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use d7s_auth::Keyring;
-use d7s_db::{Database, connection::Connection};
+use d7s_db::connection::Connection;
 
 use crate::widgets::modal::{PasswordStorageType, TestResult};
 

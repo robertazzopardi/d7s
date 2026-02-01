@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{TableData, postgres::Postgres, sqlite::Sqlite};
+use crate::{Database, TableData, postgres::Postgres, sqlite::Sqlite};
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
@@ -73,7 +73,7 @@ impl std::str::FromStr for Environment {
 
 #[derive(Debug, Default, Clone)]
 pub struct Connection {
-    /// Friendly alias (e.g. "Production Cache")
+    /// Connection name
     pub name: String,
     /// postgres or sqlite
     pub r#type: ConnectionType,
@@ -83,14 +83,14 @@ pub struct Connection {
     pub environment: Environment,
     /// Extra fields stored as JSON.
     pub metadata: serde_json::Value,
-    /// Runtime UI state (current database when connected; used by to_postgres)
+    /// Runtime UI state
     pub selected_database: Option<String>,
     /// Runtime UI state
     pub schema: Option<String>,
     pub table: Option<String>,
     /// Password (not persisted; from keyring or prompt)
     pub password: Option<String>,
-    /// Where to store password: "keyring" or "dont_save". Persisted in metadata.
+    /// Where to store password: `keyring` or `dont_save`.
     pub password_storage: Option<String>,
 }
 
@@ -153,21 +153,22 @@ impl TableData for Connection {
     }
 }
 
-/// Redact password in a URL for display (e.g. postgres://user:xxx@host/db)
+/// Redact password in a URL for display (e.g. <postgres://user:xxx@host/db>)
 fn redact_password_in_url(url: &str) -> String {
-    if let Ok(mut parsed) = url::Url::parse(url) {
-        if parsed.password().is_some()
-            && !parsed.password().unwrap_or_default().is_empty()
-        {
-            parsed
-                .set_password(Some("***"))
-                .map_or_else(|_| url.to_string(), |_| parsed.to_string())
-        } else {
-            url.to_string()
-        }
-    } else {
-        url.to_string()
-    }
+    url::Url::parse(url).map_or_else(
+        |_| url.to_string(),
+        |mut parsed| {
+            if parsed.password().is_some()
+                && !parsed.password().unwrap_or_default().is_empty()
+            {
+                parsed
+                    .set_password(Some("***"))
+                    .map_or_else(|()| url.to_string(), |()| parsed.to_string())
+            } else {
+                url.to_string()
+            }
+        },
+    )
 }
 
 impl Connection {
@@ -175,27 +176,27 @@ impl Connection {
     /// Parses `url` and uses `password` for authentication.
     /// Uses `selected_database` if set (when connected to a specific database), otherwise parses from URL.
     #[must_use]
-    pub fn to_postgres(&self) -> Postgres {
+    pub fn to_postgres(&self) -> Box<dyn Database> {
         let (host, port, user, database_from_url) =
             parse_postgres_url(&self.url);
         let database =
             self.selected_database.clone().unwrap_or(database_from_url);
-        Postgres {
+        Box::new(Postgres {
             name: self.name.clone(),
             host: Some(host),
             port: Some(port),
             user,
             database,
             password: self.password.clone().unwrap_or_default(),
-        }
+        })
     }
 
     #[must_use]
-    pub fn to_sqlite(&self) -> Sqlite {
-        Sqlite {
+    pub fn to_sqlite(&self) -> Box<dyn Database> {
+        Box::new(Sqlite {
             name: self.name.clone(),
             path: self.url.clone(),
-        }
+        })
     }
 
     /// Check if this connection is configured to ask for password every time
@@ -217,10 +218,10 @@ impl Connection {
     /// User part of the connection (for prompts). Parsed from URL for postgres.
     #[must_use]
     pub fn user_display(&self) -> String {
-        if self.r#type == ConnectionType::Postgres {
-            if let Ok(u) = url::Url::parse(&self.url) {
-                return u.username().to_string();
-            }
+        if self.r#type == ConnectionType::Postgres
+            && let Ok(u) = url::Url::parse(&self.url)
+        {
+            return u.username().to_string();
         }
         self.name.clone()
     }

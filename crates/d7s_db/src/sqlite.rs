@@ -88,24 +88,28 @@ impl Database for Sqlite {
     async fn get_schemas(
         &self,
     ) -> Result<Vec<Schema>, Box<dyn std::error::Error>> {
-        Ok(vec![])
+        Ok(vec![Schema {
+            name: "sqlite_schema".to_string(),
+            owner: String::new(),
+        }])
     }
 
     async fn get_tables(
         &self,
-        _schema_name: &str,
+        schema_name: &str,
     ) -> Result<Vec<Table>, Box<dyn std::error::Error>> {
         let conn = SqliteConnection::open(&self.path)?;
 
-        let mut stmt =
-            conn.prepare("SELECT name FROM sqlite_schema WHERE type='table';")?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT name FROM {schema_name} WHERE type='table';"
+        ))?;
         let tables = stmt
             .query_map([], |row| {
                 let name: String = row.get(0)?;
 
                 Ok(Table {
                     name,
-                    schema: "sqlite_schema".to_string(),
+                    schema: schema_name.to_string(),
                     size: None,
                 })
             })?
@@ -222,7 +226,7 @@ pub fn init_db() -> Result<()> {
     Ok(())
 }
 
-/// Build metadata JSON for storage (includes password_storage if set).
+/// Build metadata JSON for storage (includes `password_storage` if set).
 fn metadata_for_save(connection: &Connection) -> String {
     let mut obj = match &connection.metadata {
         serde_json::Value::Object(m) => m.clone(),
@@ -237,20 +241,20 @@ fn metadata_for_save(connection: &Connection) -> String {
     serde_json::Value::Object(obj).to_string()
 }
 
-/// Parse metadata from DB and extract password_storage.
+/// Parse metadata from DB and extract `password_storage`.
 fn metadata_from_row(
-    metadata_json: Option<String>,
+    metadata_json: Option<&String>,
 ) -> (serde_json::Value, Option<String>) {
     let mut password_storage = None;
     let value = metadata_json
         .as_ref()
         .and_then(|s| serde_json::from_str(s).ok())
-        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
 
-    if let Some(obj) = value.as_object() {
-        if let Some(ps) = obj.get("password_storage").and_then(|v| v.as_str()) {
-            password_storage = Some(ps.to_string());
-        }
+    if let Some(obj) = value.as_object()
+        && let Some(ps) = obj.get("password_storage").and_then(|v| v.as_str())
+    {
+        password_storage = Some(ps.to_string());
     }
     (value, password_storage)
 }
@@ -304,7 +308,8 @@ pub fn get_connections() -> Result<Vec<Connection>> {
 
             let r#type = type_str.parse().unwrap_or(ConnectionType::Postgres);
             let environment = env_str.parse().unwrap_or(Environment::Dev);
-            let (metadata, password_storage) = metadata_from_row(metadata_str);
+            let (metadata, password_storage) =
+                metadata_from_row(metadata_str.as_ref());
 
             Ok(Connection {
                 name,

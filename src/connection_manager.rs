@@ -1,8 +1,5 @@
 use color_eyre::Result;
-use d7s_db::{
-    Database,
-    connection::{Connection, ConnectionType},
-};
+use d7s_db::connection::{Connection, ConnectionType};
 use d7s_ui::widgets::top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS};
 
 use crate::{
@@ -57,7 +54,7 @@ impl App<'_> {
         Ok(())
     }
 
-    /// Connect to SQLite database (no password)
+    /// Connect to `SQLite` database (no password)
     async fn connect_sqlite_direct(
         &mut self,
         connection: Connection,
@@ -70,9 +67,9 @@ impl App<'_> {
             ));
             return Ok(());
         }
-        let boxed_db: Box<dyn Database> = Box::new(sqlite);
+
         self.database_explorer =
-            DatabaseExplorer::new(connection, Some(boxed_db));
+            DatabaseExplorer::new(connection, Some(sqlite));
         self.state = AppState::DatabaseConnected;
         self.hotkeys = DATABASE_HOTKEYS.to_vec();
         self.load_databases().await?;
@@ -100,9 +97,8 @@ impl App<'_> {
         if postgres.test().await {
             // Connection successful; keep selected_database so explorer is on "postgres"
             connection_with_password.selected_database = Some(default_db);
-            let boxed_db: Box<dyn Database> = Box::new(postgres);
             self.database_explorer =
-                DatabaseExplorer::new(connection_with_password, Some(boxed_db));
+                DatabaseExplorer::new(connection_with_password, Some(postgres));
             self.state = AppState::DatabaseConnected;
 
             // Update hotkeys for database mode

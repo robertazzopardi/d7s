@@ -43,11 +43,11 @@ fmt-check *ARGS:
 
 # Clippy with pedantic, nursery, cargo and all lints enabled
 clippy:
-    cargo clippy --all-features --all-targets -- -W clippy::all -W clippy::pedantic -W clippy::nursery -W clippy::cargo
+    cargo clippy --all-features --all-targets -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery # -W clippy::cargo
 
 # Clippy and apply fixes where possible
 clippy-fix:
-    cargo clippy --all-features --all-targets --fix -- -W clippy::all -W clippy::pedantic -W clippy::nursery -W clippy::cargo --allow-dirty --allow-staged
+    cargo clippy --all-features --all-targets --fix --allow-dirty -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery # -W clippy::cargo
 
 # Code coverage via llvm-cov (requires cargo-llvm-cov and llvm-tools)
 cov:

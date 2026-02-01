@@ -40,33 +40,19 @@ impl App<'_> {
             explorer.connection.selected_database =
                 Some(database_name.to_string());
 
-            match explorer.connection.r#type {
-                ConnectionType::Postgres => {
-                    let postgres = explorer.connection.to_postgres();
+            let db: Box<dyn Database> = match explorer.connection.r#type {
+                ConnectionType::Postgres => explorer.connection.to_postgres(),
+                ConnectionType::Sqlite => explorer.connection.to_sqlite(),
+            };
 
-                    if postgres.test().await {
-                        explorer.database = Some(Box::new(postgres));
-                        self.load_schemas().await?;
-                    } else {
-                        // TODO probably dont need database name here or at all
-                        self.set_status(format!(
-                            "Failed to connect to database: {database_name}",
-                        ));
-                    }
-                }
-                ConnectionType::Sqlite => {
-                    let sqlite = explorer.connection.to_sqlite();
-
-                    if sqlite.test().await {
-                        explorer.database = Some(Box::new(sqlite));
-                        self.load_tables("").await?;
-                    } else {
-                        // TODO probably dont need database name here or at all
-                        self.set_status(format!(
-                            "Failed to connect to database: {database_name}",
-                        ));
-                    }
-                }
+            if db.test().await {
+                explorer.database = Some(db);
+                self.load_schemas().await?;
+            } else {
+                // TODO probably dont need database name here or at all
+                self.set_status(format!(
+                    "Failed to connect to database: {database_name}",
+                ));
             }
         }
 
