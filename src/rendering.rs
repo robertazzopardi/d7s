@@ -41,19 +41,27 @@ impl App<'_> {
         let first_layout =
             layout.first().copied().unwrap_or_else(Rect::default);
 
-        let current_connection = if matches!(
+        let (current_connection, build_info) = if matches!(
             self.database_explorer.state,
             DatabaseExplorerState::Connections
         ) {
-            Connection::default()
+            // Show build information on the Connections screen
+            let info = format!(
+                " NAME: {}\n VERSION: {}",
+                crate::app::PKG_NAME,
+                crate::app::PKG_VERSION,
+            );
+            (Connection::default(), Some(info))
         } else {
-            self.database_explorer.connection.clone()
+            // Show connection details when connected
+            (self.database_explorer.connection.clone(), None)
         };
         frame.render_widget(
             TopBarView {
                 current_connection,
                 hotkeys: &self.hotkeys,
                 app_name: APP_NAME,
+                build_info,
             },
             first_layout,
         );

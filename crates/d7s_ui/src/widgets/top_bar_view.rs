@@ -45,6 +45,7 @@ pub struct TopBarView<'a> {
     pub current_connection: Connection,
     pub hotkeys: &'a [Hotkey<'a>],
     pub app_name: &'a str,
+    pub build_info: Option<String>,
 }
 
 impl Widget for TopBarView<'_> {
@@ -65,8 +66,13 @@ impl Widget for TopBarView<'_> {
             .flat_map(|&row| horizontal.split(row).to_vec())
             .collect::<Vec<_>>();
 
-        Paragraph::new(format!("{}", self.current_connection))
-            .render(cells[0], buf);
+        // Display build info if provided, otherwise show connection details
+        let left_content = if let Some(build_info) = self.build_info {
+            build_info
+        } else {
+            format!("{}", self.current_connection)
+        };
+        Paragraph::new(left_content).render(cells[0], buf);
         HotkeyView {
             hotkeys: self.hotkeys,
         }

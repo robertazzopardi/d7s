@@ -344,7 +344,9 @@ impl App<'_> {
                 // Postgres: Go back to schemas
                 if is_sqlite {
                     if explorer.tables.is_some() {
-                        explorer.state = DatabaseExplorerState::Tables("sqlite_schema".to_string());
+                        explorer.state = DatabaseExplorerState::Tables(
+                            "sqlite_schema".to_string(),
+                        );
                     }
                 } else if explorer.schemas.is_some() {
                     explorer.state = DatabaseExplorerState::Schemas;
