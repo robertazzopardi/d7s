@@ -549,16 +549,18 @@ impl Modal {
                     } else {
                         0
                     };
-                    self.current_field = self.visible_fields_count() + storage;
+                    // Move focus back to last form element (storage row or last field)
+                    self.current_field = self
+                        .visible_fields_count()
+                        .saturating_add(storage)
+                        .saturating_sub(1);
                 } else {
                     self.prev_field();
                 }
                 ModalAction::None
             }
             (_, KeyCode::Tab | KeyCode::Down) => {
-                if self.is_on_button().is_none() {
-                    self.next_field();
-                }
+                self.next_field();
                 ModalAction::None
             }
             (_, KeyCode::Enter) => {
@@ -607,9 +609,14 @@ impl Modal {
             }
             (_, KeyCode::Left) => {
                 if let Some(button_idx) = self.is_on_button() {
+                    let storage = if self.is_password_storage_row_visible() {
+                        1
+                    } else {
+                        0
+                    };
+                    let button_start = self.visible_fields_count() + storage;
                     let new_button_idx = (button_idx + 2) % 3;
-                    self.current_field =
-                        self.visible_fields_count() + 1 + new_button_idx;
+                    self.current_field = button_start + new_button_idx;
                 } else {
                     self.prev_field();
                 }
@@ -617,9 +624,14 @@ impl Modal {
             }
             (_, KeyCode::Right) => {
                 if let Some(button_idx) = self.is_on_button() {
+                    let storage = if self.is_password_storage_row_visible() {
+                        1
+                    } else {
+                        0
+                    };
+                    let button_start = self.visible_fields_count() + storage;
                     let new_button_idx = (button_idx + 1) % 3;
-                    self.current_field =
-                        self.visible_fields_count() + 1 + new_button_idx;
+                    self.current_field = button_start + new_button_idx;
                 } else {
                     self.next_field();
                 }
