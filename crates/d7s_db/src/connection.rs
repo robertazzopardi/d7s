@@ -244,8 +244,58 @@ impl Connection {
     }
 }
 
+/// Result of parsing a connection string. Used to prefill the connection form.
+#[derive(Debug, Clone)]
+pub struct ParsedConnection {
+    pub connection_type: ConnectionType,
+    /// Full URL (Postgres) or file path (SQLite).
+    pub url: String,
+}
+
+/// Detect connection type from a string and return it with the URL/path.
+/// Postgres: string starting with `postgres://` or `postgresql://`.
+/// SQLite: anything else (file path or `sqlite:` URI).
+#[must_use]
+pub fn parse_connection_string(s: &str) -> Option<ParsedConnection> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let lower = s.to_lowercase();
+    let connection_type = if lower.starts_with("postgresql://")
+        || lower.starts_with("postgres://")
+    {
+        ConnectionType::Postgres
+    } else {
+        ConnectionType::Sqlite
+    };
+    Some(ParsedConnection {
+        connection_type,
+        url: s.to_string(),
+    })
+}
+
+/// Build a Postgres URL from host, port, user, database and optional password.
+#[must_use]
+pub fn build_postgres_url(
+    host: &str,
+    port: &str,
+    user: &str,
+    database: &str,
+    password: Option<&str>,
+) -> String {
+    let auth = if user.is_empty() {
+        String::new()
+    } else if let Some(p) = password.filter(|s| !s.is_empty()) {
+        format!("{user}:{p}@")
+    } else {
+        format!("{user}@")
+    };
+    format!("postgres://{auth}{host}:{port}/{database}")
+}
+
 /// Parse a postgres/postgresql URL into (host, port, user, database).
-fn parse_postgres_url(url_str: &str) -> (String, String, String, String) {
+pub fn parse_postgres_url(url_str: &str) -> (String, String, String, String) {
     let default_host = "localhost".to_string();
     let default_port = "5432".to_string();
     let default_user = String::new();
