@@ -1,12 +1,11 @@
-use d7s_db::TableData;
-use d7s_db::connection::Connection;
-use d7s_ui::sql_executor::SqlExecutor;
-use d7s_ui::widgets::table::DataTable;
-use d7s_ui::widgets::top_bar_view::TopBarView;
-use ratatui::prelude::Position;
+use d7s_db::{TableData, connection::Connection};
+use d7s_ui::{
+    sql_executor::SqlExecutor,
+    widgets::{table::DataTable, top_bar_view::TopBarView},
+};
 use ratatui::{
     Frame,
-    prelude::*,
+    prelude::{Position, *},
     widgets::{Block, Borders},
 };
 
@@ -42,19 +41,27 @@ impl App<'_> {
         let first_layout =
             layout.first().copied().unwrap_or_else(Rect::default);
 
-        let current_connection = if matches!(
+        let (current_connection, build_info) = if matches!(
             self.database_explorer.state,
             DatabaseExplorerState::Connections
         ) {
-            d7s_db::connection::Connection::default()
+            // Show build information on the Connections screen
+            let info = format!(
+                " NAME: {}\n VERSION: {}",
+                crate::app::PKG_NAME,
+                crate::app::PKG_VERSION,
+            );
+            (Connection::default(), Some(info))
         } else {
-            self.database_explorer.connection.clone()
+            // Show connection details when connected
+            (self.database_explorer.connection.clone(), None)
         };
         frame.render_widget(
             TopBarView {
                 current_connection,
                 hotkeys: &self.hotkeys,
                 app_name: APP_NAME,
+                build_info,
             },
             first_layout,
         );
@@ -110,11 +117,15 @@ impl App<'_> {
     }
 
     /// Render all active modals
-    pub fn render_modals(&self, frame: &mut Frame) {
+    pub fn render_modals(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
-        if let Some(modal) = self.modal_manager.get_connection_modal() {
-            frame.render_widget(modal.clone(), area);
+        if let Some(modal) = self.modal_manager.get_connection_modal_mut() {
+            frame.render_stateful_widget(
+                d7s_ui::widgets::modal::ConnectionModalWidget,
+                area,
+                modal,
+            );
         }
 
         if let Some(modal) = self.modal_manager.get_confirmation_modal() {
@@ -134,103 +145,102 @@ impl App<'_> {
     pub fn render_database_table(&mut self, frame: &mut Frame, area: Rect) {
         let explorer = &self.database_explorer;
         match &explorer.state {
-                DatabaseExplorerState::Connections => {
-                    frame.render_stateful_widget(
-                        DataTable::<Connection>::default(),
-                        area,
-                        &mut self.connections.table,
-                    );
-                }
-                DatabaseExplorerState::Databases => {
-                    render_filtered_data_table(
-                        frame,
-                        explorer.databases.as_ref(),
-                        area,
-                    );
-                }
-                DatabaseExplorerState::Schemas => {
-                    render_filtered_data_table(
-                        frame,
-                        explorer.schemas.as_ref(),
-                        area,
-                    );
-                }
-                DatabaseExplorerState::Tables(_) => {
-                    render_filtered_data_table(
-                        frame,
-                        explorer.tables.as_ref(),
-                        area,
-                    );
-                }
-                DatabaseExplorerState::Columns(_, _) => {
-                    render_filtered_data_table(
-                        frame,
-                        explorer.columns.as_ref(),
-                        area,
-                    );
-                }
-                DatabaseExplorerState::TableData(_, _) => {
-                    render_filtered_data_table(
-                        frame,
-                        explorer.table_data.as_ref(),
-                        area,
-                    );
-                }
-                DatabaseExplorerState::SqlExecutor => {
-                    frame.render_stateful_widget(
-                        SqlExecutor,
-                        area,
-                        &mut self.sql_executor,
-                    );
+            DatabaseExplorerState::Connections => {
+                frame.render_stateful_widget(
+                    DataTable::<Connection>::default(),
+                    area,
+                    &mut self.connections.table,
+                );
+            }
+            DatabaseExplorerState::Databases => {
+                render_filtered_data_table(
+                    frame,
+                    explorer.databases.as_ref(),
+                    area,
+                );
+            }
+            DatabaseExplorerState::Schemas => {
+                render_filtered_data_table(
+                    frame,
+                    explorer.schemas.as_ref(),
+                    area,
+                );
+            }
+            DatabaseExplorerState::Tables(_) => {
+                render_filtered_data_table(
+                    frame,
+                    explorer.tables.as_ref(),
+                    area,
+                );
+            }
+            DatabaseExplorerState::Columns(_, _) => {
+                render_filtered_data_table(
+                    frame,
+                    explorer.columns.as_ref(),
+                    area,
+                );
+            }
+            DatabaseExplorerState::TableData(_, _) => {
+                render_filtered_data_table(
+                    frame,
+                    explorer.table_data.as_ref(),
+                    area,
+                );
+            }
+            DatabaseExplorerState::SqlExecutor => {
+                frame.render_stateful_widget(
+                    SqlExecutor,
+                    area,
+                    &mut self.sql_executor,
+                );
 
-                    // Set cursor position if SQL executor is active and showing input
-                    if self.sql_executor.is_active
-                        && self.sql_executor.results.is_none()
-                        && self.sql_executor.error_message.is_none()
-                    {
-                        let cursor_pos = self.sql_executor.cursor_position();
-                        let text = self.sql_executor.sql_input();
+                // Set cursor position if SQL executor is active and showing input
+                if self.sql_executor.is_active
+                    && self.sql_executor.results.is_none()
+                    && self.sql_executor.error_message.is_none()
+                {
+                    let cursor_pos = self.sql_executor.cursor_position();
+                    let text = self.sql_executor.sql_input();
 
-                        // Calculate cursor position accounting for text wrapping
-                        // Paragraph wraps text at area width
-                        let area_width = area.width as usize;
+                    // Calculate cursor position accounting for text wrapping
+                    // Paragraph wraps text at area width
+                    let area_width = area.width as usize;
 
-                        if area_width > 0 {
-                            // Get characters before cursor
-                            let chars_before_cursor: Vec<char> =
-                                text.chars().take(cursor_pos).collect();
+                    if area_width > 0 {
+                        // Get characters before cursor
+                        let chars_before_cursor: Vec<char> =
+                            text.chars().take(cursor_pos).collect();
 
-                            // Calculate which line the cursor is on by simulating wrapping
-                            let mut current_line = 0;
-                            let mut current_line_length = 0;
+                        // Calculate which line the cursor is on by simulating wrapping
+                        let mut current_line = 0;
+                        let mut current_line_length = 0;
 
-                            for _ch in &chars_before_cursor {
-                                if current_line_length >= area_width {
-                                    current_line += 1;
-                                    current_line_length = 0;
-                                }
-                                current_line_length += 1;
+                        for _ch in &chars_before_cursor {
+                            if current_line_length >= area_width {
+                                current_line += 1;
+                                current_line_length = 0;
                             }
+                            current_line_length += 1;
+                        }
 
-                            if let Ok(line_y) = u16::try_from(current_line)
-                                && let Ok(line_x) =
-                                    u16::try_from(current_line_length)
-                            {
-                                // Calculate x position on the current line
-                                // Clamp to area bounds
-                                let cursor_x = (area.x + line_x)
-                                    .min(area.x + area.width.saturating_sub(1));
-                                let cursor_y = (area.y + line_y).min(
-                                    area.y + area.height.saturating_sub(1),
-                                );
+                        if let Ok(line_y) = u16::try_from(current_line)
+                            && let Ok(line_x) =
+                                u16::try_from(current_line_length)
+                        {
+                            // Calculate x position on the current line
+                            // Clamp to area bounds
+                            let cursor_x = (area.x + line_x)
+                                .min(area.x + area.width.saturating_sub(1));
+                            let cursor_y = (area.y + line_y)
+                                .min(area.y + area.height.saturating_sub(1));
 
-                                frame.set_cursor_position(Position::new(
-                                    cursor_x, cursor_y,
-                                ));
-                            }
+                            frame.set_cursor_position(Position::new(
+                                cursor_x, cursor_y,
+                            ));
                         }
                     }
                 }
+            }
         }
     }
 }

@@ -17,11 +17,18 @@
 
         # Use Rust stable toolchain - pinned to version 1.91.0
         rustToolchain = pkgs.rust-bin.stable."1.91.0".default.override {
-          extensions = [ "rustfmt" "clippy" "rust-src" ];
+          extensions = [ "rustfmt" "clippy" "rust-src" "llvm-tools" ];
+        };
+
+        # Nightly toolchain for rustfmt (rustfmt.toml uses nightly-only options)
+        rustNightly = pkgs.rust-bin.nightly.latest.default.override {
+          extensions = [ "rustfmt" ];
         };
 
         # System dependencies needed for the project
         buildInputs = with pkgs; [
+          just
+          cargo-llvm-cov
           # DBus for Linux secret-service support (keyring crate)
           dbus
           # OpenSSL for secret-service encryption (if needed)
@@ -58,6 +65,9 @@
         devShells.default = pkgs.mkShell {
           inherit buildInputs nativeBuildInputs;
           
+          # Nightly bin for `just fmt` / `just fmt-check` (rustfmt.toml uses nightly-only options)
+          RUST_NIGHTLY_BIN = "${rustNightly}/bin";
+          
           # Make libraries available at runtime
           LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath runtimeLibs}";
 
@@ -65,6 +75,7 @@
             echo "d7s development environment"
             echo "Rust version: $(rustc --version)"
             echo "Cargo version: $(cargo --version)"
+            echo "Run \`just\` for project commands"
           '';
 
           # Set environment variables for Rust crates that need them
