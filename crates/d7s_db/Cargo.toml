@@ -12,10 +12,6 @@ keywords = [
     "sqlite",
     "async",
     "connection",
-    "query",
-    "migration",
-    "driver",
-    "abstraction",
 ]
 categories = [
     "database-implementations",
