@@ -12,15 +12,10 @@ edition = "2024"
 readme = "README.md"
 keywords = [
     "database",
-    "client",
     "tui",
-    "sql",
     "postgresql",
     "sqlite",
-    "ratatui",
     "terminal",
-    "query",
-    "explorer",
 ]
 categories = [
     "command-line-utilities",

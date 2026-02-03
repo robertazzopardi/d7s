@@ -12,9 +12,6 @@ keywords = [
     "auth",
     "secrets",
     "password",
-    "secure_storage",
-    "macos_keychain",
-    "linux_secret_service",
 ]
 categories = [
     "cryptography",

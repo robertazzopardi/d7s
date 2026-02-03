@@ -11,11 +11,7 @@ keywords = [
     "terminal",
     "ratatui",
     "ui",
-    "crossterm",
     "widgets",
-    "keybindings",
-    "modal",
-    "table_view",
 ]
 categories = [
     "development-tools",
