@@ -25,8 +25,8 @@ test:
 fmt *ARGS:
     #!/usr/bin/env bash
     set -e
-    if [ -n "{{env_var('RUST_NIGHTLY_BIN')}}" ]; then
-        PATH="{{env_var('RUST_NIGHTLY_BIN')}}:$PATH" cargo fmt -- {{ARGS}}
+    if [ -n "${RUST_NIGHTLY_BIN:-}" ]; then
+        PATH="${RUST_NIGHTLY_BIN}:$PATH" cargo fmt -- {{ARGS}}
     else
         rustup run nightly cargo fmt -- {{ARGS}}
     fi
@@ -35,19 +35,19 @@ fmt *ARGS:
 fmt-check *ARGS:
     #!/usr/bin/env bash
     set -e
-    if [ -n "{{env_var('RUST_NIGHTLY_BIN')}}" ]; then
-        PATH="{{env_var('RUST_NIGHTLY_BIN')}}:$PATH" cargo fmt -- --check {{ARGS}}
+    if [ -n "${RUST_NIGHTLY_BIN:-}" ]; then
+        PATH="${RUST_NIGHTLY_BIN}:$PATH" cargo fmt -- --check {{ARGS}}
     else
         rustup run nightly cargo fmt -- --check {{ARGS}}
     fi
 
 # Clippy with pedantic, nursery, cargo and all lints enabled
 clippy:
-    cargo clippy --all-features --all-targets -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery # -W clippy::cargo
+    cargo clippy --workspace --all-features --all-targets -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery # -W clippy::cargo
 
 # Clippy and apply fixes where possible
 clippy-fix:
-    cargo clippy --all-features --all-targets --fix --allow-dirty -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery # -W clippy::cargo
+    cargo clippy --workspace --all-features --all-targets --fix --allow-dirty -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery # -W clippy::cargo
 
 # Code coverage via llvm-cov (requires cargo-llvm-cov and llvm-tools)
 cov:
@@ -81,3 +81,9 @@ docker-down:
 # Docker: view logs
 docker-logs:
     docker compose logs -f
+
+# Tag and push a release (e.g. `just release 0.1.0`)
+# This pushes a `v`-prefixed tag, which triggers the GitHub Actions release workflow.
+release VERSION:
+    git tag v{{VERSION}}
+    git push origin v{{VERSION}}

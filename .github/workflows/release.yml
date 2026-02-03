@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary: d7s
+          - label: macos-x86_64
+            os: macos-13
+            target: x86_64-apple-darwin
+            binary: d7s
+          - label: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            binary: d7s
+          - label: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: d7s.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          target-prefix: ${{ matrix.target }}
+
+      # Linux only: dbus dev headers required by libdbus-sys (used by keyring).
+      # SQLite does not need system headers because rusqlite uses the "bundled" feature.
+      - name: Install system dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: d7s-${{ github.ref_name }}-${{ matrix.label }}
+          path: target/${{ matrix.target }}/release/${{ matrix.binary }}
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: CHANGELOG.md
+          files: |
+            artifacts/d7s-${{ github.ref_name }}-linux-x86_64/d7s
+            artifacts/d7s-${{ github.ref_name }}-macos-x86_64/d7s
+            artifacts/d7s-${{ github.ref_name }}-macos-arm64/d7s
+            artifacts/d7s-${{ github.ref_name }}-windows-x86_64/d7s.exe
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

@@ -438,6 +438,14 @@ impl App<'_> {
 
         match save_result {
             Ok(()) => {
+                // If switching to "ask every time" on an existing connection,
+                // delete the old keyring credential after the save succeeds.
+                if let Some(ref orig_name) = original_name {
+                    if connection.should_ask_every_time() {
+                        let _ =
+                            PasswordService::delete_from_keyring(orig_name);
+                    }
+                }
                 modal.close();
                 self.refresh_connections();
             }

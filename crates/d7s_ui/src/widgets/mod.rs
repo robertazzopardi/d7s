@@ -30,17 +30,16 @@ pub fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<usize> {
     // Ensure we have entries for all columns (in case cols() returns fewer than num_columns)
     result.resize(num_columns, 0);
 
-    for col_idx in 0..num_columns {
-        let mut max_width = result[col_idx];
+    for (col_idx, max_width) in result.iter_mut().enumerate().take(num_columns)
+    {
         for data in items {
             for line in data.col(col_idx).lines() {
                 let width = UnicodeWidthStr::width(line);
-                if width > max_width {
-                    max_width = width;
+                if width > *max_width {
+                    *max_width = width;
                 }
             }
         }
-        result[col_idx] = max_width;
     }
 
     result
