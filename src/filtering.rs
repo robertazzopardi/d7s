@@ -1,6 +1,5 @@
-use crate::{app::App, app_state::DatabaseExplorerState};
-
 use super::filtered_data::FilteredData;
+use crate::{app::App, app_state::DatabaseExplorerState};
 
 impl App<'_> {
     /// Apply the current search filter to the active table

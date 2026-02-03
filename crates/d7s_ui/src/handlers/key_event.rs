@@ -101,7 +101,7 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
                 table_state.view.state.select_column(Some(last_col));
                 table_state.adjust_offset_for_selected_column(
                     last_col,
-                    DEFAULT_TERMINAL_WIDTH,
+                    DEFAULT_TERMINAL_WIDTH as usize,
                 );
                 TableNavigationHandler::wrap_columns(table_state);
             }

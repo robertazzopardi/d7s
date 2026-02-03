@@ -41,7 +41,7 @@ impl TableData for RawTableRow {
 #[derive(Clone, Debug, Default)]
 pub struct TableModel<T: TableData + Clone> {
     pub items: Vec<T>,
-    pub longest_item_lens: Vec<u16>,
+    pub longest_item_lens: Vec<usize>,
     // For RawTableRow, we store column names here
     pub dynamic_column_names: Option<Arc<Vec<String>>>,
 }
@@ -117,14 +117,14 @@ impl<T: TableData + Clone> TableDataState<T> {
     pub fn adjust_offset_for_selected_column(
         &mut self,
         selected_col: usize,
-        area_width: u16,
+        area_width: usize,
     ) {
         if self.model.longest_item_lens.is_empty() {
             return;
         }
 
         // Calculate cumulative widths to determine visible range
-        let mut cumulative_width = 0u16;
+        let mut cumulative_width = 0;
         let mut visible_end = self.view.column_offset;
         for (idx, &len) in self
             .model
@@ -181,16 +181,17 @@ impl TableDataState<RawTableRow> {
 
 /// Helper function to calculate visible columns for `DataTable`
 fn calculate_visible_columns_for_table(
-    longest_item_lens: &[u16],
+    longest_item_lens: &[usize],
     column_offset: usize,
     selected_col_opt: Option<usize>,
     area_width: u16,
 ) -> (Vec<usize>, Option<usize>) {
+    let area_width = area_width as usize;
     selected_col_opt.map_or_else(
         || {
             // No column selected - just calculate visible columns from current offset
             let mut vis_cols = Vec::new();
-            let mut cumulative_width = 0u16;
+            let mut cumulative_width = 0usize;
             for (idx, &len) in
                 longest_item_lens.iter().enumerate().skip(column_offset)
             {
@@ -215,7 +216,7 @@ fn calculate_visible_columns_for_table(
                 eff_offset = selected_col;
             } else {
                 // Calculate if selected column is visible with current offset
-                let mut cumulative_width = 0u16;
+                let mut cumulative_width = 0usize;
                 let mut visible_end = eff_offset;
                 for (idx, &len) in
                     longest_item_lens.iter().enumerate().skip(eff_offset)
@@ -239,7 +240,7 @@ fn calculate_visible_columns_for_table(
 
             // Calculate visible columns with effective offset
             let mut vis_cols = Vec::new();
-            let mut cumulative_width = 0u16;
+            let mut cumulative_width = 0usize;
             for (idx, &len) in
                 longest_item_lens.iter().enumerate().skip(eff_offset)
             {
@@ -344,7 +345,8 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
         let constraints = visible_cols
             .iter()
             .map(|&idx| {
-                Constraint::Length(state.model.longest_item_lens[idx] + 1)
+                let width = state.model.longest_item_lens[idx] + 1;
+                Constraint::Length(u16::try_from(width).unwrap_or(u16::MAX))
             })
             .collect::<Vec<_>>();
 
@@ -365,15 +367,13 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
 fn constraint_len_calculator_for_raw_data(
     items: &[RawTableRow],
     column_names: &[String],
-) -> Vec<u16> {
+) -> Vec<usize> {
     use unicode_width::UnicodeWidthStr;
 
     let mut longest_lens = column_names
         .iter()
-        .map(|name| {
-            u16::try_from(UnicodeWidthStr::width(name.as_str())).unwrap_or(0)
-        })
-        .collect::<Vec<u16>>();
+        .map(|name| UnicodeWidthStr::width(name.as_str()))
+        .collect::<Vec<usize>>();
 
     for item in items {
         for (i, value) in item.values.iter().enumerate() {
@@ -383,9 +383,8 @@ fn constraint_len_calculator_for_raw_data(
                     .map(UnicodeWidthStr::width)
                     .max()
                     .unwrap_or(0);
-                if let Ok(len) = u16::try_from(max_width) {
-                    longest_lens[i] = longest_lens[i].max(len);
-                }
+
+                longest_lens[i] = longest_lens[i].max(max_width);
             }
         }
     }

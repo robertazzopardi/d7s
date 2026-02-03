@@ -13,16 +13,25 @@ use d7s_db::TableData;
 pub use status_line::StatusLine;
 use unicode_width::UnicodeWidthStr;
 
-pub fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<u16> {
+pub fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<usize> {
     if items.is_empty() {
         return Vec::new();
     }
 
     let num_columns = items[0].num_columns();
 
-    let mut result = Vec::with_capacity(num_columns);
+    // Initialize with column header widths
+    let column_names = T::cols();
+    let mut result = column_names
+        .iter()
+        .map(|name| UnicodeWidthStr::width(*name))
+        .collect::<Vec<usize>>();
+
+    // Ensure we have entries for all columns (in case cols() returns fewer than num_columns)
+    result.resize(num_columns, 0);
+
     for col_idx in 0..num_columns {
-        let mut max_width = 0;
+        let mut max_width = result[col_idx];
         for data in items {
             for line in data.col(col_idx).lines() {
                 let width = UnicodeWidthStr::width(line);
@@ -31,7 +40,8 @@ pub fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<u16> {
                 }
             }
         }
-        result.push(u16::try_from(max_width).unwrap_or(1));
+        result[col_idx] = max_width;
     }
+
     result
 }

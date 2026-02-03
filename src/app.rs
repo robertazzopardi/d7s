@@ -20,10 +20,14 @@ pub const TOPBAR_HEIGHT_PERCENT: u16 = 13;
 pub const APP_NAME: &str = r"_________________
 \______ \______  \______
  |    |  \  /    /  ___/
- |    `   \/    /\___ \
-/_______  /____//____  >
+ |    `   \/    /\___  \
+/_______  /____//____  /
         \/           \/
 ";
+
+// Build metadata
+pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
+pub const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The main application which holds the state and logic of the application.
 pub struct App<'a> {

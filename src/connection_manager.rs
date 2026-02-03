@@ -1,9 +1,10 @@
 use color_eyre::Result;
-use d7s_db::{Database, connection::Connection};
+use d7s_db::connection::{Connection, ConnectionType};
 use d7s_ui::widgets::top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS};
 
 use crate::{
-    app::App, app_state::{AppState, DatabaseExplorerState},
+    app::App,
+    app_state::{AppState, DatabaseExplorerState},
     database_explorer_state::DatabaseExplorer,
 };
 
@@ -25,6 +26,11 @@ impl App<'_> {
             return Ok(());
         };
 
+        // SQLite does not use passwords; connect directly without prompting
+        if connection.r#type == ConnectionType::Sqlite {
+            return self.connect_sqlite_direct(connection.clone()).await;
+        }
+
         // Try to get password from service (checks session first, then keyring)
         if let Some(password) = self.password_service.get_password(connection) {
             self.connect_with_password(connection.clone(), password)
@@ -32,16 +38,44 @@ impl App<'_> {
         } else {
             // Need to prompt for password
             let prompt = if connection.should_ask_every_time() {
-                format!("Enter password for user '{}':", connection.user)
+                format!(
+                    "Enter password for user '{}':",
+                    connection.user_display()
+                )
             } else {
                 format!(
                     "Password not found for user '{}'.\nPlease enter password:",
-                    connection.user
+                    connection.user_display()
                 )
             };
             self.modal_manager
                 .open_password_modal(connection.clone(), prompt);
         }
+        Ok(())
+    }
+
+    /// Connect to `SQLite` database (no password)
+    async fn connect_sqlite_direct(
+        &mut self,
+        connection: Connection,
+    ) -> Result<()> {
+        let sqlite = connection.to_sqlite();
+        if !sqlite.test().await {
+            self.set_status(format!(
+                "Failed to connect to database: {}",
+                connection.name
+            ));
+            return Ok(());
+        }
+
+        self.database_explorer =
+            DatabaseExplorer::new(connection, Some(sqlite));
+        self.state = AppState::DatabaseConnected;
+        self.hotkeys = DATABASE_HOTKEYS.to_vec();
+
+        // SQLite doesn't need the Databases/Schemas navigation steps
+        // Load tables directly from the default sqlite_schema
+        self.load_tables("sqlite_schema").await?;
         Ok(())
     }
 
@@ -56,22 +90,18 @@ impl App<'_> {
         connection_with_password.password = Some(password);
 
         // For PostgreSQL, connect to a default database first to list databases
-        // Always try "postgres" first as it's the standard default database
-        // If that fails, we'll fall back to the connection's database field
         let default_db = "postgres".to_string();
 
         // Create a temporary connection to the default database
         let mut temp_connection = connection_with_password.clone();
-        temp_connection.database.clone_from(&default_db);
+        temp_connection.selected_database = Some(default_db.clone());
         let postgres = temp_connection.to_postgres();
 
         if postgres.test().await {
-            // Connection successful, create database explorer with default database
-            let boxed_db: Box<dyn Database> = Box::new(postgres);
-            self.database_explorer = DatabaseExplorer::new(
-                connection_with_password,
-                Some(boxed_db),
-            );
+            // Connection successful; keep selected_database so explorer is on "postgres"
+            connection_with_password.selected_database = Some(default_db);
+            self.database_explorer =
+                DatabaseExplorer::new(connection_with_password, Some(postgres));
             self.state = AppState::DatabaseConnected;
 
             // Update hotkeys for database mode

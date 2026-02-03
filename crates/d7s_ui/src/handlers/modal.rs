@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use d7s_auth::Keyring;
-use d7s_db::{Database, connection::Connection};
+use d7s_db::connection::Connection;
 
 use crate::widgets::modal::{PasswordStorageType, TestResult};
 
@@ -93,10 +93,16 @@ pub fn handle_save_connection(
     Ok(())
 }
 
-/// Tests a database connection
+/// Tests a database connection (Postgres or Sqlite)
 pub async fn test_connection(connection: &Connection) -> TestResult {
-    let postgres = connection.to_postgres();
-    let result = postgres.test().await;
+    let result = match connection.r#type {
+        d7s_db::connection::ConnectionType::Postgres => {
+            connection.to_postgres().test().await
+        }
+        d7s_db::connection::ConnectionType::Sqlite => {
+            connection.to_sqlite().test().await
+        }
+    };
 
     if result {
         TestResult::Success

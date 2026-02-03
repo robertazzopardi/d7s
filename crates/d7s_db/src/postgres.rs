@@ -142,16 +142,14 @@ impl Database for Postgres {
         ";
 
         let rows = client.query(query, &[&schema_name]).await?;
-        let mut tables = Vec::new();
-
-        for row in rows {
-            let table = Table {
+        let tables = rows
+            .iter()
+            .map(|row| Table {
                 name: row.get(0),
                 schema: row.get(1),
                 size: row.get(2),
-            };
-            tables.push(table);
-        }
+            })
+            .collect();
 
         Ok(tables)
     }
@@ -179,18 +177,16 @@ impl Database for Postgres {
         ";
 
         let rows = client.query(query, &[&schema_name, &table_name]).await?;
-        let mut columns = Vec::new();
-
-        for row in rows {
-            let column = Column {
+        let columns = rows
+            .iter()
+            .map(|row| Column {
                 name: row.get(0),
                 data_type: row.get(1),
                 is_nullable: row.get::<_, String>(2) == "YES",
                 default_value: row.get(3),
                 description: row.get(4),
-            };
-            columns.push(column);
-        }
+            })
+            .collect();
 
         Ok(columns)
     }
@@ -201,9 +197,32 @@ impl Database for Postgres {
         table_name: &str,
     ) -> Result<(Vec<Vec<String>>, Vec<String>), Box<dyn std::error::Error>>
     {
-        self.get_table_data_with_columns_simple(schema_name, table_name)
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        let client = self.get_connection().await?;
+
+        let query =
+            format!("SELECT * FROM {schema_name}.{table_name} LIMIT 100");
+
+        let rows = client.query(&query, &[]).await?;
+        let mut column_names = Vec::new();
+
+        if let Some(first_row) = rows.first() {
+            for i in 0..first_row.len() {
+                column_names.push(first_row.columns()[i].name().to_string());
+            }
+        }
+
+        let data = rows
+            .iter()
+            .map(|row| {
+                row.columns()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, col)| column_to_string(row, i, col.type_()))
+                    .collect()
+            })
+            .collect();
+
+        Ok((data, column_names))
     }
 
     async fn get_databases(
@@ -219,11 +238,12 @@ impl Database for Postgres {
         ";
 
         let rows = client.query(query, &[]).await?;
-
-        Ok(rows
+        let databases = rows
             .iter()
             .map(|row| DatabaseInfo { name: row.get(0) })
-            .collect())
+            .collect();
+
+        Ok(databases)
     }
 }
 
@@ -269,58 +289,18 @@ impl Postgres {
             format!("SELECT * FROM {schema_name}.{table_name} LIMIT $1");
 
         let rows = client.query(&query, &[&limit]).await?;
-        let mut data = Vec::new();
-
-        for row in &rows {
-            let values = row
-                .columns()
-                .iter()
-                .enumerate()
-                .map(|(i, col)| column_to_string(row, i, col.type_()))
-                .collect();
-            data.push(values);
-        }
+        let data = rows
+            .iter()
+            .map(|row| {
+                row.columns()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, col)| column_to_string(row, i, col.type_()))
+                    .collect()
+            })
+            .collect();
 
         Ok(data)
-    }
-
-    /// Retrieves table data along with column names.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database connection fails or the query cannot be executed.
-    pub async fn get_table_data_with_columns_simple(
-        &self,
-        schema_name: &str,
-        table_name: &str,
-    ) -> Result<(Vec<Vec<String>>, Vec<String>), tokio_postgres::Error> {
-        let client = self.get_connection().await?;
-
-        let query =
-            format!("SELECT * FROM {schema_name}.{table_name} LIMIT 100");
-
-        let rows = client.query(&query, &[]).await?;
-        let mut data = Vec::new();
-        let mut column_names = Vec::new();
-
-        if let Some(first_row) = rows.first() {
-            for i in 0..first_row.len() {
-                column_names.push(first_row.columns()[i].name().to_string());
-            }
-        }
-
-        for row in &rows {
-            let values = row
-                .columns()
-                .iter()
-                .enumerate()
-                .map(|(i, col)| column_to_string(row, i, col.type_()))
-                .collect();
-
-            data.push(values);
-        }
-
-        Ok((data, column_names))
     }
 }
 

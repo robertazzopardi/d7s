@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use color_eyre::Result;
 use d7s_auth::Keyring;
-use d7s_db::connection::Connection;
+use d7s_db::connection::{Connection, ConnectionType};
 
 /// Service for managing passwords across keyring and session storage
 pub struct PasswordService {
@@ -27,13 +27,7 @@ impl PasswordService {
 
     /// Generate a unique key for a connection to use in session password storage
     fn connection_key(connection: &Connection) -> String {
-        format!(
-            "{}@{}:{}/{}",
-            connection.user,
-            connection.host,
-            connection.port,
-            connection.database
-        )
+        connection.name.clone()
     }
 
     // Keyring operations
@@ -95,19 +89,25 @@ impl PasswordService {
     // High-level API
 
     /// Get password for a connection from the appropriate source
-    /// Returns Some(password) if found in session or keyring, None if needs prompting
+    /// Returns Some(password) if found in session or keyring, None if needs prompting.
+    /// `SQLite` connections have no password; returns None so caller connects without password.
     pub fn get_password(&self, connection: &Connection) -> Option<String> {
+        if connection.r#type == ConnectionType::Sqlite {
+            return None;
+        }
         if connection.should_ask_every_time() {
-            // Check session storage first
             self.get_session_password(connection).cloned()
         } else {
-            // Try keyring
             Self::get_from_keyring(&connection.name).ok()
         }
     }
 
-    /// Get password for connection, returning empty string if "ask every time" and not in session
+    /// Get password for connection, returning empty string if "ask every time" and not in session.
+    /// `SQLite` connections have no password; returns empty string.
     pub fn get_connection_password(connection: &Connection) -> String {
+        if connection.r#type == ConnectionType::Sqlite {
+            return String::new();
+        }
         if connection.should_ask_every_time() {
             String::new()
         } else {

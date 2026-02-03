@@ -1,6 +1,6 @@
 use color_eyre::Result;
 use crossterm::event::KeyCode;
-use d7s_db::Database;
+use d7s_db::{Database, connection::ConnectionType};
 use d7s_ui::{
     handlers::TableNavigationHandler, widgets::table::TableDataState,
 };
@@ -37,19 +37,19 @@ impl App<'_> {
         let explorer = &mut self.database_explorer;
         if explorer.database.is_some() {
             // Update connection with selected database
-            explorer.connection.database = database_name.to_string();
+            explorer.connection.selected_database =
+                Some(database_name.to_string());
 
-            // Create new Postgres connection with selected database
-            let postgres = explorer.connection.to_postgres();
+            let db: Box<dyn Database> = match explorer.connection.r#type {
+                ConnectionType::Postgres => explorer.connection.to_postgres(),
+                ConnectionType::Sqlite => explorer.connection.to_sqlite(),
+            };
 
-            // Test the connection to the selected database
-            if postgres.test().await {
-                // Replace the database client with the new one
-                explorer.database = Some(Box::new(postgres));
-
-                // Load schemas for the selected database
+            if db.test().await {
+                explorer.database = Some(db);
                 self.load_schemas().await?;
             } else {
+                // TODO probably dont need database name here or at all
                 self.set_status(format!(
                     "Failed to connect to database: {database_name}",
                 ));
@@ -66,6 +66,12 @@ impl App<'_> {
             self.set_status("Not connected to database");
             return Ok(());
         };
+
+        // SQLite doesn't need the Schemas navigation step
+        // Skip directly to loading tables from the default sqlite_schema
+        if explorer.connection.r#type == ConnectionType::Sqlite {
+            return self.load_tables("sqlite_schema").await;
+        }
 
         match database.get_schemas().await {
             Ok(schemas) => {
@@ -303,6 +309,7 @@ impl App<'_> {
     pub fn go_back_in_database(&mut self) {
         let explorer_state = self.database_explorer.state.clone();
         let explorer = &mut self.database_explorer;
+        let is_sqlite = explorer.connection.r#type == ConnectionType::Sqlite;
 
         match explorer_state {
             DatabaseExplorerState::Connections => {
@@ -317,8 +324,11 @@ impl App<'_> {
                 }
             }
             DatabaseExplorerState::Tables(_) => {
-                // Go back to schemas
-                if explorer.schemas.is_some() {
+                // SQLite: Go back to connections (disconnect)
+                // Postgres: Go back to schemas
+                if is_sqlite {
+                    self.disconnect_from_database();
+                } else if explorer.schemas.is_some() {
                     explorer.state = DatabaseExplorerState::Schemas;
                     explorer.connection.schema = None;
                 }
@@ -330,8 +340,15 @@ impl App<'_> {
                 }
             }
             DatabaseExplorerState::SqlExecutor => {
-                // Go back to schemas
-                if explorer.schemas.is_some() {
+                // SQLite: Go back to tables
+                // Postgres: Go back to schemas
+                if is_sqlite {
+                    if explorer.tables.is_some() {
+                        explorer.state = DatabaseExplorerState::Tables(
+                            "sqlite_schema".to_string(),
+                        );
+                    }
+                } else if explorer.schemas.is_some() {
                     explorer.state = DatabaseExplorerState::Schemas;
                 }
             }

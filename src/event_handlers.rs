@@ -2,6 +2,7 @@ use color_eyre::Result;
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
+use d7s_db::connection::ConnectionType;
 use d7s_ui::{
     handlers::{handle_search_filter_input, handle_sql_executor_input},
     widgets::modal::{ModalAction, TestResult},
@@ -326,9 +327,12 @@ impl App<'_> {
         // Handle confirmation modal results
         if let Some(connection) =
             self.modal_manager.was_confirmation_modal_confirmed()
+            && matches!(key.code, KeyCode::Enter)
         {
-            // Delete from keyring if not using "ask every time"
-            if !connection.should_ask_every_time() {
+            // Delete from keyring only for Postgres (SQLite has no passwords)
+            if connection.r#type == ConnectionType::Postgres
+                && !connection.should_ask_every_time()
+            {
                 let _ = PasswordService::delete_from_keyring(&connection.name);
             }
 
