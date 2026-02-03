@@ -61,7 +61,7 @@ pub struct ModalField {
 
 impl ModalField {
     #[must_use]
-    pub fn new(label: &'static str) -> Self {
+    pub const fn new(label: &'static str) -> Self {
         Self {
             label,
             value: String::new(),
@@ -99,10 +99,11 @@ impl ModalField {
 
     /// Ensure value is one of the options. Sets to first option if invalid.
     pub fn clamp_to_options(&mut self) {
-        if let Some(ref opts) = self.options {
-            if !opts.is_empty() && !opts.iter().any(|o| *o == self.value) {
-                self.value = opts[0].to_string();
-            }
+        if let Some(ref opts) = self.options
+            && !opts.is_empty()
+            && !opts.iter().any(|o| *o == self.value)
+        {
+            self.value = opts[0].to_string();
         }
     }
 
@@ -134,11 +135,11 @@ pub enum ConnectionModalStep {
     #[default]
     /// Step 1: selectable list of database types and optional "Import from URL" input.
     ChooseType,
-    /// Step 2: type-specific form (Postgres: Host/Port/User/DB; SQLite: Path).
+    /// Step 2: type-specific form (Postgres: Host/Port/User/DB; `SQLite`: Path).
     ConnectionForm,
 }
 
-/// Database types shown in step 1 list (order matches step1_type_index).
+/// Database types shown in step 1 list (order matches `step1_type_index`).
 const STEP1_DB_TYPES: [&str; 2] = ["postgres", "sqlite"];
 
 #[derive(Debug, PartialEq, Eq)]
@@ -165,11 +166,11 @@ pub struct Modal {
     pub test_result: TestResult,
     pub original_name: Option<String>,
     pub password_storage: PasswordStorageType,
-    /// When Some(field_index), that dropdown field's menu is open (tui-menu).
+    /// When `Some(field_index)`, that dropdown field's menu is open (tui-menu).
     pub dropdown_open: Option<usize>,
     /// tui-menu state when a dropdown is open (not Debug).
     pub menu_state: Option<MenuState<&'static str>>,
-    /// Current step: ChooseType (step 1) or ConnectionForm (step 2).
+    /// Current step: `ChooseType` (step 1) or `ConnectionForm` (step 2).
     pub step: ConnectionModalStep,
     /// Step 1: selected index in database type list (0 = postgres, 1 = sqlite).
     pub step1_type_index: usize,
@@ -250,7 +251,7 @@ impl Modal {
         }
     }
 
-    /// Build step 2 fields from step 1 state. If step1_import_url is set, parse and prefill; else use selected type with empty/default values.
+    /// Build step 2 fields from step 1 state. If `step1_import_url` is set, parse and prefill; else use selected type with empty/default values.
     fn enter_step2(&mut self) {
         let (connection_type, prefilled) =
             if self.step1_import_url.trim().is_empty() {
@@ -280,15 +281,18 @@ impl Modal {
 
         match connection_type {
             ConnectionType::Postgres => {
-                let (host, port, user, database) = prefilled.as_deref().map_or(
-                    (
-                        "localhost".to_string(),
-                        "5432".to_string(),
-                        String::new(),
-                        "postgres".to_string(),
-                    ),
-                    |url| parse_postgres_url(url),
-                );
+                let (host, port, user, database) =
+                    prefilled.as_deref().map_or_else(
+                        || {
+                            (
+                                "localhost".to_string(),
+                                "5432".to_string(),
+                                String::new(),
+                                "postgres".to_string(),
+                            )
+                        },
+                        parse_postgres_url,
+                    );
                 let name = ModalField::new("Name");
                 let mut host_f = ModalField::new("Host");
                 host_f.value = host;
@@ -381,7 +385,7 @@ impl Modal {
                 let (host, port, user, database) =
                     parse_postgres_url(&connection.url);
                 let mut name = ModalField::new("Name");
-                name.value = connection.name.clone();
+                name.value.clone_from(&connection.name);
                 let mut host_f = ModalField::new("Host");
                 host_f.value = host;
                 let mut port_f = ModalField::new("Port");
@@ -405,9 +409,9 @@ impl Modal {
             }
             ConnectionType::Sqlite => {
                 let mut name = ModalField::new("Name");
-                name.value = connection.name.clone();
+                name.value.clone_from(&connection.name);
                 let mut path_f = ModalField::new("Path");
-                path_f.value = connection.url.clone();
+                path_f.value.clone_from(&connection.url);
                 let mut env = ModalField::new("Environment");
                 env.set_options(vec!["dev", "staging", "prod"]);
                 env.value = connection.environment.to_string();
@@ -447,11 +451,10 @@ impl Modal {
         let mut children: Vec<MenuItem<&'static str>> =
             opts.iter().map(|&o| MenuItem::item(o, o)).collect();
         if let Some(pos) = children.iter().position(|m| m.data == Some(current))
+            && pos != 0
         {
-            if pos != 0 {
-                let item = children.remove(pos);
-                children.insert(0, item);
-            }
+            let item = children.remove(pos);
+            children.insert(0, item);
         }
         let mut state = MenuState::new(vec![MenuItem::group("", children)]);
         state.activate();
@@ -465,45 +468,43 @@ impl Modal {
         let field_idx = self.dropdown_open.take();
         let mut state = self.menu_state.take();
         if let (Some(idx), Some(ref mut s)) = (field_idx, state.as_mut()) {
-            if apply {
-                for event in s.drain_events() {
-                    let MenuEvent::Selected(value) = event;
-                    if let Some(field) = self.fields.get_mut(idx) {
-                        field.value = value.to_string();
-                    }
-                    break;
+            if apply && let Some(event) = s.drain_events().next() {
+                let MenuEvent::Selected(value) = event;
+                if let Some(field) = self.fields.get_mut(idx) {
+                    field.value = value.to_string();
                 }
             }
             s.reset();
         }
     }
 
-    /// Get total number of navigable items (fields + storage when visible + buttons). Step 2 has 4 buttons (Back, OK, Test, Cancel).
+    /// Number of buttons shown: New has Back, OK, Test, Cancel (4); Edit has OK, Test, Cancel (3).
+    fn button_count(&self) -> usize {
+        match self.mode {
+            Mode::Edit => 3,
+            Mode::New => 4,
+        }
+    }
+
+    /// Get total number of navigable items (fields + storage when visible + buttons).
     fn total_items(&self) -> usize {
         if self.step != ConnectionModalStep::ConnectionForm {
             return 0;
         }
-        let storage = if self.is_password_storage_row_visible() {
-            1
-        } else {
-            0
-        };
-        self.visible_fields_count() + storage + 4
+        let storage = usize::from(self.is_password_storage_row_visible());
+        self.visible_fields_count() + storage + self.button_count()
     }
 
-    /// Check if `current_field` is on a button. Step 2: 0=Back, 1=OK, 2=Test, 3=Cancel.
+    /// Check if `current_field` is on a button. Returns the button index within the current button list.
     fn is_on_button(&self) -> Option<usize> {
         if self.step != ConnectionModalStep::ConnectionForm {
             return None;
         }
-        let storage = if self.is_password_storage_row_visible() {
-            1
-        } else {
-            0
-        };
+        let storage = usize::from(self.is_password_storage_row_visible());
         let button_start = self.visible_fields_count() + storage;
+        let count = self.button_count();
         if self.current_field >= button_start
-            && self.current_field < button_start + 4
+            && self.current_field < button_start + count
         {
             Some(self.current_field - button_start)
         } else {
@@ -578,9 +579,7 @@ impl Modal {
 
     #[must_use]
     pub fn get_connection(&self) -> Option<Connection> {
-        let Some(connection_type) = self.connection_type else {
-            return None;
-        };
+        let connection_type = self.connection_type?;
 
         // Check if all required fields are filled (password is optional when "ask every time" is selected)
         let password_field_index = self.password_field_index();
@@ -613,13 +612,13 @@ impl Modal {
         let metadata_str = self
             .fields
             .get(metadata_index)
-            .map(|f| f.value.trim())
-            .unwrap_or("");
+            .map_or("", |f| f.value.trim());
         let metadata = if metadata_str.is_empty() {
             serde_json::Value::Object(serde_json::Map::new())
         } else {
-            serde_json::from_str(metadata_str)
-                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
+            serde_json::from_str(metadata_str).unwrap_or_else(|_| {
+                serde_json::Value::Object(serde_json::Map::new())
+            })
         };
 
         let (password, password_storage) = if self.is_sqlite() {
@@ -633,27 +632,13 @@ impl Modal {
                 let host = self
                     .fields
                     .get(1)
-                    .map(|f| f.value.as_str())
-                    .unwrap_or("localhost");
-                let port = self
-                    .fields
-                    .get(2)
-                    .map(|f| f.value.as_str())
-                    .unwrap_or("5432");
-                let user =
-                    self.fields.get(3).map(|f| f.value.as_str()).unwrap_or("");
-                let database = self
-                    .fields
-                    .get(4)
-                    .map(|f| f.value.as_str())
-                    .unwrap_or("postgres");
-                build_postgres_url(
-                    host,
-                    port,
-                    user,
-                    database,
-                    password.as_deref(),
-                )
+                    .map_or("localhost", |f| f.value.as_str());
+                let port =
+                    self.fields.get(2).map_or("5432", |f| f.value.as_str());
+                let user = self.fields.get(3).map_or("", |f| f.value.as_str());
+                let database =
+                    self.fields.get(4).map_or("postgres", |f| f.value.as_str());
+                build_postgres_url(host, port, user, database)
             }
             ConnectionType::Sqlite => self
                 .fields
@@ -694,6 +679,7 @@ impl Modal {
 
     /// Handle key events for UI navigation only
     /// Returns an enum indicating what action was triggered
+    #[allow(clippy::too_many_lines)]
     pub fn handle_key_events_ui(&mut self, key: KeyEvent) -> ModalAction {
         if self.step == ConnectionModalStep::ChooseType {
             return self.handle_step1_key(key);
@@ -711,11 +697,8 @@ impl Modal {
             }
             (_, KeyCode::BackTab | KeyCode::Up) => {
                 if self.is_on_button().is_some() {
-                    let storage = if self.is_password_storage_row_visible() {
-                        1
-                    } else {
-                        0
-                    };
+                    let storage =
+                        usize::from(self.is_password_storage_row_visible());
                     self.current_field = self
                         .visible_fields_count()
                         .saturating_add(storage)
@@ -731,22 +714,40 @@ impl Modal {
             }
             (_, KeyCode::Enter) => {
                 if let Some(button_idx) = self.is_on_button() {
-                    match button_idx {
-                        0 => {
-                            self.back_to_step1();
-                            ModalAction::None
-                        }
-                        1 if self.is_valid() => ModalAction::Save,
-                        2 => ModalAction::Test,
-                        3 => {
-                            self.close();
-                            ModalAction::Cancel
-                        }
-                        _ => ModalAction::None,
+                    // New: [Back=0, OK=1, Test=2, Cancel=3]
+                    // Edit: [OK=0, Test=1, Cancel=2]
+                    let (is_back, is_ok, is_test, is_cancel) =
+                        match self.mode {
+                            Mode::New => (
+                                button_idx == 0,
+                                button_idx == 1,
+                                button_idx == 2,
+                                button_idx == 3,
+                            ),
+                            Mode::Edit => (
+                                false,
+                                button_idx == 0,
+                                button_idx == 1,
+                                button_idx == 2,
+                            ),
+                        };
+                    if is_back {
+                        self.back_to_step1();
+                        ModalAction::None
+                    } else if is_ok && self.is_valid() {
+                        ModalAction::Save
+                    } else if is_test {
+                        ModalAction::Test
+                    } else if is_cancel {
+                        self.close();
+                        ModalAction::Cancel
+                    } else {
+                        ModalAction::None
                     }
                 } else if self.current_field < self.visible_fields_count() {
                     let idx = self.current_field;
-                    if self.fields.get(idx).is_some_and(|f| f.is_dropdown()) {
+                    if self.fields.get(idx).is_some_and(ModalField::is_dropdown)
+                    {
                         self.open_dropdown_if_focused();
                         ModalAction::None
                     } else if self.is_valid() {
@@ -779,13 +780,12 @@ impl Modal {
             }
             (_, KeyCode::Left) => {
                 if let Some(button_idx) = self.is_on_button() {
-                    let storage = if self.is_password_storage_row_visible() {
-                        1
-                    } else {
-                        0
-                    };
+                    let storage =
+                        usize::from(self.is_password_storage_row_visible());
                     let button_start = self.visible_fields_count() + storage;
-                    let new_button_idx = (button_idx + 3) % 4;
+                    let count = self.button_count();
+                    let new_button_idx =
+                        (button_idx + count - 1) % count;
                     self.current_field = button_start + new_button_idx;
                 } else {
                     self.prev_field();
@@ -794,13 +794,11 @@ impl Modal {
             }
             (_, KeyCode::Right) => {
                 if let Some(button_idx) = self.is_on_button() {
-                    let storage = if self.is_password_storage_row_visible() {
-                        1
-                    } else {
-                        0
-                    };
+                    let storage =
+                        usize::from(self.is_password_storage_row_visible());
                     let button_start = self.visible_fields_count() + storage;
-                    let new_button_idx = (button_idx + 1) % 4;
+                    let count = self.button_count();
+                    let new_button_idx = (button_idx + 1) % count;
                     self.current_field = button_start + new_button_idx;
                 } else {
                     self.next_field();
@@ -867,28 +865,23 @@ impl Modal {
                 self.close_dropdown(false);
                 ModalAction::None
             }
-            (_, KeyCode::Up)
-            | (_, KeyCode::Char('k'))
-            | (_, KeyCode::Char('K')) => {
+            (_, KeyCode::Up | KeyCode::Char('k' | 'K')) => {
                 state.up();
                 ModalAction::None
             }
-            (_, KeyCode::Down)
-            | (_, KeyCode::Char('j'))
-            | (_, KeyCode::Char('J')) => {
+            (_, KeyCode::Down | KeyCode::Char('j' | 'J')) => {
                 state.down();
                 ModalAction::None
             }
             (_, KeyCode::Enter) => {
                 state.select();
-                for event in state.drain_events() {
+                if let Some(event) = state.drain_events().next() {
                     let MenuEvent::Selected(value) = event;
-                    if let Some(field_idx) = self.dropdown_open {
-                        if let Some(field) = self.fields.get_mut(field_idx) {
-                            field.value = value.to_string();
-                        }
+                    if let Some(field_idx) = self.dropdown_open
+                        && let Some(field) = self.fields.get_mut(field_idx)
+                    {
+                        field.value = value.to_string();
                     }
-                    break;
                 }
                 self.close_dropdown(false);
                 ModalAction::None
@@ -918,7 +911,7 @@ impl StatefulWidget for ConnectionModalWidget {
 }
 
 impl Modal {
-    /// Render the connection modal into the buffer (used by ConnectionModalWidget).
+    /// Render the connection modal into the buffer (used by `ConnectionModalWidget`).
     pub fn render_into(&self, area: Rect, buf: &mut Buffer) {
         if !self.is_open {
             return;
@@ -940,12 +933,11 @@ impl Modal {
 
         let title = match (self.mode, self.step) {
             (Mode::Edit, _) => "Edit Connection".to_string(),
-            (Mode::New, ConnectionModalStep::ChooseType) => {
-                "New Connection".to_string()
-            }
-            (Mode::New, ConnectionModalStep::ConnectionForm) => {
-                "New Connection".to_string()
-            }
+            (
+                Mode::New,
+                ConnectionModalStep::ChooseType
+                | ConnectionModalStep::ConnectionForm,
+            ) => "New Connection".to_string(),
         };
 
         let block = Block::default()
@@ -1056,34 +1048,31 @@ impl Modal {
 
     /// Fixed height for fields section; dropdown is drawn as overlay and does not expand layout.
     fn fields_section_height(&self) -> u16 {
-        let rows = self.visible_fields_count() as u16
-            + if self.is_password_storage_row_visible() {
-                1
-            } else {
-                0
-            };
+        let rows = u16::try_from(self.visible_fields_count())
+            .unwrap_or(u16::MAX)
+            + u16::from(self.is_password_storage_row_visible());
         (rows + 2).min(9) // rows + padding, cap for modal
     }
 }
 
 impl Modal {
-    /// Get the index of the password field (last field for Postgres; unused for SQLite).
-    fn password_field_index(&self) -> usize {
+    /// Get the index of the password field (last field for Postgres; unused for `SQLite`).
+    const fn password_field_index(&self) -> usize {
         self.fields.len().saturating_sub(1)
     }
 
-    /// True when connection type is SQLite (password not supported).
+    /// True when connection type is `SQLite` (password not supported).
     fn is_sqlite(&self) -> bool {
         self.connection_type == Some(ConnectionType::Sqlite)
     }
 
-    /// Check if password field should be hidden (Ask every time, or SQLite which has no passwords).
+    /// Check if password field should be hidden (Ask every time, or `SQLite` which has no passwords).
     fn is_password_field_hidden(&self) -> bool {
         self.password_storage == PasswordStorageType::DontSave
             || self.is_sqlite()
     }
 
-    /// Show password storage row only for Postgres (SQLite has no passwords).
+    /// Show password storage row only for Postgres (`SQLite` has no passwords).
     fn is_password_storage_row_visible(&self) -> bool {
         !self.is_sqlite()
     }
@@ -1099,11 +1088,7 @@ impl Modal {
 
     fn render_fields(&self, area: Rect, buf: &mut Buffer) {
         // Fixed one row per field (+ storage row only for Postgres); dropdown list is overlay.
-        let storage_row = if self.is_password_storage_row_visible() {
-            1
-        } else {
-            0
-        };
+        let storage_row = usize::from(self.is_password_storage_row_visible());
         let num_rows = self.visible_fields_count() + storage_row;
         let field_layout = Layout::default()
             .direction(Direction::Vertical)
@@ -1136,7 +1121,7 @@ impl Modal {
                     .and_then(|v| opts.iter().position(|o| *o == v))
                     .unwrap_or(0)
                     .min(opts.len().saturating_sub(1));
-                self.render_trigger_row(row_area, buf, field, true);
+                Self::render_trigger_row(row_area, buf, field, true);
                 if !opts.is_empty() {
                     overlay = Some((row_area, opts, hi));
                 }
@@ -1184,7 +1169,7 @@ impl Modal {
 
         // Draw dropdown list as overlay so it hovers over content below without shifting layout.
         if let Some((trigger_rect, options, highlighted_index)) = overlay {
-            self.render_dropdown_overlay(
+            Self::render_dropdown_overlay(
                 buf,
                 trigger_rect,
                 options,
@@ -1194,7 +1179,6 @@ impl Modal {
     }
 
     fn render_trigger_row(
-        &self,
         area: Rect,
         buf: &mut Buffer,
         field: &ModalField,
@@ -1221,7 +1205,6 @@ impl Modal {
 
     /// Render dropdown list as a floating overlay below the trigger row (does not affect layout).
     fn render_dropdown_overlay(
-        &self,
         buf: &mut Buffer,
         trigger_rect: Rect,
         options: &[&'static str],
@@ -1231,11 +1214,11 @@ impl Modal {
             return;
         }
         // Height: top border + one row per option + bottom border
-        let list_height = 2 + options.len() as u16;
+        let list_height = 2 + u16::try_from(options.len()).unwrap_or(u16::MAX);
         let list_width = trigger_rect.width.max(
             options
                 .iter()
-                .map(|o| o.len() as u16 + 2)
+                .map(|o| u16::try_from(o.len()).unwrap_or(0) + 2)
                 .max()
                 .unwrap_or(10),
         );
@@ -1259,7 +1242,7 @@ impl Modal {
         for (i, opt) in options.iter().enumerate() {
             let row_area = Rect {
                 x: inner.x,
-                y: inner.y + i as u16,
+                y: inner.y + u16::try_from(i).unwrap_or(0),
                 width: inner.width,
                 height: 1,
             };
@@ -1269,8 +1252,7 @@ impl Modal {
             } else {
                 Style::default().fg(Color::White).bg(Color::Black)
             };
-            let line =
-                Line::from(vec![Span::styled(format!(" {}", opt), style)]);
+            let line = Line::from(vec![Span::styled(format!(" {opt}"), style)]);
             Paragraph::new(line).render(row_area, buf);
         }
     }
@@ -1278,7 +1260,10 @@ impl Modal {
     fn render_buttons(&self, area: Rect, buf: &mut Buffer) {
         let selected_button = self.is_on_button().unwrap_or(999);
         let buttons = Buttons {
-            buttons: vec!["Back", "OK", "Test", "Cancel"],
+            buttons: match self.mode {
+                Mode::New => vec!["Back", "OK", "Test", "Cancel"],
+                Mode::Edit => vec!["OK", "Test", "Cancel"],
+            },
             selected: selected_button,
         };
         buttons.render(area, buf);

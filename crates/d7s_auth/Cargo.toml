@@ -2,6 +2,25 @@
 name = "d7s_auth"
 version = "0.1.0"
 edition = "2024"
+description = "Credential storage for d7s using platform keyrings"
+license = "MIT"
+repository = "https://github.com/robertazzopardi/d7s"
+readme = "../../README.md"
+keywords = [
+    "keyring",
+    "credentials",
+    "auth",
+    "secrets",
+    "password",
+    "secure_storage",
+    "macos_keychain",
+    "linux_secret_service",
+]
+categories = [
+    "cryptography",
+    "development-tools",
+    "memory-management",
+]
 
 [features]
 default = []

@@ -2,6 +2,26 @@
 name = "d7s_db"
 version = "0.1.0"
 edition = "2024"
+description = "Database abstraction layer for d7s (PostgreSQL and SQLite)"
+license = "MIT"
+repository = "https://github.com/robertazzopardi/d7s"
+readme = "../../README.md"
+keywords = [
+    "database",
+    "postgresql",
+    "sqlite",
+    "async",
+    "connection",
+    "query",
+    "migration",
+    "driver",
+    "abstraction",
+]
+categories = [
+    "database-implementations",
+    "development-tools",
+    "asynchronous",
+]
 
 [dependencies]
 async-trait = "0.1"
@@ -9,7 +29,7 @@ serde = { version = "1", features = ["derive"] }
 url = "2.5"
 color-eyre = "0.6.5"
 dirs = "6.0.0"
-rusqlite = "0.37.0"
+rusqlite = { version = "0.37.0", features = ["bundled"] }
 rusqlite_migration = "2.3"
 tokio = { version = "1.0", features = ["full"] }
 tokio-postgres = { version = "0.7.13", features = [

@@ -248,13 +248,13 @@ impl Connection {
 #[derive(Debug, Clone)]
 pub struct ParsedConnection {
     pub connection_type: ConnectionType,
-    /// Full URL (Postgres) or file path (SQLite).
+    /// Full URL (Postgres) or file path (`SQLite`).
     pub url: String,
 }
 
 /// Detect connection type from a string and return it with the URL/path.
 /// Postgres: string starting with `postgres://` or `postgresql://`.
-/// SQLite: anything else (file path or `sqlite:` URI).
+/// `SQLite`: anything else (file path or `sqlite:` URI).
 #[must_use]
 pub fn parse_connection_string(s: &str) -> Option<ParsedConnection> {
     let s = s.trim();
@@ -275,19 +275,17 @@ pub fn parse_connection_string(s: &str) -> Option<ParsedConnection> {
     })
 }
 
-/// Build a Postgres URL from host, port, user, database and optional password.
+/// Build a Postgres URL from host, port, user, and database.
+/// Password is intentionally excluded — it is stored only in the keyring.
 #[must_use]
 pub fn build_postgres_url(
     host: &str,
     port: &str,
     user: &str,
     database: &str,
-    password: Option<&str>,
 ) -> String {
     let auth = if user.is_empty() {
         String::new()
-    } else if let Some(p) = password.filter(|s| !s.is_empty()) {
-        format!("{user}:{p}@")
     } else {
         format!("{user}@")
     };

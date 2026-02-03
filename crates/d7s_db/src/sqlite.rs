@@ -212,7 +212,6 @@ pub fn init_db() -> Result<()> {
     let mut conn = SqliteConnection::open(db_path)?;
 
     // Base schema: Name, Type, Url, Environment, Metadata (JSONB as TEXT).
-    // M1 drops any old connections table; M2 creates the new schema.
     let migrations = Migrations::new(vec![
         M::up(
             "CREATE TABLE IF NOT EXISTS connections (
@@ -351,7 +350,7 @@ pub fn update_connection(
     let metadata = metadata_for_save(connection);
 
     conn.execute(
-        "UPDATE connections SET name = ?, type = ? = ?, environment = ?, metadata = ? WHERE name = ?",
+        "UPDATE connections SET name = ?, type = ?, url = ?, environment = ?, metadata = ? WHERE name = ?",
         params![
             connection.name,
             connection.r#type.to_string(),
