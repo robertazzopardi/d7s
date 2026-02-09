@@ -27,7 +27,7 @@ color-eyre = "0.6.5"
 dirs = "6.0.0"
 rusqlite = { version = "0.37.0", features = ["bundled"] }
 rusqlite_migration = "2.3"
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.49", features = ["full"] }
 tokio-postgres = { version = "0.7.13", features = [
     "with-chrono-0_4",
     "with-serde_json-1",
