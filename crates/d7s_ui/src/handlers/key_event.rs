@@ -90,7 +90,11 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
         KeyCode::Char('0') => {
             table_state.view.state.select_column(Some(0));
             table_state.view.column_offset = 0;
-            TableNavigationHandler::wrap_columns(table_state);
+            TableNavigationHandler::wrap_columns(
+                &mut table_state.view.state,
+                &table_state.model.items,
+                &mut table_state.view.column_offset,
+            );
             return;
         }
         KeyCode::Char('$') => {
@@ -99,23 +103,36 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
             {
                 let last_col = num_cols.saturating_sub(1);
                 table_state.view.state.select_column(Some(last_col));
-                table_state.adjust_offset_for_selected_column(
+                crate::widgets::table::adjust_offset_for_selected_column(
+                    &mut table_state.view.column_offset,
+                    &table_state.model.longest_item_lens,
                     last_col,
                     DEFAULT_TERMINAL_WIDTH as usize,
                 );
-                TableNavigationHandler::wrap_columns(table_state);
+                TableNavigationHandler::wrap_columns(
+                    &mut table_state.view.state,
+                    &table_state.model.items,
+                    &mut table_state.view.column_offset,
+                );
             }
             return;
         }
         KeyCode::Char('g') => {
             // Note: Connection list uses index 1 instead of 0 for first row
             table_state.view.state.select(Some(1));
-            TableNavigationHandler::wrap_rows(table_state);
+            TableNavigationHandler::wrap_rows(
+                &mut table_state.view.state,
+                &table_state.model.items,
+            );
             return;
         }
         _ => {}
     }
 
     // Use standard navigation for common keys (j/k/h/l/G/etc)
-    TableNavigationHandler::navigate_table(table_state, key);
+    TableNavigationHandler::navigate_table(
+        &mut table_state.model,
+        &mut table_state.view,
+        key,
+    );
 }

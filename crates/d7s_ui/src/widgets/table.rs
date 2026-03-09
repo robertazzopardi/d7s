@@ -112,49 +112,6 @@ impl<T: TableData + Clone> TableDataState<T> {
             .cloned()
             .collect()
     }
-
-    /// Adjusts `column_offset` to ensure the selected column is visible
-    pub fn adjust_offset_for_selected_column(
-        &mut self,
-        selected_col: usize,
-        area_width: usize,
-    ) {
-        if self.model.longest_item_lens.is_empty() {
-            return;
-        }
-
-        // Calculate cumulative widths to determine visible range
-        let mut cumulative_width = 0;
-        let mut visible_end = self.view.column_offset;
-        for (idx, &len) in self
-            .model
-            .longest_item_lens
-            .iter()
-            .enumerate()
-            .skip(self.view.column_offset)
-        {
-            let col_width = len + 1; // Add 1 for padding
-            if cumulative_width + col_width > area_width {
-                break;
-            }
-            cumulative_width += col_width;
-            visible_end = idx + 1;
-        }
-
-        // Adjust offset if selected column is not visible
-        if selected_col < self.view.column_offset {
-            self.view.column_offset = selected_col;
-        } else if selected_col >= visible_end {
-            // Scroll to show selected column - try to show it at the start
-            self.view.column_offset = selected_col;
-        }
-
-        // Clamp offset to valid range
-        if self.view.column_offset >= self.model.longest_item_lens.len() {
-            self.view.column_offset =
-                self.model.longest_item_lens.len().saturating_sub(1);
-        }
-    }
 }
 
 impl TableDataState<RawTableRow> {
@@ -413,4 +370,42 @@ fn create_table_styles()
         highlight_symbol,
         HighlightSpacing::Always,
     )
+}
+
+/// Adjusts `column_offset` to ensure the selected column is visible
+pub fn adjust_offset_for_selected_column(
+    column_offset: &mut usize,
+    longest_item_lens: &[usize],
+    selected_col: usize,
+    area_width: usize,
+) {
+    if longest_item_lens.is_empty() {
+        return;
+    }
+
+    // Calculate cumulative widths to determine visible range
+    let mut cumulative_width = 0;
+    let mut visible_end = *column_offset;
+    for (idx, &len) in longest_item_lens.iter().enumerate().skip(*column_offset)
+    {
+        let col_width = len + 1; // Add 1 for padding
+        if cumulative_width + col_width > area_width {
+            break;
+        }
+        cumulative_width += col_width;
+        visible_end = idx + 1;
+    }
+
+    // Adjust offset if selected column is not visible
+    if selected_col < *column_offset {
+        *column_offset = selected_col;
+    } else if selected_col >= visible_end {
+        // Scroll to show selected column - try to show it at the start
+        *column_offset = selected_col;
+    }
+
+    // Clamp offset to valid range
+    if *column_offset >= longest_item_lens.len() {
+        *column_offset = longest_item_lens.len().saturating_sub(1);
+    }
 }

@@ -54,7 +54,7 @@ impl App<'_> {
         }
 
         // Handle application shortcuts (q, n, d, e, t, s, Esc, Enter)
-        if self.handle_application_shortcuts(key).await? {
+        if self.handle_hotkeys(key).await? {
             return Ok(());
         }
 
@@ -66,14 +66,15 @@ impl App<'_> {
 
     /// Handle application shortcuts (q, n, d, e, t, s, Esc, Enter)
     /// Returns true if the key was handled and should stop processing
-    async fn handle_application_shortcuts(
-        &mut self,
-        key: KeyEvent,
-    ) -> Result<bool> {
+    async fn handle_hotkeys(&mut self, key: KeyEvent) -> Result<bool> {
         match (key.modifiers, key.code) {
             (_, KeyCode::Char('q'))
             | (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
                 self.quit();
+                Ok(true)
+            }
+            (_, KeyCode::Char('y')) => {
+                self.copy();
                 Ok(true)
             }
             (_, KeyCode::Char('n')) => {
@@ -120,6 +121,13 @@ impl App<'_> {
             (_, KeyCode::Esc) => {
                 if self.modal_manager.is_any_modal_open() {
                     self.modal_manager.close_active_modal();
+                } else if self
+                    .database_explorer
+                    .current_table_state_mut()
+                    .and_then(|s| s.selected_column())
+                    .is_some_and(|col| col > 0)
+                {
+                    self.reset_table_selection_state();
                 } else if self.state == AppState::DatabaseConnected {
                     let is_sql_executor = matches!(
                         self.database_explorer.state,
@@ -140,6 +148,7 @@ impl App<'_> {
                         self.go_back_in_database();
                     }
                 }
+
                 Ok(true)
             }
             (_, KeyCode::Enter) => {
@@ -155,6 +164,18 @@ impl App<'_> {
             }
             _ => Ok(false),
         }
+    }
+
+    fn reset_table_selection_state(&mut self) {
+        let explorer = &mut self.database_explorer;
+        let Some(table_state) = explorer.current_table_state_mut() else {
+            // NOTE do nothing to the table state if not state returned
+            return;
+        };
+
+        let row = table_state.selected();
+        *table_state = Default::default();
+        table_state.select(row);
     }
 
     /// Handle navigation keys (j/k/h/l, 0/$, g/G, /)
@@ -256,10 +277,7 @@ impl App<'_> {
         let Some(connection) = self.get_selected_connection() else {
             return;
         };
-        let password =
-            crate::services::PasswordService::get_connection_password(
-                connection,
-            );
+        let password = PasswordService::get_connection_password(connection);
         let connection = connection.clone();
         self.modal_manager
             .open_edit_connection_modal(&connection, password);
@@ -442,8 +460,7 @@ impl App<'_> {
                 // delete the old keyring credential after the save succeeds.
                 if let Some(ref orig_name) = original_name {
                     if connection.should_ask_every_time() {
-                        let _ =
-                            PasswordService::delete_from_keyring(orig_name);
+                        let _ = PasswordService::delete_from_keyring(orig_name);
                     }
                 }
                 modal.close();

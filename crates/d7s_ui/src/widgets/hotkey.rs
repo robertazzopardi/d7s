@@ -13,3 +13,12 @@ impl Display for Hotkey<'_> {
         write!(f, "{}", self.keycode)
     }
 }
+
+impl<'a> Hotkey<'a> {
+    pub const fn new(c: char, description: &'a str) -> Self {
+        Self {
+            keycode: KeyCode::Char(c),
+            description,
+        }
+    }
+}

@@ -24,13 +24,28 @@ impl<T: TableData + Clone> FilteredData<T> {
     /// Apply a filter to the data
     pub fn apply_filter(&mut self, query: &str) {
         self.table.model.items = self.table.filter(query);
-        TableNavigationHandler::wrap_rows(&mut self.table);
+        TableNavigationHandler::wrap_rows(
+            &mut self.table.view.state,
+            &self.table.model.items,
+        );
     }
 
     /// Clear the filter and restore original data
     pub fn clear_filter(&mut self) {
         self.table.model.items.clone_from(&self.original);
-        TableNavigationHandler::wrap_rows(&mut self.table);
+        TableNavigationHandler::wrap_rows(
+            &mut self.table.view.state,
+            &self.table.model.items,
+        );
+    }
+
+    /// Navigate the table using a key event
+    pub fn navigate(&mut self, key: crossterm::event::KeyCode) {
+        TableNavigationHandler::navigate_table(
+            &mut self.table.model,
+            &mut self.table.view,
+            key,
+        );
     }
 
     /// Check if the data is currently filtered

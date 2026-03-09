@@ -1,7 +1,10 @@
 use d7s_db::{TableData, connection::Connection};
 use d7s_ui::{
     sql_executor::SqlExecutor,
-    widgets::{table::DataTable, top_bar_view::TopBarView},
+    widgets::{
+        modal::ConnectionModalWidget, table::DataTable,
+        top_bar_view::TopBarView,
+    },
 };
 use ratatui::{
     Frame,
@@ -95,7 +98,7 @@ impl App<'_> {
         };
 
         // Use explorer state for title and content (Connections uses same path as other states)
-        let title = format!("{}", self.database_explorer.state);
+        let title = self.database_explorer.state.to_string();
         let block = Block::new()
             .borders(Borders::ALL)
             .title(title)
@@ -121,11 +124,7 @@ impl App<'_> {
         let area = frame.area();
 
         if let Some(modal) = self.modal_manager.get_connection_modal_mut() {
-            frame.render_stateful_widget(
-                d7s_ui::widgets::modal::ConnectionModalWidget,
-                area,
-                modal,
-            );
+            frame.render_stateful_widget(ConnectionModalWidget, area, modal);
         }
 
         if let Some(modal) = self.modal_manager.get_confirmation_modal() {

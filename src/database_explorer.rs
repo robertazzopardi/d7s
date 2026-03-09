@@ -361,65 +361,18 @@ impl App<'_> {
 
     /// Handle table navigation for the current database table
     pub fn handle_database_table_navigation(&mut self, key: KeyCode) {
-        let explorer_state = self.database_explorer.state.clone();
-
-        match explorer_state {
+        match self.database_explorer.state {
             DatabaseExplorerState::Connections => {
-                TableNavigationHandler::navigate_table(
-                    &mut self.connections.table,
-                    key,
-                );
-            }
-            DatabaseExplorerState::Databases => {
-                if let Some(ref mut databases) =
-                    self.database_explorer.databases
-                {
-                    TableNavigationHandler::navigate_table(
-                        &mut databases.table,
-                        key,
-                    );
-                }
-            }
-            DatabaseExplorerState::Schemas => {
-                if let Some(ref mut schemas) = self.database_explorer.schemas {
-                    TableNavigationHandler::navigate_table(
-                        &mut schemas.table,
-                        key,
-                    );
-                }
-            }
-            DatabaseExplorerState::Tables(_) => {
-                if let Some(ref mut tables) = self.database_explorer.tables {
-                    TableNavigationHandler::navigate_table(
-                        &mut tables.table,
-                        key,
-                    );
-                }
-            }
-            DatabaseExplorerState::Columns(_, _) => {
-                if let Some(ref mut columns) = self.database_explorer.columns {
-                    TableNavigationHandler::navigate_table(
-                        &mut columns.table,
-                        key,
-                    );
-                }
-            }
-            DatabaseExplorerState::TableData(_, _) => {
-                if let Some(ref mut table_data) =
-                    self.database_explorer.table_data
-                {
-                    TableNavigationHandler::navigate_table(
-                        &mut table_data.table,
-                        key,
-                    );
-                }
+                self.connections.navigate(key);
             }
             DatabaseExplorerState::SqlExecutor => {
                 TableNavigationHandler::navigate_table(
-                    &mut self.sql_executor.table_state,
+                    &mut self.sql_executor.table_state.model,
+                    &mut self.sql_executor.table_state.view,
                     key,
                 );
             }
+            _ => self.database_explorer.navigate_current(key),
         }
     }
 }

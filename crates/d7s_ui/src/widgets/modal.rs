@@ -716,21 +716,20 @@ impl Modal {
                 if let Some(button_idx) = self.is_on_button() {
                     // New: [Back=0, OK=1, Test=2, Cancel=3]
                     // Edit: [OK=0, Test=1, Cancel=2]
-                    let (is_back, is_ok, is_test, is_cancel) =
-                        match self.mode {
-                            Mode::New => (
-                                button_idx == 0,
-                                button_idx == 1,
-                                button_idx == 2,
-                                button_idx == 3,
-                            ),
-                            Mode::Edit => (
-                                false,
-                                button_idx == 0,
-                                button_idx == 1,
-                                button_idx == 2,
-                            ),
-                        };
+                    let (is_back, is_ok, is_test, is_cancel) = match self.mode {
+                        Mode::New => (
+                            button_idx == 0,
+                            button_idx == 1,
+                            button_idx == 2,
+                            button_idx == 3,
+                        ),
+                        Mode::Edit => (
+                            false,
+                            button_idx == 0,
+                            button_idx == 1,
+                            button_idx == 2,
+                        ),
+                    };
                     if is_back {
                         self.back_to_step1();
                         ModalAction::None
@@ -784,8 +783,7 @@ impl Modal {
                         usize::from(self.is_password_storage_row_visible());
                     let button_start = self.visible_fields_count() + storage;
                     let count = self.button_count();
-                    let new_button_idx =
-                        (button_idx + count - 1) % count;
+                    let new_button_idx = (button_idx + count - 1) % count;
                     self.current_field = button_start + new_button_idx;
                 } else {
                     self.prev_field();

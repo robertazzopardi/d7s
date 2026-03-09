@@ -8,7 +8,7 @@ use d7s_ui::widgets::{
 use ratatui::DefaultTerminal;
 
 use crate::{
-    app_state::AppState,
+    app_state::{AppState, DatabaseExplorerState},
     database_explorer_state::DatabaseExplorer,
     filtered_data::FilteredData,
     services::{ConnectionService, PasswordService},
@@ -96,6 +96,22 @@ impl App<'_> {
             if !self.search_filter.get_filter_query().is_empty() {
                 self.apply_filter();
             }
+        }
+    }
+
+    /// Copy the value under the cursor to the clipboard
+    pub(crate) fn copy(&mut self) {
+        let explorer = &self.database_explorer;
+        match &explorer.state {
+            DatabaseExplorerState::Connections => {
+                todo!()
+            }
+            DatabaseExplorerState::Databases => {}
+            DatabaseExplorerState::Schemas => {}
+            DatabaseExplorerState::Tables(_) => {}
+            DatabaseExplorerState::Columns(_, _) => {}
+            DatabaseExplorerState::TableData(_, _) => {}
+            DatabaseExplorerState::SqlExecutor => {}
         }
     }
 

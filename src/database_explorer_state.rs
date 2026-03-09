@@ -1,7 +1,9 @@
+use crossterm::event::KeyCode;
 use d7s_db::{
     Column, Database, DatabaseInfo, Schema, Table, connection::Connection,
 };
 use d7s_ui::widgets::table::RawTableRow;
+use ratatui::widgets::TableState;
 
 use crate::{app_state::DatabaseExplorerState, filtered_data::FilteredData};
 
@@ -44,6 +46,72 @@ impl DatabaseExplorer {
             tables: None,
             columns: None,
             table_data: None,
+        }
+    }
+
+    /// Navigate the currently active explorer table (excludes Connections and SqlExecutor)
+    pub fn navigate_current(&mut self, key: KeyCode) {
+        match &self.state {
+            DatabaseExplorerState::Databases => {
+                if let Some(ref mut t) = self.databases {
+                    t.navigate(key);
+                }
+            }
+            DatabaseExplorerState::Schemas => {
+                if let Some(ref mut t) = self.schemas {
+                    t.navigate(key);
+                }
+            }
+            DatabaseExplorerState::Tables(_) => {
+                if let Some(ref mut t) = self.tables {
+                    t.navigate(key);
+                }
+            }
+            DatabaseExplorerState::Columns(_, _) => {
+                if let Some(ref mut t) = self.columns {
+                    t.navigate(key);
+                }
+            }
+            DatabaseExplorerState::TableData(_, _) => {
+                if let Some(ref mut t) = self.table_data {
+                    t.navigate(key);
+                }
+            }
+            DatabaseExplorerState::Connections
+            | DatabaseExplorerState::SqlExecutor => {}
+        }
+    }
+
+    pub fn current_table_state_mut(&mut self) -> Option<&mut TableState> {
+        let state = &mut self.state;
+        match state {
+            DatabaseExplorerState::Connections => {
+                // &mut self.connections.table,
+                None
+            }
+            DatabaseExplorerState::Databases => {
+                self.databases.as_mut().map(|dbs| &mut dbs.table.view.state)
+            }
+            DatabaseExplorerState::Schemas => self
+                .schemas
+                .as_mut()
+                .map(|schemas| &mut schemas.table.view.state),
+            DatabaseExplorerState::Tables(_) => self
+                .tables
+                .as_mut()
+                .map(|tables| &mut tables.table.view.state),
+            DatabaseExplorerState::Columns(_, _) => self
+                .columns
+                .as_mut()
+                .map(|columns| &mut columns.table.view.state),
+            DatabaseExplorerState::TableData(_, _) => self
+                .table_data
+                .as_mut()
+                .map(|table_data| &mut table_data.table.view.state),
+            DatabaseExplorerState::SqlExecutor => {
+                // &mut self.sql_executor.table_state
+                None
+            }
         }
     }
 }

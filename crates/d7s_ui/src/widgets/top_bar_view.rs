@@ -1,4 +1,3 @@
-use crossterm::event::KeyCode;
 use d7s_db::connection::Connection;
 use ratatui::{
     prelude::{Buffer, Constraint, Layout, Rect, Widget},
@@ -7,39 +6,26 @@ use ratatui::{
 
 use super::{hotkey::Hotkey, hotkey_view::HotkeyView};
 
-pub const CONNECTION_HOTKEYS: [Hotkey; 4] = [
-    Hotkey {
-        keycode: KeyCode::Char('n'),
-        description: "New Connection",
-    },
-    Hotkey {
-        keycode: KeyCode::Char('e'),
-        description: "Edit Connection",
-    },
-    Hotkey {
-        keycode: KeyCode::Char('d'),
-        description: "Delete Connection",
-    },
-    Hotkey {
-        keycode: KeyCode::Char('o'),
-        description: "Open Connection",
-    },
+pub const CONNECTION_HOTKEYS: [Hotkey; 5] = [
+    Hotkey::new('n', "New Connection"),
+    Hotkey::new('e', "Edit Connection"),
+    Hotkey::new('d', "Delete Connection"),
+    Hotkey::new('o', "Open Connection"),
+    Hotkey::new('y', "Copy value"),
 ];
 
 pub const DATABASE_HOTKEYS: [Hotkey; 3] = [
-    Hotkey {
-        keycode: KeyCode::Char('s'),
-        description: "SQL Executor",
-    },
-    Hotkey {
-        keycode: KeyCode::Char('t'),
-        description: "Toggle View",
-    },
-    Hotkey {
-        keycode: KeyCode::Char('/'),
-        description: "Search",
-    },
+    Hotkey::new('s', "SQL Executor"),
+    Hotkey::new('t', "Toggle View"),
+    Hotkey::new('/', "Search"),
 ];
+
+const COLUMN_CONSTRAINTS: [Constraint; 3] = [
+    Constraint::Percentage(30),
+    Constraint::Percentage(40),
+    Constraint::Percentage(30),
+];
+const ROW_CONSTRAINTS: [Constraint; 1] = [Constraint::Fill(1)];
 
 pub struct TopBarView<'a> {
     pub current_connection: Connection,
@@ -50,15 +36,8 @@ pub struct TopBarView<'a> {
 
 impl Widget for TopBarView<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let col_constraints = [
-            Constraint::Percentage(30),
-            Constraint::Percentage(40),
-            Constraint::Percentage(30),
-        ];
-        let row_constraints = [Constraint::Fill(1)];
-
-        let horizontal = Layout::horizontal(col_constraints).spacing(1);
-        let vertical = Layout::vertical(row_constraints).spacing(1);
+        let horizontal = Layout::horizontal(COLUMN_CONSTRAINTS).spacing(1);
+        let vertical = Layout::vertical(ROW_CONSTRAINTS).spacing(1);
 
         let rows = vertical.split(area);
         let cells = rows
