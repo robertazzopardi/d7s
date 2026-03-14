@@ -1,5 +1,6 @@
 use color_eyre::Result;
-use d7s_db::sqlite::init_db;
+use crossterm::{clipboard, execute};
+use d7s_db::{TableData, sqlite::init_db};
 use d7s_ui::widgets::{
     hotkey::Hotkey, modal::ModalManager, search_filter::SearchFilter,
     status_line::StatusLine, top_bar_view::CONNECTION_HOTKEYS,
@@ -95,16 +96,86 @@ impl App<'_> {
     /// Copy the value under the cursor to the clipboard
     pub(crate) fn copy(&mut self) {
         let explorer = &self.database_explorer;
-        match &explorer.state {
-            DatabaseExplorerState::Connections => {
-                todo!()
+        let value: Option<String> = (|| -> Option<String> {
+            let v = match &explorer.state {
+                DatabaseExplorerState::Connections => {
+                    let view = &explorer.connections.table.view;
+                    let selected = view.state.selected()?;
+                    let col = view.state.selected_column().unwrap_or(0);
+                    explorer
+                        .connections
+                        .table
+                        .model
+                        .items
+                        .get(selected)?
+                        .col(col)
+                }
+                DatabaseExplorerState::Databases => {
+                    let dbs = explorer.databases.as_ref()?;
+                    let selected = dbs.table.view.state.selected()?;
+                    let col =
+                        dbs.table.view.state.selected_column().unwrap_or(0);
+                    dbs.table.model.items.get(selected)?.col(col)
+                }
+                DatabaseExplorerState::Schemas => {
+                    let schemas = explorer.schemas.as_ref()?;
+                    let selected = schemas.table.view.state.selected()?;
+                    let col =
+                        schemas.table.view.state.selected_column().unwrap_or(0);
+                    schemas.table.model.items.get(selected)?.col(col)
+                }
+                DatabaseExplorerState::Tables(_) => {
+                    let tables = explorer.tables.as_ref()?;
+                    let selected = tables.table.view.state.selected()?;
+                    let col =
+                        tables.table.view.state.selected_column().unwrap_or(0);
+                    tables.table.model.items.get(selected)?.col(col)
+                }
+                DatabaseExplorerState::Columns(_, _) => {
+                    let columns = explorer.columns.as_ref()?;
+                    let selected = columns.table.view.state.selected()?;
+                    let col =
+                        columns.table.view.state.selected_column().unwrap_or(0);
+                    columns.table.model.items.get(selected)?.col(col)
+                }
+                DatabaseExplorerState::TableData(_, _) => {
+                    let table_data = explorer.table_data.as_ref()?;
+                    let selected_row =
+                        table_data.table.view.state.selected()?;
+                    let selected_col = table_data
+                        .table
+                        .view
+                        .state
+                        .selected_column()
+                        .unwrap_or(0);
+                    let row = table_data.table.model.items.get(selected_row)?;
+                    row.values.get(selected_col)?.clone()
+                }
+                DatabaseExplorerState::SqlExecutor => {
+                    let table = &explorer.sql_executor.table_state;
+                    let selected_row = table.view.state.selected()?;
+                    let selected_col =
+                        table.view.state.selected_column().unwrap_or(0);
+                    let row = table.model.items.get(selected_row)?;
+                    row.values.get(selected_col)?.clone()
+                }
+            };
+            Some(v)
+        })();
+        if let Some(value) = value {
+            if execute!(
+                std::io::stdout(),
+                clipboard::CopyToClipboard {
+                    content: value.clone(),
+                    destination: clipboard::ClipboardSelection(vec![
+                        clipboard::ClipboardType::Clipboard,
+                    ]),
+                }
+            )
+            .is_ok()
+            {
+                self.set_status(format!("Copied: {value}"));
             }
-            DatabaseExplorerState::Databases => {}
-            DatabaseExplorerState::Schemas => {}
-            DatabaseExplorerState::Tables(_) => {}
-            DatabaseExplorerState::Columns(_, _) => {}
-            DatabaseExplorerState::TableData(_, _) => {}
-            DatabaseExplorerState::SqlExecutor => {}
         }
     }
 
