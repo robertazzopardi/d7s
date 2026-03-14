@@ -1,9 +1,8 @@
 use color_eyre::Result;
-use d7s_db::{connection::Connection, sqlite::init_db};
+use d7s_db::sqlite::init_db;
 use d7s_ui::widgets::{
     hotkey::Hotkey, modal::ModalManager, search_filter::SearchFilter,
-    sql_executor::SqlExecutorState, status_line::StatusLine,
-    top_bar_view::CONNECTION_HOTKEYS,
+    status_line::StatusLine, top_bar_view::CONNECTION_HOTKEYS,
 };
 use ratatui::DefaultTerminal;
 
@@ -37,12 +36,8 @@ pub struct App<'a> {
     pub(crate) hotkeys: Vec<Hotkey<'a>>,
     /// Current application state
     pub(crate) state: AppState,
-    /// Connection list with filtering
-    pub(crate) connections: FilteredData<Connection>,
     /// Database explorer state (when connected to a database)
     pub(crate) database_explorer: DatabaseExplorer,
-    /// SQL executor state
-    pub(crate) sql_executor: SqlExecutorState,
     /// Search filter widget
     pub(crate) search_filter: SearchFilter,
     /// Status line widget
@@ -58,9 +53,7 @@ impl Default for App<'_> {
             modal_manager: ModalManager::new(),
             hotkeys: CONNECTION_HOTKEYS.to_vec(),
             state: AppState::ConnectionList,
-            connections: FilteredData::new(Vec::new()),
             database_explorer: DatabaseExplorer::default(),
-            sql_executor: SqlExecutorState::new(),
             search_filter: SearchFilter::new(),
             status_line: StatusLine::new(),
             password_service: PasswordService::new(),
@@ -73,7 +66,7 @@ impl App<'_> {
         init_db()?;
 
         let items = ConnectionService::get_all().unwrap_or_default();
-        self.connections = FilteredData::new(items);
+        self.database_explorer.connections = FilteredData::new(items);
 
         Ok(self)
     }
@@ -91,7 +84,7 @@ impl App<'_> {
     /// Refresh the table data from the database
     pub(crate) fn refresh_connections(&mut self) {
         if let Ok(connections) = ConnectionService::get_all() {
-            self.connections = FilteredData::new(connections);
+            self.database_explorer.connections = FilteredData::new(connections);
             // Reapply filter if one is active
             if !self.search_filter.get_filter_query().is_empty() {
                 self.apply_filter();

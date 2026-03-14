@@ -13,7 +13,7 @@ impl App<'_> {
         let explorer = &self.database_explorer;
         match &explorer.state {
             DatabaseExplorerState::Connections => {
-                self.connections.is_filtered()
+                self.database_explorer.connections.is_filtered()
             }
             DatabaseExplorerState::Databases => explorer
                 .databases
@@ -44,7 +44,7 @@ impl App<'_> {
         let explorer = &mut self.database_explorer;
         match explorer.state {
             DatabaseExplorerState::Connections => {
-                self.connections.clear_filter();
+                self.database_explorer.connections.clear_filter();
             }
             DatabaseExplorerState::Databases => {
                 if let Some(ref mut databases) = explorer.databases {
@@ -80,7 +80,7 @@ impl App<'_> {
         let explorer = &mut self.database_explorer;
         match explorer.state {
             DatabaseExplorerState::Connections => {
-                self.connections.apply_filter(query);
+                self.database_explorer.connections.apply_filter(query);
             }
             DatabaseExplorerState::Databases => {
                 if let Some(ref mut databases) = explorer.databases {

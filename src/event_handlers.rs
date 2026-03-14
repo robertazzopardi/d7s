@@ -136,7 +136,7 @@ impl App<'_> {
 
                     if is_sql_executor {
                         // Restore the previous state before SQL executor was opened
-                        self.sql_executor.deactivate();
+                        self.database_explorer.sql_executor.deactivate();
                         if let Some(previous_state) =
                             self.database_explorer.previous_state.take()
                         {
@@ -256,7 +256,10 @@ impl App<'_> {
         );
 
         is_sql_executor
-            && handle_sql_executor_input(key, &mut self.sql_executor)
+            && handle_sql_executor_input(
+                key,
+                &mut self.database_explorer.sql_executor,
+            )
     }
 
     /// Handle delete connection action
@@ -317,7 +320,7 @@ impl App<'_> {
         // Save the current state before entering SQL executor
         explorer.previous_state = Some(explorer.state.clone());
         explorer.state = DatabaseExplorerState::SqlExecutor;
-        self.sql_executor.activate();
+        self.database_explorer.sql_executor.activate();
     }
 
     /// Handle modal events

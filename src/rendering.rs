@@ -148,7 +148,7 @@ impl App<'_> {
                 frame.render_stateful_widget(
                     DataTable::<Connection>::default(),
                     area,
-                    &mut self.connections.table,
+                    &mut self.database_explorer.connections.table,
                 );
             }
             DatabaseExplorerState::Databases => {
@@ -190,16 +190,21 @@ impl App<'_> {
                 frame.render_stateful_widget(
                     SqlExecutor,
                     area,
-                    &mut self.sql_executor,
+                    &mut self.database_explorer.sql_executor,
                 );
 
                 // Set cursor position if SQL executor is active and showing input
-                if self.sql_executor.is_active
-                    && self.sql_executor.results.is_none()
-                    && self.sql_executor.error_message.is_none()
+                if self.database_explorer.sql_executor.is_active
+                    && self.database_explorer.sql_executor.results.is_none()
+                    && self
+                        .database_explorer
+                        .sql_executor
+                        .error_message
+                        .is_none()
                 {
-                    let cursor_pos = self.sql_executor.cursor_position();
-                    let text = self.sql_executor.sql_input();
+                    let cursor_pos =
+                        self.database_explorer.sql_executor.cursor_position();
+                    let text = self.database_explorer.sql_executor.sql_input();
 
                     // Calculate cursor position accounting for text wrapping
                     // Paragraph wraps text at area width

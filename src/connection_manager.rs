@@ -11,13 +11,12 @@ use crate::{
 impl App<'_> {
     /// Get the currently selected connection from the connection list
     pub fn get_selected_connection(&self) -> Option<&Connection> {
-        self.connections
-            .table
-            .view
-            .state
+        let model = &self.database_explorer.connections.table.model;
+        let state = &self.database_explorer.connections.table.view.state;
+        state
             .selected()
-            .filter(|&idx| idx < self.connections.table.model.items.len())
-            .and_then(|idx| self.connections.table.model.items.get(idx))
+            .filter(|&idx| idx < model.items.len())
+            .and_then(|idx| model.items.get(idx))
     }
 
     /// Connect to the selected database

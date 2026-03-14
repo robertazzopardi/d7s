@@ -270,18 +270,22 @@ impl App<'_> {
 
     /// Execute SQL query from the SQL executor
     async fn execute_sql_query(&mut self) {
-        let sql = self.sql_executor.sql_input().trim().to_string();
+        let sql = self
+            .database_explorer
+            .sql_executor
+            .sql_input()
+            .trim()
+            .to_string();
         if sql.is_empty() {
             return;
         }
 
-        let explorer = &self.database_explorer;
-        let Some(database) = explorer.database.as_ref() else {
+        let Some(database) = self.database_explorer.database.as_ref() else {
             return;
         };
 
         // Clear any previous results/errors before executing
-        self.sql_executor.clear_results();
+        self.database_explorer.sql_executor.clear_results();
 
         match database.execute_sql(&sql).await {
             Ok(results) => {
@@ -294,7 +298,8 @@ impl App<'_> {
                     );
                 } else if let Some(first_result) = results.first() {
                     // Has data - show results in SQL executor
-                    self.sql_executor
+                    self.database_explorer
+                        .sql_executor
                         .set_results(data, &first_result.column_names);
                 }
             }
@@ -363,12 +368,12 @@ impl App<'_> {
     pub fn handle_database_table_navigation(&mut self, key: KeyCode) {
         match self.database_explorer.state {
             DatabaseExplorerState::Connections => {
-                self.connections.navigate(key);
+                self.database_explorer.connections.navigate(key);
             }
             DatabaseExplorerState::SqlExecutor => {
                 TableNavigationHandler::navigate_table(
-                    &mut self.sql_executor.table_state.model,
-                    &mut self.sql_executor.table_state.view,
+                    &mut self.database_explorer.sql_executor.table_state.model,
+                    &mut self.database_explorer.sql_executor.table_state.view,
                     key,
                 );
             }

@@ -2,7 +2,7 @@ use crossterm::event::KeyCode;
 use d7s_db::{
     Column, Database, DatabaseInfo, Schema, Table, connection::Connection,
 };
-use d7s_ui::widgets::table::RawTableRow;
+use d7s_ui::{sql_executor::SqlExecutorState, widgets::table::RawTableRow};
 use ratatui::widgets::TableState;
 
 use crate::{app_state::DatabaseExplorerState, filtered_data::FilteredData};
@@ -16,6 +16,8 @@ pub struct DatabaseExplorer {
     pub database: Option<Box<dyn Database>>,
     /// Current navigation state in the database
     pub state: DatabaseExplorerState,
+    /// Connection list with filtering
+    pub connections: FilteredData<Connection>,
     /// Previous state before entering SQL executor (to restore on exit)
     pub previous_state: Option<DatabaseExplorerState>,
     /// Cached database list
@@ -28,6 +30,8 @@ pub struct DatabaseExplorer {
     pub columns: Option<FilteredData<Column>>,
     /// Cached table row data
     pub table_data: Option<FilteredData<RawTableRow>>,
+    /// SQL executor state
+    pub sql_executor: SqlExecutorState,
 }
 
 impl DatabaseExplorer {
@@ -39,6 +43,7 @@ impl DatabaseExplorer {
         Self {
             connection,
             database,
+            connections: FilteredData::default(),
             state: DatabaseExplorerState::Databases,
             previous_state: None,
             databases: None,
@@ -46,6 +51,7 @@ impl DatabaseExplorer {
             tables: None,
             columns: None,
             table_data: None,
+            sql_executor: SqlExecutorState::new(),
         }
     }
 
@@ -86,8 +92,7 @@ impl DatabaseExplorer {
         let state = &mut self.state;
         match state {
             DatabaseExplorerState::Connections => {
-                // &mut self.connections.table,
-                None
+                Some(&mut self.connections.table.view.state)
             }
             DatabaseExplorerState::Databases => {
                 self.databases.as_mut().map(|dbs| &mut dbs.table.view.state)
@@ -109,8 +114,7 @@ impl DatabaseExplorer {
                 .as_mut()
                 .map(|table_data| &mut table_data.table.view.state),
             DatabaseExplorerState::SqlExecutor => {
-                // &mut self.sql_executor.table_state
-                None
+                Some(&mut self.sql_executor.table_state.view.state)
             }
         }
     }

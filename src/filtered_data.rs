@@ -4,7 +4,7 @@ use d7s_ui::{
 };
 
 /// A wrapper for managing filtered data with original data preservation
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct FilteredData<T: TableData + Clone> {
     /// Original unfiltered data
     pub original: Vec<T>,
