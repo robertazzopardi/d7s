@@ -22,6 +22,7 @@ impl App<'_> {
     pub async fn handle_crossterm_events(&mut self) -> Result<()> {
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
+                self.clear_status();
                 self.on_key_event(key).await?;
             }
             Event::Key(_)

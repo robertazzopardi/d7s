@@ -188,4 +188,9 @@ impl App<'_> {
     pub fn set_status(&mut self, message: impl Into<String>) {
         self.status_line.set_message(message);
     }
+
+    /// Clear the status line
+    pub fn clear_status(&mut self) {
+        self.status_line.clear();
+    }
 }
