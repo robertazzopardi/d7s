@@ -14,9 +14,6 @@ use crate::{
     services::{ConnectionService, PasswordService},
 };
 
-// Layout constants
-pub const TOPBAR_HEIGHT_PERCENT: u16 = 13;
-
 pub const APP_NAME: &str = r"_________________
 \______ \______  \______
  |    |  \  /    /  ___/

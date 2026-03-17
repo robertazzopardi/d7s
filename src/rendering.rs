@@ -13,10 +13,12 @@ use ratatui::{
 };
 
 use crate::{
-    app::{APP_NAME, App, TOPBAR_HEIGHT_PERCENT},
+    app::{APP_NAME, App},
     app_state::DatabaseExplorerState,
     filtered_data::FilteredData,
 };
+
+const TOPBAR_HEIGHT: u16 = 6;
 
 impl App<'_> {
     /// Renders the user interface.
@@ -28,10 +30,8 @@ impl App<'_> {
     pub fn render(&mut self, frame: &mut Frame) {
         // Split layout: top bar, main content, and status line
         // Status line gets fixed 1 row, main content takes the rest
-        let mut main_layout = vec![
-            Constraint::Percentage(TOPBAR_HEIGHT_PERCENT),
-            Constraint::Min(0),
-        ];
+        let mut main_layout =
+            vec![Constraint::Length(TOPBAR_HEIGHT), Constraint::Min(0)];
 
         if !self.status_line.message().is_empty() {
             main_layout.push(Constraint::Length(1));
