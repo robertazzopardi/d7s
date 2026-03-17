@@ -55,7 +55,7 @@ impl DatabaseExplorer {
         }
     }
 
-    /// Navigate the currently active explorer table (excludes Connections and SqlExecutor)
+    /// Navigate the currently active explorer table (excludes Connections and `SqlExecutor`)
     pub fn navigate_current(&mut self, key: KeyCode) {
         match &self.state {
             DatabaseExplorerState::Databases => {

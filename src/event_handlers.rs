@@ -7,6 +7,7 @@ use d7s_ui::{
     handlers::{handle_search_filter_input, handle_sql_executor_input},
     widgets::modal::{ModalAction, TestResult},
 };
+use ratatui::widgets::TableState;
 
 use crate::{
     app::App,
@@ -175,7 +176,7 @@ impl App<'_> {
         };
 
         let row = table_state.selected();
-        *table_state = Default::default();
+        *table_state = TableState::default();
         table_state.select(row);
     }
 
@@ -462,10 +463,10 @@ impl App<'_> {
             Ok(()) => {
                 // If switching to "ask every time" on an existing connection,
                 // delete the old keyring credential after the save succeeds.
-                if let Some(ref orig_name) = original_name {
-                    if connection.should_ask_every_time() {
-                        let _ = PasswordService::delete_from_keyring(orig_name);
-                    }
+                if let Some(ref orig_name) = original_name
+                    && connection.should_ask_every_time()
+                {
+                    let _ = PasswordService::delete_from_keyring(orig_name);
                 }
                 modal.close();
                 self.refresh_connections();

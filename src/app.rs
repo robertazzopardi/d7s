@@ -162,8 +162,8 @@ impl App<'_> {
             };
             Some(v)
         })();
-        if let Some(value) = value {
-            if execute!(
+        if let Some(value) = value
+            && execute!(
                 std::io::stdout(),
                 clipboard::CopyToClipboard {
                     content: value.clone(),
@@ -173,9 +173,8 @@ impl App<'_> {
                 }
             )
             .is_ok()
-            {
-                self.set_status(format!("Copied: {value}"));
-            }
+        {
+            self.set_status(format!("Copied: {value}"));
         }
     }
 

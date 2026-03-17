@@ -378,7 +378,13 @@ impl App<'_> {
                     key,
                 );
             }
-            _ => self.database_explorer.navigate_current(key),
+            DatabaseExplorerState::Databases
+            | DatabaseExplorerState::Schemas
+            | DatabaseExplorerState::Tables(_)
+            | DatabaseExplorerState::Columns(..)
+            | DatabaseExplorerState::TableData(..) => {
+                self.database_explorer.navigate_current(key);
+            }
         }
     }
 }

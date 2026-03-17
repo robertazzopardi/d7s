@@ -479,7 +479,7 @@ impl Modal {
     }
 
     /// Number of buttons shown: New has Back, OK, Test, Cancel (4); Edit has OK, Test, Cancel (3).
-    fn button_count(&self) -> usize {
+    const fn button_count(&self) -> usize {
         match self.mode {
             Mode::Edit => 3,
             Mode::New => 4,

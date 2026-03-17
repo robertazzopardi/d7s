@@ -15,6 +15,7 @@ impl Display for Hotkey<'_> {
 }
 
 impl<'a> Hotkey<'a> {
+    #[must_use]
     pub const fn new(c: char, description: &'a str) -> Self {
         Self {
             keycode: KeyCode::Char(c),
