@@ -126,7 +126,7 @@ impl App<'_> {
                     .database_explorer
                     .current_table_state_mut()
                     .and_then(|s| s.selected_column())
-                    .is_some_and(|col| col > 0)
+                    .is_some()
                 {
                     self.reset_table_selection_state();
                 } else if self.state == AppState::DatabaseConnected {

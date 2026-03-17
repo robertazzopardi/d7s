@@ -360,6 +360,7 @@ impl App<'_> {
             DatabaseExplorerState::Databases => {
                 // Go back to connection list (disconnect)
                 self.disconnect_from_database();
+                self.refresh_connections();
             }
         }
     }
