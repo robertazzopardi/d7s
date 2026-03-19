@@ -28,7 +28,7 @@ const COLUMN_CONSTRAINTS: [Constraint; 3] = [
 const ROW_CONSTRAINTS: [Constraint; 1] = [Constraint::Fill(1)];
 
 pub struct TopBarView<'a> {
-    pub current_connection: Connection,
+    pub current_connection: &'a Connection,
     pub hotkeys: &'a [Hotkey<'a>],
     pub app_name: &'a str,
     pub build_info: Option<String>,
@@ -49,25 +49,16 @@ impl Widget for TopBarView<'_> {
         let left_content = if let Some(build_info) = self.build_info {
             build_info
         } else {
-            format!("{}", self.current_connection)
+            self.current_connection.to_string()
         };
         Paragraph::new(left_content).render(cells[0], buf);
-        HotkeyView {
-            hotkeys: self.hotkeys,
-        }
-        .render(cells[1], buf);
+        HotkeyView::new(self.hotkeys).render(cells[1], buf);
 
-        let app_name_width = self
-            .app_name
-            .trim()
-            .lines()
-            .map(str::len)
-            .max()
-            .unwrap_or(0);
-        let padding = cells[2].width as usize - app_name_width;
-        let padded = self
-            .app_name
-            .lines()
+        let app_name_lines = self.app_name.trim().lines();
+        let app_name_width =
+            app_name_lines.clone().map(str::len).max().unwrap_or(0);
+        let padding = (cells[2].width as usize).saturating_sub(app_name_width);
+        let padded = app_name_lines
             .map(|line| {
                 format!("{:>width$}", line, width = line.len() + padding)
             })

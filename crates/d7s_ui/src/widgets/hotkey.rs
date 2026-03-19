@@ -22,4 +22,13 @@ impl<'a> Hotkey<'a> {
             description,
         }
     }
+
+    #[must_use]
+    pub fn length(&self) -> u16 {
+        let key_len =
+            u16::try_from(self.keycode.to_string().len()).unwrap_or(1);
+        let desc_len = u16::try_from(self.description.len()).unwrap_or(1);
+
+        key_len + desc_len + 3
+    }
 }

@@ -48,16 +48,10 @@ impl App<'_> {
             self.database_explorer.state,
             DatabaseExplorerState::Connections
         ) {
-            // Show build information on the Connections screen
-            let info = format!(
-                " NAME: {}\n VERSION: {}",
-                crate::app::PKG_NAME,
-                crate::app::PKG_VERSION,
-            );
-            (Connection::default(), Some(info))
+            (&Connection::default(), Some(self.build_info.clone()))
         } else {
             // Show connection details when connected
-            (self.database_explorer.connection.clone(), None)
+            (&self.database_explorer.connection, None)
         };
         frame.render_widget(
             TopBarView {

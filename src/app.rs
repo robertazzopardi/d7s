@@ -42,6 +42,8 @@ pub struct App<'a> {
     pub(crate) status_line: StatusLine,
     /// Password management service
     pub(crate) password_service: PasswordService,
+    /// Build info
+    pub(crate) build_info: String,
 }
 
 impl Default for App<'_> {
@@ -55,16 +57,20 @@ impl Default for App<'_> {
             search_filter: SearchFilter::new(),
             status_line: StatusLine::new(),
             password_service: PasswordService::new(),
+            build_info: String::new(),
         }
     }
 }
 
 impl App<'_> {
-    pub fn initialise(mut self) -> Result<Self> {
+    /// Post initilisation for the App
+    pub fn init(mut self) -> Result<Self> {
         init_db()?;
 
         let items = ConnectionService::get_all().unwrap_or_default();
         self.database_explorer.connections = FilteredData::new(items);
+
+        self.build_info = build_info()?;
 
         Ok(self)
     }
@@ -189,4 +195,15 @@ impl App<'_> {
     pub fn clear_status(&mut self) {
         self.status_line.clear();
     }
+}
+
+/// Info related to the program
+fn build_info() -> Result<String> {
+    let path_buf = std::env::current_dir()?;
+    let cwd = path_buf.as_path().to_str().unwrap_or(".");
+    Ok(format!(
+        " NAME: {}\n VERSION: {}\n PATH: {cwd}",
+        crate::app::PKG_NAME,
+        crate::app::PKG_VERSION,
+    ))
 }

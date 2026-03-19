@@ -1,5 +1,5 @@
 use ratatui::{
-    prelude::{Buffer, Constraint, Direction, Layout, Rect, Widget},
+    prelude::{Buffer, Rect, Widget},
     widgets::Paragraph,
 };
 
@@ -7,6 +7,13 @@ use super::hotkey::Hotkey;
 
 pub struct HotkeyView<'a> {
     pub hotkeys: &'a [Hotkey<'a>],
+}
+
+impl<'a> HotkeyView<'a> {
+    #[must_use]
+    pub const fn new(hotkeys: &'a [Hotkey<'a>]) -> Self {
+        Self { hotkeys }
+    }
 }
 
 impl Widget for HotkeyView<'_> {
@@ -26,25 +33,8 @@ impl Widget for HotkeyView<'_> {
             // Create a rectangle for this hotkey row
             let hotkey_area = Rect::new(x, y, column_width, 1);
 
-            // Split the area horizontally for key and description
-            let row = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Length(
-                        u16::try_from(hotkey.keycode.to_string().len())
-                            .unwrap_or(1)
-                            + u16::try_from(hotkey.description.len())
-                                .unwrap_or(1)
-                            + 3,
-                    ), // Space for the key
-                    Constraint::Fill(1), // Rest for description
-                ])
-                .split(hotkey_area);
-
             Paragraph::new(format!("<{}> {}", hotkey, hotkey.description))
-                .render(row[0], buf);
-            // Paragraph::new(format!("{}", hotkey.description))
-            //     .render(row[1], buf);
+                .render(hotkey_area, buf);
 
             y += 1;
         }
