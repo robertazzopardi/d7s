@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
 use color_eyre::Result;
-use d7s_auth::Keyring;
-use d7s_db::connection::{Connection, ConnectionType};
+
+use crate::{
+    auth::Keyring,
+    db::connection::{Connection, ConnectionType},
+};
 
 /// Service for managing passwords across keyring and session storage
 pub struct PasswordService {

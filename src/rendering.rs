@@ -1,11 +1,3 @@
-use d7s_db::{TableData, connection::Connection};
-use d7s_ui::{
-    sql_executor::SqlExecutor,
-    widgets::{
-        modal::ConnectionModalWidget, table::DataTable,
-        top_bar_view::TopBarView,
-    },
-};
 use ratatui::{
     Frame,
     prelude::{Position, *},
@@ -15,7 +7,15 @@ use ratatui::{
 use crate::{
     app::{APP_NAME, App},
     app_state::DatabaseExplorerState,
+    db::{TableData, connection::Connection},
     filtered_data::FilteredData,
+    ui::{
+        sql_executor::SqlExecutor,
+        widgets::{
+            modal::ConnectionModalWidget, table::DataTable,
+            top_bar_view::TopBarView,
+        },
+    },
 };
 
 const TOPBAR_HEIGHT: u16 = 6;

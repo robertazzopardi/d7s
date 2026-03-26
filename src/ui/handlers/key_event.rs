@@ -1,10 +1,12 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use d7s_db::TableData;
 
 use super::navigation::TableNavigationHandler;
-use crate::widgets::{
-    search_filter::SearchFilter, sql_executor::SqlExecutorState,
-    table::TableDataState,
+use crate::{
+    db::TableData,
+    ui::widgets::{
+        search_filter::SearchFilter, sql_executor::SqlExecutorState,
+        table::TableDataState,
+    },
 };
 
 /// Default terminal width used for column offset calculations
@@ -103,7 +105,7 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
             {
                 let last_col = num_cols.saturating_sub(1);
                 table_state.view.state.select_column(Some(last_col));
-                crate::widgets::table::adjust_offset_for_selected_column(
+                crate::ui::widgets::table::adjust_offset_for_selected_column(
                     &mut table_state.view.column_offset,
                     &table_state.model.longest_item_lens,
                     last_col,

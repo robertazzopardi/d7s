@@ -3,7 +3,7 @@ use ratatui::{
     widgets::{Paragraph, StatefulWidget, Wrap},
 };
 
-use crate::widgets::{
+use crate::ui::widgets::{
     table::{DataTable, RawTableRow, TableDataState},
     text_input::TextInput,
 };

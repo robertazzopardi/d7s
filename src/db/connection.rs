@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Database, TableData, postgres::Postgres, sqlite::Sqlite};
+use crate::db::{Database, TableData, postgres::Postgres, sqlite::Sqlite};
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
