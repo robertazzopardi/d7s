@@ -9,9 +9,9 @@ pub mod table;
 pub mod text_input;
 pub mod top_bar_view;
 
-use d7s_db::TableData;
-pub use status_line::StatusLine;
 use unicode_width::UnicodeWidthStr;
+
+use crate::db::TableData;
 
 pub fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<usize> {
     if items.is_empty() {

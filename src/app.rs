@@ -1,17 +1,17 @@
 use color_eyre::Result;
 use crossterm::{clipboard, execute};
-use d7s_db::{TableData, sqlite::init_db};
-use d7s_ui::widgets::{
-    hotkey::Hotkey, modal::ModalManager, search_filter::SearchFilter,
-    status_line::StatusLine, top_bar_view::CONNECTION_HOTKEYS,
-};
 use ratatui::DefaultTerminal;
 
 use crate::{
     app_state::{AppState, DatabaseExplorerState},
     database_explorer_state::DatabaseExplorer,
+    db::{TableData, sqlite::init_db},
     filtered_data::FilteredData,
     services::{ConnectionService, PasswordService},
+    ui::widgets::{
+        hotkey::Hotkey, modal::ModalManager, search_filter::SearchFilter,
+        status_line::StatusLine, top_bar_view::CONNECTION_HOTKEYS,
+    },
 };
 
 pub const APP_NAME: &str = r"_________________

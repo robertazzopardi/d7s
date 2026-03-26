@@ -194,7 +194,7 @@ impl TableData for TableRow {
     }
 }
 
-pub(crate) fn get_app_data_dir() -> Result<PathBuf> {
+pub fn get_app_data_dir() -> Result<PathBuf> {
     let mut path =
         dirs::data_dir().expect("Could not determine data directory");
 
@@ -206,7 +206,7 @@ pub(crate) fn get_app_data_dir() -> Result<PathBuf> {
     Ok(path)
 }
 
-pub(crate) fn get_db_path() -> Result<PathBuf> {
+pub fn get_db_path() -> Result<PathBuf> {
     let mut path = get_app_data_dir()?;
     path.push("d7s.db");
     Ok(path)

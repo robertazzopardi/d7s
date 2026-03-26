@@ -1,6 +1,6 @@
-use d7s_db::TableData;
-use d7s_ui::{
-    handlers::TableNavigationHandler, widgets::table::TableDataState,
+use crate::{
+    db::TableData,
+    ui::{handlers::TableNavigationHandler, widgets::table::TableDataState},
 };
 
 /// A wrapper for managing filtered data with original data preservation

@@ -82,8 +82,32 @@ docker-down:
 docker-logs:
     docker compose logs -f
 
-# Tag and push a release (e.g. `just release 0.1.0`)
-# This pushes a `v`-prefixed tag, which triggers the GitHub Actions release workflow.
+# Full release: bump versions, commit, tag, push (triggers GitHub Actions build + crates.io publish)
+# Prereq: cargo install cargo-edit
+# Usage: just release 0.2.0
 release VERSION:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Ensure working tree is clean
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "Error: working tree is not clean. Commit or stash changes first."
+        exit 1
+    fi
+
+    # Ensure CHANGELOG has an entry for this version
+    if ! grep -q "\[{{VERSION}}\]" CHANGELOG.md; then
+        echo "Error: CHANGELOG.md has no entry for [{{VERSION}}]. Add one first."
+        exit 1
+    fi
+
+    # Bump version
+    cargo set-version {{VERSION}}
+
+    # Commit and tag
+    git add Cargo.toml Cargo.lock
+    git commit -m "chore: release v{{VERSION}}"
     git tag v{{VERSION}}
-    git push origin v{{VERSION}}
+    git push origin HEAD --follow-tags
+
+    echo "Released v{{VERSION}} — GitHub Actions will build binaries and publish to crates.io."

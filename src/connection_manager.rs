@@ -1,11 +1,11 @@
 use color_eyre::Result;
-use d7s_db::connection::{Connection, ConnectionType};
-use d7s_ui::widgets::top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS};
 
 use crate::{
     app::App,
     app_state::{AppState, DatabaseExplorerState},
     database_explorer_state::DatabaseExplorer,
+    db::connection::{Connection, ConnectionType},
+    ui::widgets::top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS},
 };
 
 impl App<'_> {

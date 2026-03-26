@@ -1,11 +1,14 @@
 use crossterm::event::KeyCode;
-use d7s_db::{
-    Column, Database, DatabaseInfo, Schema, Table, connection::Connection,
-};
-use d7s_ui::{sql_executor::SqlExecutorState, widgets::table::RawTableRow};
 use ratatui::widgets::TableState;
 
-use crate::{app_state::DatabaseExplorerState, filtered_data::FilteredData};
+use crate::{
+    app_state::DatabaseExplorerState,
+    db::{
+        Column, Database, DatabaseInfo, Schema, Table, connection::Connection,
+    },
+    filtered_data::FilteredData,
+    ui::{sql_executor::SqlExecutorState, widgets::table::RawTableRow},
+};
 
 /// Groups all database exploration state together
 #[derive(Default)]

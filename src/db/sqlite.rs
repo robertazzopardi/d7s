@@ -2,7 +2,7 @@ use color_eyre::Result;
 use rusqlite::{Connection as SqliteConnection, params};
 use rusqlite_migration::{M, Migrations};
 
-use crate::{
+use crate::db::{
     Column, Database, DatabaseInfo, Schema, Table, TableData, TableRow,
     connection::{Connection, ConnectionType, Environment},
     get_db_path,

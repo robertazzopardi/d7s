@@ -1,9 +1,10 @@
 use std::str::FromStr;
 
-use d7s_auth::Keyring;
-use d7s_db::connection::Connection;
-
-use crate::widgets::modal::{PasswordStorageType, TestResult};
+use crate::{
+    auth::Keyring,
+    db::connection::Connection,
+    ui::widgets::modal::{PasswordStorageType, TestResult},
+};
 
 /// Handles saving a connection from the modal
 ///
@@ -17,7 +18,7 @@ use crate::widgets::modal::{PasswordStorageType, TestResult};
 pub fn handle_save_connection(
     #[allow(unused_variables)] keyring: &mut Option<Keyring>,
     connection: &Connection,
-    mode: crate::widgets::modal::Mode,
+    mode: crate::ui::widgets::modal::Mode,
     original_name: Option<String>,
 ) -> Result<(), String> {
     // Handle password storage based on connection's storage preference
@@ -73,13 +74,13 @@ pub fn handle_save_connection(
         }
     }
 
-    if matches!(mode, crate::widgets::modal::Mode::New) {
-        d7s_db::sqlite::save_connection(connection)
+    if matches!(mode, crate::ui::widgets::modal::Mode::New) {
+        crate::db::sqlite::save_connection(connection)
             .map_err(|e| format!("Failed to save connection: {e}"))?;
-    } else if matches!(mode, crate::widgets::modal::Mode::Edit)
+    } else if matches!(mode, crate::ui::widgets::modal::Mode::Edit)
         && let Some(original_name) = original_name
     {
-        d7s_db::sqlite::update_connection(&original_name, connection)
+        crate::db::sqlite::update_connection(&original_name, connection)
             .map_err(|e| format!("Failed to update connection: {e}"))?;
 
         // Delete the old credential if the name has changed
@@ -96,10 +97,10 @@ pub fn handle_save_connection(
 /// Tests a database connection (Postgres or Sqlite)
 pub async fn test_connection(connection: &Connection) -> TestResult {
     let result = match connection.r#type {
-        d7s_db::connection::ConnectionType::Postgres => {
+        crate::db::connection::ConnectionType::Postgres => {
             connection.to_postgres().test().await
         }
-        d7s_db::connection::ConnectionType::Sqlite => {
+        crate::db::connection::ConnectionType::Sqlite => {
             connection.to_sqlite().test().await
         }
     };

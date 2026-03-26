@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use d7s_db::TableData;
 use ratatui::{
     layout::{Constraint, Rect},
     style::{Color, Modifier, Style},
@@ -8,7 +7,7 @@ use ratatui::{
     widgets::{Cell, HighlightSpacing, Row, StatefulWidget, Table, TableState},
 };
 
-use crate::widgets::constraint_len_calculator;
+use crate::{db::TableData, ui::widgets::constraint_len_calculator};
 
 /// A wrapper type for raw table data with dynamic column names
 #[derive(Clone, Debug, Default)]

@@ -382,32 +382,14 @@ dependencies = [
 name = "d7s"
 version = "0.1.0"
 dependencies = [
- "color-eyre",
- "crossterm 0.29.0",
- "d7s_auth",
- "d7s_db",
- "d7s_ui",
- "ratatui",
- "tokio",
-]
-
-[[package]]
-name = "d7s_auth"
-version = "0.1.0"
-dependencies = [
- "keyring",
-]
-
-[[package]]
-name = "d7s_db"
-version = "0.1.0"
-dependencies = [
  "async-trait",
  "chrono",
  "color-eyre",
- "d7s_auth",
+ "crossterm 0.29.0",
  "dirs",
+ "keyring",
  "postgres-types",
+ "ratatui",
  "rusqlite",
  "rusqlite_migration",
  "rust_decimal",
@@ -415,21 +397,10 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-postgres",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "d7s_ui"
-version = "0.1.0"
-dependencies = [
- "crossterm 0.29.0",
- "d7s_auth",
- "d7s_db",
- "ratatui",
- "serde_json",
  "tui-menu",
  "unicode-width 0.2.0",
+ "url",
+ "uuid",
 ]
 
 [[package]]

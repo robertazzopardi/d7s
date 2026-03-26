@@ -1,12 +1,12 @@
 use color_eyre::Result;
 use crossterm::event::KeyCode;
-use d7s_db::{Database, connection::ConnectionType};
-use d7s_ui::{
-    handlers::TableNavigationHandler, widgets::table::TableDataState,
-};
 
 use crate::{
-    app::App, app_state::DatabaseExplorerState, filtered_data::FilteredData,
+    app::App,
+    app_state::DatabaseExplorerState,
+    db::{Database, connection::ConnectionType},
+    filtered_data::FilteredData,
+    ui::{handlers::TableNavigationHandler, widgets::table::TableDataState},
 };
 
 impl App<'_> {

@@ -1,10 +1,10 @@
-use d7s_db::connection::Connection;
 use ratatui::{
     prelude::{Buffer, Constraint, Layout, Rect, Widget},
     widgets::Paragraph,
 };
 
 use super::{hotkey::Hotkey, hotkey_view::HotkeyView};
+use crate::db::connection::Connection;
 
 pub const CONNECTION_HOTKEYS: [Hotkey; 5] = [
     Hotkey::new('n', "New Connection"),
@@ -14,10 +14,11 @@ pub const CONNECTION_HOTKEYS: [Hotkey; 5] = [
     Hotkey::new('y', "Copy value"),
 ];
 
-pub const DATABASE_HOTKEYS: [Hotkey; 3] = [
+pub const DATABASE_HOTKEYS: [Hotkey; 4] = [
     Hotkey::new('s', "SQL Executor"),
     Hotkey::new('t', "Toggle View"),
     Hotkey::new('/', "Search"),
+    Hotkey::new('y', "Copy value"),
 ];
 
 const COLUMN_CONSTRAINTS: [Constraint; 3] = [

@@ -1,5 +1,6 @@
 use color_eyre::{Result, eyre::eyre};
-use d7s_db::{
+
+use crate::db::{
     connection::{Connection, ConnectionType},
     sqlite::{
         delete_connection, get_connections, save_connection, update_connection,

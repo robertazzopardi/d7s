@@ -6,7 +6,7 @@ use tokio_postgres::{
 };
 use uuid::Uuid;
 
-use crate::{
+use crate::db::{
     Column, Database, DatabaseInfo, Schema, Table, TableData, TableRow,
 };
 

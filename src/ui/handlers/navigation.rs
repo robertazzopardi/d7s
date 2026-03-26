@@ -1,10 +1,12 @@
 use crossterm::event::KeyCode;
-use d7s_db::TableData;
 use ratatui::widgets::TableState;
 
 use crate::{
-    table::{TableModel, TableViewState},
-    widgets::table::TableDataState,
+    db::TableData,
+    ui::{
+        table::{TableModel, TableViewState},
+        widgets::table::TableDataState,
+    },
 };
 
 /// Helper for table navigation operations
@@ -102,7 +104,7 @@ impl TableNavigationHandler {
                 }
 
                 if let Some(selected_col) = view.state.selected_column() {
-                    crate::widgets::table::adjust_offset_for_selected_column(
+                    crate::ui::widgets::table::adjust_offset_for_selected_column(
                         &mut view.column_offset,
                         &model.longest_item_lens,
                         selected_col,
@@ -128,7 +130,7 @@ impl TableNavigationHandler {
                 }
 
                 if let Some(selected_col) = view.state.selected_column() {
-                    crate::widgets::table::adjust_offset_for_selected_column(
+                    crate::ui::widgets::table::adjust_offset_for_selected_column(
                         &mut view.column_offset,
                         &model.longest_item_lens,
                         selected_col,

@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, StatefulWidget, Widget},
 };
 
-use crate::widgets::text_input::TextInput;
+use crate::ui::widgets::text_input::TextInput;
 
 /// A search filter widget that appears above the main table
 #[derive(Debug, Clone, Default)]

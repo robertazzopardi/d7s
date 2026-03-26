@@ -1,10 +1,6 @@
 use std::{fmt::Display, str::FromStr};
 
 use crossterm::event::{KeyCode, KeyEvent};
-use d7s_db::connection::{
-    Connection, ConnectionType, build_postgres_url, parse_connection_string,
-    parse_postgres_url,
-};
 use ratatui::{
     prelude::{
         Alignment, Buffer, Constraint, Direction, Layout, Line, Rect, Widget,
@@ -15,7 +11,13 @@ use ratatui::{
 };
 use tui_menu::{MenuEvent, MenuItem, MenuState};
 
-use crate::widgets::buttons::Buttons;
+use crate::{
+    db::connection::{
+        Connection, ConnectionType, build_postgres_url,
+        parse_connection_string, parse_postgres_url,
+    },
+    ui::widgets::buttons::Buttons,
+};
 
 // Modal dimension constants
 const CONNECTION_MODAL_WIDTH: u16 = 40;
