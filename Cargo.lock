@@ -351,12 +351,14 @@ checksum = "d8b9f2e4c67f833b660cdb0a3523065869fb35570177239812ed4c905aeff87b"
 dependencies = [
  "base64",
  "bitflags",
+ "crossterm_winapi",
  "document-features",
  "mio",
  "parking_lot",
  "rustix 1.1.4",
  "signal-hook",
  "signal-hook-mio",
+ "winapi",
 ]
 
 [[package]]
