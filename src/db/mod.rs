@@ -4,7 +4,7 @@ pub mod sqlite;
 
 use std::path::PathBuf;
 
-use color_eyre::Result;
+use color_eyre::{Result, eyre};
 
 pub trait TableData {
     #[allow(dead_code)]
@@ -196,8 +196,13 @@ impl TableData for TableRow {
 }
 
 pub fn get_app_data_dir() -> Result<PathBuf> {
-    let mut path =
-        dirs::data_dir().expect("Could not determine data directory");
+    let Some(path) = directories::BaseDirs::new() else {
+        return Err(eyre::eyre!(
+            "Unable to find data directory for ratatui-template"
+        ));
+    };
+
+    let mut path = PathBuf::from(path.data_dir());
 
     path.push("d7s");
 
