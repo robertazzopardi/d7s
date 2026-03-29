@@ -89,6 +89,7 @@ impl Keyring {
     ///
     /// Never returns an error in dev mode
     #[cfg(debug_assertions)]
+    #[allow(clippy::unnecessary_wraps)]
     pub fn new(user: &str) -> Result<Self, Error> {
         Ok(Self {
             user: user.to_string(),

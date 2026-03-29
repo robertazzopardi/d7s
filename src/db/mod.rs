@@ -7,13 +7,14 @@ use std::path::PathBuf;
 use color_eyre::Result;
 
 pub trait TableData {
+    #[allow(dead_code)]
     fn title() -> &'static str;
     fn ref_array(&self) -> Vec<String>;
     fn num_columns(&self) -> usize;
     fn cols() -> Vec<&'static str>;
 
     fn col(&self, column: usize) -> String {
-        self.ref_array()[column].clone()
+        self.ref_array().get(column).cloned().unwrap_or_default()
     }
 }
 

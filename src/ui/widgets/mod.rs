@@ -18,7 +18,10 @@ pub fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<usize> {
         return Vec::new();
     }
 
-    let num_columns = items[0].num_columns();
+    // let num_columns = items[0].num_columns();
+    let Some(num_columns) = items.first().map(TableData::num_columns) else {
+        return Vec::new();
+    };
 
     // Initialize with column header widths
     let column_names = T::cols();

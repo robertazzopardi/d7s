@@ -24,6 +24,7 @@ impl<'a> Hotkey<'a> {
     }
 
     #[must_use]
+    #[allow(dead_code)]
     pub fn length(&self) -> u16 {
         let key_len =
             u16::try_from(self.keycode.to_string().len()).unwrap_or(1);

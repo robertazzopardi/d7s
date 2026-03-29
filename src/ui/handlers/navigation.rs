@@ -29,6 +29,7 @@ impl TableNavigationHandler {
     }
 
     /// Wraps the column selection for a `TableState` - going past the end wraps to the beginning and vice versa
+    #[allow(dead_code)]
     pub fn wrap_columns<T: TableData>(
         state: &mut TableState,
         items: &[T],
@@ -58,8 +59,9 @@ impl TableNavigationHandler {
     }
 
     /// Generic table navigation handler for any `TableState`
+    #[allow(clippy::wildcard_enum_match_arm)]
     pub fn navigate_table<T: TableData + Clone>(
-        model: &mut TableModel<T>,
+        model: &TableModel<T>,
         view: &mut TableViewState,
         key: KeyCode,
     ) {
@@ -153,12 +155,13 @@ impl TableNavigationHandler {
     }
 
     /// Handles navigation for table data widget
+    #[allow(dead_code)]
     pub fn navigate<T: TableData + Clone>(
         table_data: &mut Option<TableDataState<T>>,
         key: KeyCode,
     ) {
         if let Some(table) = table_data {
-            Self::navigate_table(&mut table.model, &mut table.view, key);
+            Self::navigate_table(&table.model, &mut table.view, key);
         }
     }
 }

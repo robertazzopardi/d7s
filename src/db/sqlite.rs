@@ -235,7 +235,11 @@ pub fn init_db() -> Result<()> {
 fn metadata_for_save(connection: &Connection) -> String {
     let mut obj = match &connection.metadata {
         serde_json::Value::Object(m) => m.clone(),
-        _ => serde_json::Map::new(),
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::String(_)
+        | serde_json::Value::Array(_) => serde_json::Map::new(),
     };
     if let Some(ref ps) = connection.password_storage {
         obj.insert(

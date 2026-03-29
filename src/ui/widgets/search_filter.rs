@@ -65,6 +65,7 @@ impl SearchFilter {
 
     /// Get the cursor position for rendering
     #[must_use]
+    #[allow(dead_code)]
     pub const fn cursor_position(&self) -> usize {
         self.input.cursor_position()
     }

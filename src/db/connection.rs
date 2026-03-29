@@ -229,19 +229,6 @@ impl Connection {
         }
         self.name.clone()
     }
-
-    /// Values for the connection form (Name, Type, Url, Environment, Metadata, Password).
-    #[must_use]
-    pub fn form_values(&self) -> Vec<String> {
-        vec![
-            self.name.clone(),
-            self.r#type.to_string(),
-            self.url.clone(),
-            self.environment.to_string(),
-            self.metadata.to_string(),
-            self.password.clone().unwrap_or_default(),
-        ]
-    }
 }
 
 /// Result of parsing a connection string. Used to prefill the connection form.

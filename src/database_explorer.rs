@@ -373,7 +373,7 @@ impl App<'_> {
             }
             DatabaseExplorerState::SqlExecutor => {
                 TableNavigationHandler::navigate_table(
-                    &mut self.database_explorer.sql_executor.table_state.model,
+                    &self.database_explorer.sql_executor.table_state.model,
                     &mut self.database_explorer.sql_executor.table_state.view,
                     key,
                 );

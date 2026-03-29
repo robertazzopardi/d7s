@@ -10,6 +10,7 @@ use crate::{
 };
 
 /// Default terminal width used for column offset calculations
+#[allow(dead_code)]
 const DEFAULT_TERMINAL_WIDTH: u16 = 80;
 
 /// Macro to generate text input key handling logic
@@ -83,6 +84,7 @@ pub fn handle_sql_executor_input(
     handle_text_input!(key, sql_executor, {}, {}, false)
 }
 
+#[allow(dead_code, clippy::wildcard_enum_match_arm)]
 pub fn handle_connection_list_navigation<T: TableData + Clone>(
     key: KeyCode,
     table_state: &mut TableDataState<T>,
@@ -133,7 +135,7 @@ pub fn handle_connection_list_navigation<T: TableData + Clone>(
 
     // Use standard navigation for common keys (j/k/h/l/G/etc)
     TableNavigationHandler::navigate_table(
-        &mut table_state.model,
+        &table_state.model,
         &mut table_state.view,
         key,
     );
