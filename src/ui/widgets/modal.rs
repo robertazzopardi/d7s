@@ -1,3 +1,5 @@
+#![allow(clippy::indexing_slicing)]
+
 use std::{fmt::Display, str::FromStr};
 
 use crossterm::event::{KeyCode, KeyEvent};
@@ -1367,17 +1369,19 @@ impl Widget for ConfirmationModal {
             .split(modal_area);
 
         // Render message
+        let content_layout = *inner_layout.first().unwrap_or(&Rect::ZERO);
         Paragraph::new(self.message)
             .style(Style::default().fg(Color::White))
             .alignment(Alignment::Center)
-            .render(inner_layout[0], buf);
+            .render(content_layout, buf);
 
         // Render buttons
         let buttons = Buttons {
             buttons: vec!["Yes", "No"],
             selected: self.selected_button,
         };
-        buttons.render(inner_layout[1], buf);
+        let button_layout = *inner_layout.get(1).unwrap_or(&Rect::ZERO);
+        buttons.render(button_layout, buf);
     }
 }
 
@@ -1453,18 +1457,20 @@ impl Widget for CellValueModal {
             .split(modal_area);
 
         // Render cell value with word wrapping
+        let content_layout = *inner_layout.get(1).unwrap_or(&Rect::ZERO);
         Paragraph::new(self.cell_value)
             .style(Style::default().fg(Color::White))
             .alignment(Alignment::Left)
             .wrap(ratatui::widgets::Wrap { trim: false })
-            .render(inner_layout[1], buf);
+            .render(content_layout, buf);
 
         // Render button
         let buttons = Buttons {
             buttons: vec!["OK"],
             selected: 0,
         };
-        buttons.render(inner_layout[2], buf);
+        let button_layout = *inner_layout.get(2).unwrap_or(&Rect::ZERO);
+        buttons.render(button_layout, buf);
     }
 }
 
@@ -1611,10 +1617,11 @@ impl Widget for PasswordModal {
             .split(modal_area);
 
         // Render prompt
+        let prompt_layout = *inner_layout.first().unwrap_or(&Rect::ZERO);
         Paragraph::new(self.prompt)
             .style(Style::default().fg(Color::White))
             .alignment(Alignment::Left)
-            .render(inner_layout[0], buf);
+            .render(prompt_layout, buf);
 
         // Render password input (masked) with cursor
         let masked_password: String =
@@ -1646,17 +1653,19 @@ impl Widget for PasswordModal {
         }
 
         let line = Line::from(spans);
+        let content_layout = *inner_layout.get(1).unwrap_or(&Rect::ZERO);
         Paragraph::new(line)
             .style(Style::default().fg(Color::Yellow))
             .alignment(Alignment::Left)
-            .render(inner_layout[1], buf);
+            .render(content_layout, buf);
 
         // Render buttons
         let buttons = Buttons {
             buttons: vec!["OK", "Cancel"],
             selected: self.selected_button,
         };
-        buttons.render(inner_layout[2], buf);
+        let button_layout = *inner_layout.get(2).unwrap_or(&Rect::ZERO);
+        buttons.render(button_layout, buf);
     }
 }
 
@@ -1839,6 +1848,7 @@ impl ModalManager {
 
     /// Get a reference to the connection modal
     #[must_use]
+    #[allow(dead_code)]
     pub const fn get_connection_modal(&self) -> Option<&Modal> {
         self.connection_modal.as_ref()
     }

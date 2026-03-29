@@ -52,19 +52,25 @@ impl Widget for TopBarView<'_> {
         } else {
             self.current_connection.to_string()
         };
-        Paragraph::new(left_content).render(cells[0], buf);
-        HotkeyView::new(self.hotkeys).render(cells[1], buf);
+
+        let app_info_cell = *cells.first().unwrap_or(&Rect::ZERO);
+        let hotkey_cell = *cells.get(1).unwrap_or(&Rect::ZERO);
+        let app_logo_cell = *cells.get(2).unwrap_or(&Rect::ZERO);
+
+        Paragraph::new(left_content).render(app_info_cell, buf);
+        HotkeyView::new(self.hotkeys).render(hotkey_cell, buf);
 
         let app_name_lines = self.app_name.trim().lines();
         let app_name_width =
             app_name_lines.clone().map(str::len).max().unwrap_or(0);
-        let padding = (cells[2].width as usize).saturating_sub(app_name_width);
+        let padding =
+            (app_logo_cell.width as usize).saturating_sub(app_name_width);
         let padded = app_name_lines
             .map(|line| {
                 format!("{:>width$}", line, width = line.len() + padding)
             })
             .collect::<Vec<_>>()
             .join("\n");
-        Paragraph::new(padded).render(cells[2], buf);
+        Paragraph::new(padded).render(app_logo_cell, buf);
     }
 }

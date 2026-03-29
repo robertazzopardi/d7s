@@ -76,6 +76,7 @@ impl SqlExecutorState {
         self.table_state.reset(results, column_names);
     }
 
+    #[allow(dead_code)]
     pub fn set_error(&mut self, error: String) {
         self.error_message = Some(error);
         self.results = None;

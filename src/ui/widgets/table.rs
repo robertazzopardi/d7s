@@ -13,6 +13,7 @@ use crate::{db::TableData, ui::widgets::constraint_len_calculator};
 #[derive(Clone, Debug, Default)]
 pub struct RawTableRow {
     pub values: Vec<String>,
+    #[allow(dead_code)]
     pub column_names: Arc<Vec<String>>,
 }
 
@@ -301,7 +302,8 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
         let constraints = visible_cols
             .iter()
             .map(|&idx| {
-                let width = state.model.longest_item_lens[idx] + 1;
+                let width =
+                    state.model.longest_item_lens.get(idx).unwrap_or(&0) + 1;
                 Constraint::Length(u16::try_from(width).unwrap_or(u16::MAX))
             })
             .collect::<Vec<_>>();
@@ -340,7 +342,11 @@ fn constraint_len_calculator_for_raw_data(
                     .max()
                     .unwrap_or(0);
 
-                longest_lens[i] = longest_lens[i].max(max_width);
+                if let Some(longest_len) = longest_lens.get_mut(i) {
+                    *longest_len = (*longest_len).max(max_width);
+                }
+
+                // longest_lens[i] = longest_lens[i].max(max_width);
             }
         }
     }

@@ -15,8 +15,9 @@ use crate::{
 /// - Keyring is locked
 /// - Password storage in keyring fails
 /// - Database save/update operations fail
+#[allow(dead_code, clippy::ref_option)]
 pub fn handle_save_connection(
-    #[allow(unused_variables)] keyring: &mut Option<Keyring>,
+    #[allow(unused_variables)] keyring: &Option<Keyring>,
     connection: &Connection,
     mode: crate::ui::widgets::modal::Mode,
     original_name: Option<String>,
@@ -95,6 +96,7 @@ pub fn handle_save_connection(
 }
 
 /// Tests a database connection (Postgres or Sqlite)
+#[allow(dead_code)]
 pub async fn test_connection(connection: &Connection) -> TestResult {
     let result = match connection.r#type {
         crate::db::connection::ConnectionType::Postgres => {

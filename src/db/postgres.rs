@@ -75,7 +75,10 @@ impl Database for Postgres {
                 column_names: vec!["Result".to_string()],
             });
         } else {
-            let column_names: Vec<String> = rows[0]
+            let Some(first_row) = rows.first() else {
+                return Ok(result);
+            };
+            let column_names: Vec<String> = first_row
                 .columns()
                 .iter()
                 .map(|col| col.name().to_string())
@@ -206,8 +209,8 @@ impl Database for Postgres {
         let mut column_names = Vec::new();
 
         if let Some(first_row) = rows.first() {
-            for i in 0..first_row.len() {
-                column_names.push(first_row.columns()[i].name().to_string());
+            for column in first_row.columns() {
+                column_names.push(column.name().to_string());
             }
         }
 
@@ -277,6 +280,7 @@ impl Postgres {
     /// # Errors
     ///
     /// Returns an error if the database connection fails or the query cannot be executed.
+    #[allow(dead_code)]
     pub async fn get_sample_data(
         &self,
         schema_name: &str,

@@ -42,7 +42,7 @@ impl<T: TableData + Clone> FilteredData<T> {
     /// Navigate the table using a key event
     pub fn navigate(&mut self, key: crossterm::event::KeyCode) {
         TableNavigationHandler::navigate_table(
-            &mut self.table.model,
+            &self.table.model,
             &mut self.table.view,
             key,
         );

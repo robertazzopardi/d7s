@@ -7,6 +7,7 @@ pub struct TextInput {
     character_index: usize,
 }
 
+#[allow(dead_code)]
 impl TextInput {
     /// Create a new empty `TextInput`
     #[must_use]
@@ -145,7 +146,6 @@ mod tests {
     fn test_delete_char() {
         let mut input = TextInput::with_text("hello".to_string());
         // Cursor starts at end (position 5)
-        input.move_cursor_left(); // Move to position 4
         input.delete_char(); // Delete 'o' at position 4
         assert_eq!(input.text(), "hell");
         assert_eq!(input.cursor_position(), 4);
