@@ -24,7 +24,7 @@ jobs:
             target: x86_64-unknown-linux-gnu
             binary: d7s
           - label: macos-x86_64
-            os: macos-13
+            os: macos-latest
             target: x86_64-apple-darwin
             binary: d7s
           - label: macos-arm64
