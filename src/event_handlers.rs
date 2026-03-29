@@ -137,13 +137,7 @@ impl App<'_> {
                     );
 
                     if is_sql_executor {
-                        // Restore the previous state before SQL executor was opened
-                        self.database_explorer.sql_executor.deactivate();
-                        if let Some(previous_state) =
-                            self.database_explorer.previous_state.take()
-                        {
-                            self.database_explorer.state = previous_state;
-                        }
+                        self.escape_from_or_return_to_sql_editor();
                     } else if self.has_active_filter() {
                         self.clear_filter();
                     } else {
@@ -165,6 +159,21 @@ impl App<'_> {
                 Ok(true)
             }
             _ => Ok(false),
+        }
+    }
+
+    fn escape_from_or_return_to_sql_editor(&mut self) {
+        let sql_executor_state = &mut self.database_explorer.sql_executor;
+        if sql_executor_state.has_results() {
+            sql_executor_state.clear_results();
+        } else {
+            // Restore the previous state before SQL executor was opened
+            sql_executor_state.deactivate();
+            if let Some(previous_state) =
+                self.database_explorer.previous_state.take()
+            {
+                self.database_explorer.state = previous_state;
+            }
         }
     }
 

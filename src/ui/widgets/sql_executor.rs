@@ -89,6 +89,10 @@ impl SqlExecutorState {
         self.table_state.reset(vec![], &[]);
     }
 
+    pub fn has_results(&self) -> bool {
+        self.results.as_ref().is_some_and(|res| !res.is_empty())
+    }
+
     /// Get the SQL input text
     #[must_use]
     pub fn sql_input(&self) -> &str {
