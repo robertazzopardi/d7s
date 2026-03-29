@@ -1,5 +1,13 @@
+use std::process::Command;
+
 use color_eyre::Result;
-use crossterm::{clipboard, execute};
+use crossterm::{
+    ExecutableCommand, clipboard, execute,
+    terminal::{
+        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
+        enable_raw_mode,
+    },
+};
 use ratatui::DefaultTerminal;
 
 use crate::{
@@ -44,6 +52,8 @@ pub struct App<'a> {
     pub(crate) password_service: PasswordService,
     /// Build info
     pub(crate) build_info: String,
+    /// Signal to the run loop to open the external editor
+    pub(crate) open_editor_requested: bool,
 }
 
 impl Default for App<'_> {
@@ -58,6 +68,7 @@ impl Default for App<'_> {
             status_line: StatusLine::new(),
             password_service: PasswordService::new(),
             build_info: String::new(),
+            open_editor_requested: false,
         }
     }
 }
@@ -81,6 +92,27 @@ impl App<'_> {
         while self.running {
             terminal.draw(|frame| self.render(frame))?;
             self.handle_crossterm_events().await?;
+
+            if self.open_editor_requested {
+                self.open_editor_requested = false;
+                let temp_path = std::path::Path::new("/tmp/d7s_sql_editor.sql");
+                let current_sql =
+                    self.database_explorer.sql_executor.sql_input().to_string();
+                std::fs::write(temp_path, &current_sql)?;
+                Self::run_editor(&mut terminal, temp_path)?;
+                let new_sql =
+                    std::fs::read_to_string(temp_path).unwrap_or_default();
+                let new_sql = new_sql.trim_end_matches('\n').to_string();
+                if !new_sql.is_empty() {
+                    self.database_explorer.sql_executor.set_sql(new_sql);
+                    // Save current state and enter SqlExecutor to show results
+                    let current_state = self.database_explorer.state.clone();
+                    self.database_explorer.previous_state = Some(current_state);
+                    self.database_explorer.state =
+                        DatabaseExplorerState::SqlExecutor;
+                    self.execute_sql_query().await;
+                }
+            }
         }
         Ok(())
     }
@@ -194,6 +226,22 @@ impl App<'_> {
     /// Clear the status line
     pub fn clear_status(&mut self) {
         self.status_line.clear();
+    }
+
+    fn run_editor(
+        terminal: &mut DefaultTerminal,
+        path: &std::path::Path,
+    ) -> Result<()> {
+        let editor = std::env::var("VISUAL")
+            .or_else(|_| std::env::var("EDITOR"))
+            .unwrap_or_else(|_| "vim".to_string());
+        std::io::stdout().execute(LeaveAlternateScreen)?;
+        disable_raw_mode()?;
+        Command::new(&editor).arg(path).status()?;
+        std::io::stdout().execute(EnterAlternateScreen)?;
+        enable_raw_mode()?;
+        terminal.clear()?;
+        Ok(())
     }
 }
 

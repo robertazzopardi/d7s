@@ -25,44 +25,8 @@ impl SqlExecutorState {
         Self::default()
     }
 
-    pub const fn activate(&mut self) {
-        self.is_active = true;
-    }
-
     pub const fn deactivate(&mut self) {
         self.is_active = false;
-    }
-
-    pub fn add_char(&mut self, ch: char) {
-        self.input.add_char(ch);
-        // Clear results when user starts typing a new query
-        self.clear_results();
-    }
-
-    pub fn delete_char(&mut self) {
-        self.input.delete_char();
-    }
-
-    pub fn move_cursor_left(&mut self) {
-        self.input.move_cursor_left();
-    }
-
-    pub fn move_cursor_right(&mut self) {
-        self.input.move_cursor_right();
-    }
-
-    pub const fn move_cursor_to_start(&mut self) {
-        self.input.move_cursor_to_start();
-    }
-
-    pub fn move_cursor_to_end(&mut self) {
-        self.input.move_cursor_to_end();
-    }
-
-    pub fn clear(&mut self) {
-        self.input.clear();
-        // Clear results when clearing input
-        self.clear_results();
     }
 
     pub fn set_results(
@@ -89,20 +53,15 @@ impl SqlExecutorState {
         self.table_state.reset(vec![], &[]);
     }
 
-    pub fn has_results(&self) -> bool {
-        self.results.as_ref().is_some_and(|res| !res.is_empty())
+    /// Replace the SQL input text entirely after loading from external editor
+    pub fn set_sql(&mut self, sql: String) {
+        self.input.set_text(sql);
     }
 
     /// Get the SQL input text
     #[must_use]
     pub fn sql_input(&self) -> &str {
         self.input.text()
-    }
-
-    /// Get the cursor position
-    #[must_use]
-    pub const fn cursor_position(&self) -> usize {
-        self.input.cursor_position()
     }
 }
 
@@ -113,39 +72,27 @@ impl StatefulWidget for SqlExecutor {
     type State = SqlExecutorState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        // If we have results or an error, show them
-        if state.results.is_some() || state.error_message.is_some() {
-            if let Some(error) = &state.error_message {
-                // Render error message
-                let error_paragraph = Paragraph::new(error.clone())
-                    .style(Style::default().fg(Color::Red))
-                    .wrap(Wrap { trim: true });
-                error_paragraph.render(area, buf);
-            } else if let Some(results) = &state.results {
-                if results.is_empty() {
-                    let empty_paragraph = Paragraph::new("No results")
-                        .style(Style::default().fg(Color::Gray));
-                    empty_paragraph.render(area, buf);
-                } else {
-                    // Render results using the table widget
-                    DataTable::<RawTableRow>::default().render(
-                        area,
-                        buf,
-                        &mut state.table_state,
-                    );
-                }
+        if let Some(error) = &state.error_message {
+            Paragraph::new(error.clone())
+                .style(Style::default().fg(Color::Red))
+                .wrap(Wrap { trim: true })
+                .render(area, buf);
+        } else if let Some(results) = &state.results {
+            if results.is_empty() {
+                Paragraph::new("No results")
+                    .style(Style::default().fg(Color::Gray))
+                    .render(area, buf);
+            } else {
+                DataTable::<RawTableRow>::default().render(
+                    area,
+                    buf,
+                    &mut state.table_state,
+                );
             }
         } else {
-            // No results yet, show full SQL input area
-            let input_paragraph = Paragraph::new(state.sql_input()).style(
-                Style::default().fg(if state.is_active {
-                    Color::White
-                } else {
-                    Color::Gray
-                }),
-            );
-
-            input_paragraph.render(area, buf);
+            Paragraph::new("Press 'e' to open editor")
+                .style(Style::default().fg(Color::DarkGray))
+                .render(area, buf);
         }
     }
 }

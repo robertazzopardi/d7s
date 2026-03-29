@@ -3,10 +3,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::navigation::TableNavigationHandler;
 use crate::{
     db::TableData,
-    ui::widgets::{
-        search_filter::SearchFilter, sql_executor::SqlExecutorState,
-        table::TableDataState,
-    },
+    ui::widgets::{search_filter::SearchFilter, table::TableDataState},
 };
 
 /// Default terminal width used for column offset calculations
@@ -74,14 +71,6 @@ pub fn handle_search_filter_input(
         },
         true
     )
-}
-
-/// Handles SQL executor key events
-pub fn handle_sql_executor_input(
-    key: KeyEvent,
-    sql_executor: &mut SqlExecutorState,
-) -> bool {
-    handle_text_input!(key, sql_executor, {}, {}, false)
 }
 
 #[allow(dead_code, clippy::wildcard_enum_match_arm)]

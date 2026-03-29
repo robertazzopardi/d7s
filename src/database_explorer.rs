@@ -269,7 +269,7 @@ impl App<'_> {
     }
 
     /// Execute SQL query from the SQL executor
-    async fn execute_sql_query(&mut self) {
+    pub(crate) async fn execute_sql_query(&mut self) {
         let sql = self
             .database_explorer
             .sql_executor

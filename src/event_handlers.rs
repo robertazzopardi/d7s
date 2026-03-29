@@ -10,7 +10,7 @@ use crate::{
     db::connection::ConnectionType,
     services::{ConnectionService, PasswordService},
     ui::{
-        handlers::{handle_search_filter_input, handle_sql_executor_input},
+        handlers::handle_search_filter_input,
         widgets::modal::{ModalAction, TestResult},
     },
 };
@@ -42,11 +42,6 @@ impl App<'_> {
     pub async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Handle search filter input first
         if self.handle_search_filter(key) {
-            return Ok(());
-        }
-
-        // Handle SQL executor input
-        if self.handle_sql_executor_input(key) {
             return Ok(());
         }
 
@@ -104,19 +99,14 @@ impl App<'_> {
                     DatabaseExplorerState::Connections
                 ) {
                     self.handle_edit_connection();
-                    return Ok(true);
+                } else if self.state == AppState::DatabaseConnected {
+                    self.open_editor_requested = true;
                 }
-                Ok(false)
+                Ok(true)
             }
             (_, KeyCode::Char('t')) => {
                 if self.state == AppState::DatabaseConnected {
                     self.handle_toggle_table_view().await?;
-                }
-                Ok(true)
-            }
-            (_, KeyCode::Char('s')) => {
-                if self.state == AppState::DatabaseConnected {
-                    self.enter_sql_executor_mode();
                 }
                 Ok(true)
             }
@@ -163,17 +153,11 @@ impl App<'_> {
     }
 
     fn escape_from_or_return_to_sql_editor(&mut self) {
-        let sql_executor_state = &mut self.database_explorer.sql_executor;
-        if sql_executor_state.has_results() {
-            sql_executor_state.clear_results();
-        } else {
-            // Restore the previous state before SQL executor was opened
-            sql_executor_state.deactivate();
-            if let Some(previous_state) =
-                self.database_explorer.previous_state.take()
-            {
-                self.database_explorer.state = previous_state;
-            }
+        self.database_explorer.sql_executor.deactivate();
+        if let Some(previous_state) =
+            self.database_explorer.previous_state.take()
+        {
+            self.database_explorer.state = previous_state;
         }
     }
 
@@ -259,20 +243,6 @@ impl App<'_> {
         }
     }
 
-    /// Handle SQL executor input
-    fn handle_sql_executor_input(&mut self, key: KeyEvent) -> bool {
-        let is_sql_executor = matches!(
-            self.database_explorer.state,
-            DatabaseExplorerState::SqlExecutor
-        );
-
-        is_sql_executor
-            && handle_sql_executor_input(
-                key,
-                &mut self.database_explorer.sql_executor,
-            )
-    }
-
     /// Handle delete connection action
     fn handle_delete_connection(&mut self) {
         let Some(connection) = self.get_selected_connection() else {
@@ -323,15 +293,6 @@ impl App<'_> {
             DatabaseExplorerState::SqlExecutor => todo!(),
         }
         Ok(())
-    }
-
-    /// Enter SQL executor mode
-    fn enter_sql_executor_mode(&mut self) {
-        let explorer = &mut self.database_explorer;
-        // Save the current state before entering SQL executor
-        explorer.previous_state = Some(explorer.state.clone());
-        explorer.state = DatabaseExplorerState::SqlExecutor;
-        self.database_explorer.sql_executor.activate();
     }
 
     /// Handle modal events
