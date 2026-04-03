@@ -123,7 +123,7 @@ impl App<'_> {
                 } else if self.state == AppState::DatabaseConnected {
                     let is_sql_executor = matches!(
                         self.database_explorer.state,
-                        DatabaseExplorerState::SqlExecutor
+                        DatabaseExplorerState::SqlResults(_)
                     );
 
                     if is_sql_executor {
@@ -290,7 +290,7 @@ impl App<'_> {
             DatabaseExplorerState::Databases => todo!(),
             DatabaseExplorerState::Schemas => todo!(),
             DatabaseExplorerState::Tables(_) => todo!(),
-            DatabaseExplorerState::SqlExecutor => todo!(),
+            DatabaseExplorerState::SqlResults(_) => todo!(),
         }
         Ok(())
     }

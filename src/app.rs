@@ -104,12 +104,14 @@ impl App<'_> {
                     std::fs::read_to_string(temp_path).unwrap_or_default();
                 let new_sql = new_sql.trim_end_matches('\n').to_string();
                 if !new_sql.is_empty() {
-                    self.database_explorer.sql_executor.set_sql(new_sql);
+                    self.database_explorer
+                        .sql_executor
+                        .set_sql(new_sql.clone());
                     // Save current state and enter SqlExecutor to show results
                     let current_state = self.database_explorer.state.clone();
                     self.database_explorer.previous_state = Some(current_state);
                     self.database_explorer.state =
-                        DatabaseExplorerState::SqlExecutor;
+                        DatabaseExplorerState::SqlResults(new_sql);
                     self.execute_sql_query().await;
                 }
             }
@@ -186,7 +188,7 @@ impl App<'_> {
                     let row = table_data.table.model.items.get(selected_row)?;
                     row.values.get(selected_col)?.clone()
                 }
-                DatabaseExplorerState::SqlExecutor => {
+                DatabaseExplorerState::SqlResults(_) => {
                     let table = &explorer.sql_executor.table_state;
                     let selected_row = table.view.state.selected()?;
                     let selected_col =

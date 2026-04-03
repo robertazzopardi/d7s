@@ -17,7 +17,7 @@ pub enum DatabaseExplorerState {
     Tables(String),            // schema name
     Columns(String, String),   // schema name, table name
     TableData(String, String), // schema name, table name
-    SqlExecutor,               // SQL execution mode
+    SqlResults(String),        // SQL execution mode
 }
 
 impl Display for DatabaseExplorerState {
@@ -30,7 +30,14 @@ impl Display for DatabaseExplorerState {
             Self::Columns(schema, table) | Self::TableData(schema, table) => {
                 write!(f, " {schema}.{table} ")
             }
-            Self::SqlExecutor => write!(f, " SQL Executor "),
+            Self::SqlResults(query) => {
+                let query_display = if query.len() > 20 {
+                    query.split_at(21).0
+                } else {
+                    query
+                };
+                write!(f, " {query_display} ")
+            }
         }
     }
 }

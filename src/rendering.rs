@@ -180,7 +180,7 @@ impl App<'_> {
                     area,
                 );
             }
-            DatabaseExplorerState::SqlExecutor => {
+            DatabaseExplorerState::SqlResults(_) => {
                 frame.render_stateful_widget(
                     SqlExecutor,
                     area,

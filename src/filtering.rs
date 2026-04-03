@@ -35,7 +35,7 @@ impl App<'_> {
                 .table_data
                 .as_ref()
                 .is_some_and(FilteredData::is_filtered),
-            DatabaseExplorerState::SqlExecutor => false,
+            DatabaseExplorerState::SqlResults(_) => false,
         }
     }
 
@@ -71,7 +71,7 @@ impl App<'_> {
                     table_data.clear_filter();
                 }
             }
-            DatabaseExplorerState::SqlExecutor => {}
+            DatabaseExplorerState::SqlResults(_) => {}
         }
     }
 
@@ -107,7 +107,7 @@ impl App<'_> {
                     table_data.apply_filter(query);
                 }
             }
-            DatabaseExplorerState::SqlExecutor => {}
+            DatabaseExplorerState::SqlResults(_) => {}
         }
     }
 }

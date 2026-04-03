@@ -212,7 +212,7 @@ impl App<'_> {
                         .open_cell_value_modal(column_name, cell_value);
                 }
             }
-            DatabaseExplorerState::SqlExecutor => {
+            DatabaseExplorerState::SqlResults(_) => {
                 self.execute_sql_query().await;
             }
         }
@@ -344,7 +344,7 @@ impl App<'_> {
                     explorer.state = DatabaseExplorerState::Databases;
                 }
             }
-            DatabaseExplorerState::SqlExecutor => {
+            DatabaseExplorerState::SqlResults(_) => {
                 // SQLite: Go back to tables
                 // Postgres: Go back to schemas
                 if is_sqlite {
@@ -371,7 +371,7 @@ impl App<'_> {
             DatabaseExplorerState::Connections => {
                 self.database_explorer.connections.navigate(key);
             }
-            DatabaseExplorerState::SqlExecutor => {
+            DatabaseExplorerState::SqlResults(_) => {
                 TableNavigationHandler::navigate_table(
                     &self.database_explorer.sql_executor.table_state.model,
                     &mut self.database_explorer.sql_executor.table_state.view,
