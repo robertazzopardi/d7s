@@ -2,6 +2,9 @@ name: CI
 
 on:
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
   # push:
   #   branches:
   #     - main
@@ -21,31 +24,31 @@ jobs:
   fmt:
     name: fmt
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
         with:
           components: rustfmt
+          cache: "false"
       - name: check formatting
         run: cargo fmt -- --check
   clippy:
     name: clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       checks: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
         with:
           components: clippy
-      - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@v2
-      - name: Install system dependencies (Linux)
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev
+          install-linux-dbus: "true"
       - name: Run clippy action
         uses: clechasseur/rs-clippy-check@v3
   doc:
@@ -54,32 +57,47 @@ jobs:
     # API be documented as only available in some specific platforms.
     name: doc
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
-      - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@v2
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
+          install-linux-dbus: "true"
       - name: Run cargo doc
         run: cargo doc --no-deps --all-features
         env:
           RUSTDOCFLAGS: --cfg docsrs
   test:
     runs-on: ${{ matrix.os }}
-    name: test ${{ matrix.os }}
+    name: test ${{ matrix.os }} (${{ matrix.profile }})
+    timeout-minutes: 35
     strategy:
-      fail-fast: false
+      fail-fast: ${{ vars.CI_FAIL_FAST == 'true' }}
       matrix:
-        os: [macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            profile: full
+            test_command: cargo nextest run --locked --all-features --all-targets
+          - os: macos-latest
+            profile: smoke
+            test_command: cargo test --locked --workspace
+          - os: windows-latest
+            profile: smoke
+            test_command: cargo test --locked --workspace
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@v2
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          install-linux-dbus: "true"
+      - name: Install cargo-nextest
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@nextest
       # enable this ci template to run regardless of whether the lockfile is checked in or not
       - name: cargo generate-lockfile
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
-      - name: cargo test --locked
-        run: cargo test --locked --all-features --all-targets
+      - name: Run test suite
+        run: ${{ matrix.test_command }}
