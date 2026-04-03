@@ -11,6 +11,7 @@ use ratatui::{
     text::Span,
     widgets::{Block, Borders, Clear, Paragraph, StatefulWidget},
 };
+use ratatui_textarea::TextArea;
 use tui_menu::{MenuEvent, MenuItem, MenuState};
 
 use crate::{
@@ -57,37 +58,78 @@ pub enum TestResult {
 #[derive(Debug, Clone)]
 pub struct ModalField {
     pub label: &'static str,
-    pub value: String,
+    pub input: TextArea<'static>,
     pub is_focused: bool,
     /// When set, this field is a dropdown; value must be one of these options.
     pub options: Option<Vec<&'static str>>,
 }
 
 impl ModalField {
+    fn make_input(text: &str) -> TextArea<'static> {
+        let mut input = TextArea::new(vec![text.to_string()]);
+        // Disable cursor line highlight (not needed for single-line form fields)
+        input.set_cursor_line_style(Style::default());
+        // Hide cursor until focused
+        input.set_cursor_style(Style::default());
+        // No undo/redo needed for form fields
+        input.set_max_histories(0);
+        input
+    }
+
     #[must_use]
-    pub const fn new(label: &'static str) -> Self {
+    pub fn new(label: &'static str) -> Self {
         Self {
             label,
-            value: String::new(),
+            input: Self::make_input(""),
             is_focused: false,
             options: None,
         }
     }
 
-    pub const fn set_focus(&mut self, focused: bool) {
+    /// Get the current text value of this field.
+    #[must_use]
+    pub fn value(&self) -> &str {
+        self.input.lines().first().map_or("", |s| s.as_str())
+    }
+
+    /// Set the text value of this field, replacing all content.
+    pub fn set_value(&mut self, text: impl Into<String>) {
+        let text = text.into();
+        self.input = Self::make_input(&text);
+        // Move cursor to end of the pre-filled text
+        self.input.move_cursor(ratatui_textarea::CursorMove::End);
+        // Restore cursor style based on current focus state
+        if self.is_focused {
+            self.input.set_cursor_style(
+                Style::default().bg(Color::Yellow).fg(Color::Black),
+            );
+        }
+    }
+
+    pub fn set_focus(&mut self, focused: bool) {
         self.is_focused = focused;
-    }
-
-    pub fn add_char(&mut self, c: char) {
-        if self.options.is_none() {
-            self.value.push(c);
+        if focused {
+            self.input.set_style(
+                Style::default().fg(Color::Yellow).bg(Color::DarkGray),
+            );
+            self.input.set_cursor_style(
+                Style::default().bg(Color::Yellow).fg(Color::Black),
+            );
+        } else {
+            self.input.set_style(Style::default().fg(Color::White));
+            self.input.set_cursor_style(Style::default());
         }
     }
 
-    pub fn remove_char(&mut self) {
+    pub fn input_key(&mut self, key: KeyEvent) {
         if self.options.is_none() {
-            self.value.pop();
+            self.input.input(key);
         }
+    }
+
+    /// Enable character masking (for password fields).
+    pub fn set_masked(&mut self) {
+        self.input.set_mask_char('•');
     }
 
     /// Set dropdown options. If value is empty, sets value to first option.
@@ -95,8 +137,8 @@ impl ModalField {
         if !options.is_empty() {
             let first = options[0].to_string();
             self.options = Some(options);
-            if self.value.is_empty() {
-                self.value = first;
+            if self.value().is_empty() {
+                self.set_value(first);
             }
         }
     }
@@ -105,9 +147,9 @@ impl ModalField {
     pub fn clamp_to_options(&mut self) {
         if let Some(ref opts) = self.options
             && !opts.is_empty()
-            && !opts.iter().any(|o| *o == self.value)
+            && !opts.iter().any(|o| *o == self.value())
         {
-            self.value = opts[0].to_string();
+            self.set_value(opts[0]);
         }
     }
 
@@ -179,7 +221,7 @@ pub struct Modal {
     /// Step 1: selected index in database type list (0 = postgres, 1 = sqlite).
     pub step1_type_index: usize,
     /// Step 1: optional "Import from URL" input; if non-empty, step 2 is prefilled.
-    pub step1_import_url: String,
+    pub step1_import_url: TextArea<'static>,
     /// Step 1: focus on URL input (true) or on type list (false).
     pub step1_focus_on_url: bool,
     /// Step 2: connection type (set when entering step 2).
@@ -226,10 +268,9 @@ pub struct CellValueModal {
 #[derive(Debug, Clone)]
 pub struct PasswordModal {
     pub is_open: bool,
-    pub password: String,
+    input: TextArea<'static>,
     pub connection: Option<Connection>,
     pub prompt: String,
-    cursor_position: usize,
     selected_button: usize,
 }
 
@@ -249,32 +290,60 @@ impl Modal {
             menu_state: None,
             step: ConnectionModalStep::default(),
             step1_type_index: 0,
-            step1_import_url: String::new(),
+            step1_import_url: Self::new_url_textarea(),
             step1_focus_on_url: false,
             connection_type: None,
         }
     }
 
+    fn new_url_textarea() -> TextArea<'static> {
+        let mut ta = TextArea::default();
+        ta.set_cursor_line_style(Style::default());
+        ta.set_cursor_style(Style::default());
+        ta.set_style(Style::default().fg(Color::White));
+        ta.set_max_histories(0);
+        ta
+    }
+
+    fn set_url_focus(&mut self, focused: bool) {
+        self.step1_focus_on_url = focused;
+        if focused {
+            self.step1_import_url.set_style(
+                Style::default().fg(Color::Yellow).bg(Color::DarkGray),
+            );
+            self.step1_import_url.set_cursor_style(
+                Style::default().bg(Color::Yellow).fg(Color::Black),
+            );
+        } else {
+            self.step1_import_url
+                .set_style(Style::default().fg(Color::White));
+            self.step1_import_url.set_cursor_style(Style::default());
+        }
+    }
+
     /// Build step 2 fields from step 1 state. If `step1_import_url` is set, parse and prefill; else use selected type with empty/default values.
     fn enter_step2(&mut self) {
-        let (connection_type, prefilled) =
-            if self.step1_import_url.trim().is_empty() {
-                let t = match STEP1_DB_TYPES.get(self.step1_type_index) {
-                    Some(&"sqlite") => ConnectionType::Sqlite,
-                    _ => ConnectionType::Postgres,
-                };
-                (t, None)
-            } else if let Some(parsed) =
-                parse_connection_string(&self.step1_import_url)
-            {
-                (parsed.connection_type, Some(parsed.url))
-            } else {
-                let t = match STEP1_DB_TYPES.get(self.step1_type_index) {
-                    Some(&"sqlite") => ConnectionType::Sqlite,
-                    _ => ConnectionType::Postgres,
-                };
-                (t, None)
+        let url_text = self
+            .step1_import_url
+            .lines()
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        let (connection_type, prefilled) = if url_text.trim().is_empty() {
+            let t = match STEP1_DB_TYPES.get(self.step1_type_index) {
+                Some(&"sqlite") => ConnectionType::Sqlite,
+                _ => ConnectionType::Postgres,
             };
+            (t, None)
+        } else if let Some(parsed) = parse_connection_string(&url_text) {
+            (parsed.connection_type, Some(parsed.url))
+        } else {
+            let t = match STEP1_DB_TYPES.get(self.step1_type_index) {
+                Some(&"sqlite") => ConnectionType::Sqlite,
+                _ => ConnectionType::Postgres,
+            };
+            (t, None)
+        };
 
         self.connection_type = Some(connection_type);
         self.step = ConnectionModalStep::ConnectionForm;
@@ -299,19 +368,20 @@ impl Modal {
                     );
                 let name = ModalField::new("Name");
                 let mut host_f = ModalField::new("Host");
-                host_f.value = host;
+                host_f.set_value(host);
                 let mut port_f = ModalField::new("Port");
-                port_f.value = port;
+                port_f.set_value(port);
                 let mut user_f = ModalField::new("User");
-                user_f.value = user;
+                user_f.set_value(user);
                 let mut database_f = ModalField::new("Database");
-                database_f.value = database;
+                database_f.set_value(database);
                 let mut env = ModalField::new("Environment");
                 env.set_options(vec!["dev", "staging", "prod"]);
-                env.value = "dev".to_string();
+                env.set_value("dev");
                 let mut metadata = ModalField::new("Metadata");
-                metadata.value = "{}".to_string();
-                let password = ModalField::new("Password");
+                metadata.set_value("{}");
+                let mut password = ModalField::new("Password");
+                password.set_masked();
                 self.fields = vec![
                     name, host_f, port_f, user_f, database_f, env, metadata,
                     password,
@@ -321,12 +391,12 @@ impl Modal {
                 let path = prefilled.unwrap_or_default();
                 let name = ModalField::new("Name");
                 let mut path_f = ModalField::new("Path");
-                path_f.value = path;
+                path_f.set_value(path);
                 let mut env = ModalField::new("Environment");
                 env.set_options(vec!["dev", "staging", "prod"]);
-                env.value = "dev".to_string();
+                env.set_value("dev");
                 let mut metadata = ModalField::new("Metadata");
-                metadata.value = "{}".to_string();
+                metadata.set_value("{}");
                 self.fields = vec![name, path_f, env, metadata];
             }
         }
@@ -358,8 +428,8 @@ impl Modal {
         self.is_open = true;
         self.step = ConnectionModalStep::ChooseType;
         self.step1_type_index = 0;
-        self.step1_import_url.clear();
-        self.step1_focus_on_url = false;
+        self.step1_import_url = Self::new_url_textarea();
+        self.step1_focus_on_url = false; // already false from new_url_textarea default
         self.connection_type = None;
         self.fields.clear();
         self.current_field = 0;
@@ -389,23 +459,24 @@ impl Modal {
                 let (host, port, user, database) =
                     parse_postgres_url(&connection.url);
                 let mut name = ModalField::new("Name");
-                name.value.clone_from(&connection.name);
+                name.set_value(connection.name.clone());
                 let mut host_f = ModalField::new("Host");
-                host_f.value = host;
+                host_f.set_value(host);
                 let mut port_f = ModalField::new("Port");
-                port_f.value = port;
+                port_f.set_value(port);
                 let mut user_f = ModalField::new("User");
-                user_f.value = user;
+                user_f.set_value(user);
                 let mut database_f = ModalField::new("Database");
-                database_f.value = database;
+                database_f.set_value(database);
                 let mut env = ModalField::new("Environment");
                 env.set_options(vec!["dev", "staging", "prod"]);
-                env.value = connection.environment.to_string();
+                env.set_value(connection.environment.to_string());
                 let mut metadata = ModalField::new("Metadata");
-                metadata.value = connection.metadata.to_string();
+                metadata.set_value(connection.metadata.to_string());
                 let mut password = ModalField::new("Password");
-                password.value =
-                    connection.password.clone().unwrap_or_default();
+                password.set_masked();
+                password
+                    .set_value(connection.password.clone().unwrap_or_default());
                 self.fields = vec![
                     name, host_f, port_f, user_f, database_f, env, metadata,
                     password,
@@ -413,14 +484,14 @@ impl Modal {
             }
             ConnectionType::Sqlite => {
                 let mut name = ModalField::new("Name");
-                name.value.clone_from(&connection.name);
+                name.set_value(connection.name.clone());
                 let mut path_f = ModalField::new("Path");
-                path_f.value.clone_from(&connection.url);
+                path_f.set_value(connection.url.clone());
                 let mut env = ModalField::new("Environment");
                 env.set_options(vec!["dev", "staging", "prod"]);
-                env.value = connection.environment.to_string();
+                env.set_value(connection.environment.to_string());
                 let mut metadata = ModalField::new("Metadata");
-                metadata.value = connection.metadata.to_string();
+                metadata.set_value(connection.metadata.to_string());
                 self.fields = vec![name, path_f, env, metadata];
             }
         }
@@ -451,7 +522,7 @@ impl Modal {
             return;
         }
         // Order options with current value first so tui-menu highlights it after push().
-        let current = field.value.as_str();
+        let current = field.value();
         let mut children: Vec<MenuItem<&'static str>> =
             opts.iter().map(|&o| MenuItem::item(o, o)).collect();
         if let Some(pos) = children.iter().position(|m| m.data == Some(current))
@@ -475,7 +546,7 @@ impl Modal {
             if apply && let Some(event) = s.drain_events().next() {
                 let MenuEvent::Selected(value) = event;
                 if let Some(field) = self.fields.get_mut(idx) {
-                    field.value = value.to_string();
+                    field.set_value(value);
                 }
             }
             s.reset();
@@ -561,23 +632,11 @@ impl Modal {
         }
     }
 
-    pub fn add_char(&mut self, c: char) {
-        // Only add characters when on a field, not on storage selector or buttons
-        if self.current_field < self.visible_fields_count() {
-            let logical_index = self.current_field;
-            if let Some(field) = self.fields.get_mut(logical_index) {
-                field.add_char(c);
-            }
-        }
-    }
-
-    pub fn remove_char(&mut self) {
-        // Only remove characters when on a field, not on storage selector or buttons
-        if self.current_field < self.visible_fields_count() {
-            let logical_index = self.current_field;
-            if let Some(field) = self.fields.get_mut(logical_index) {
-                field.remove_char();
-            }
+    fn forward_key_to_field(&mut self, key: KeyEvent) {
+        if self.current_field < self.visible_fields_count()
+            && let Some(field) = self.fields.get_mut(self.current_field)
+        {
+            field.input_key(key);
         }
     }
 
@@ -594,14 +653,14 @@ impl Modal {
                 self.fields.iter().collect()
             };
 
-        if required_fields.iter().any(|f| f.value.trim().is_empty()) {
+        if required_fields.iter().any(|f| f.value().trim().is_empty()) {
             return None;
         }
 
         let password = if self.is_password_field_hidden() {
             None
         } else {
-            Some(self.fields[password_field_index].value.clone())
+            Some(self.fields[password_field_index].value().to_string())
         };
 
         let (environment_index, metadata_index) = match connection_type {
@@ -611,16 +670,17 @@ impl Modal {
         let environment = self
             .fields
             .get(environment_index)
-            .map(|f| f.value.parse().unwrap_or_default())
+            .map(|f| f.value().parse().unwrap_or_default())
             .unwrap_or_default();
         let metadata_str = self
             .fields
             .get(metadata_index)
-            .map_or("", |f| f.value.trim());
+            .map_or("", |f| f.value().trim());
+        let metadata_str = metadata_str.to_string();
         let metadata = if metadata_str.is_empty() {
             serde_json::Value::Object(serde_json::Map::new())
         } else {
-            serde_json::from_str(metadata_str).unwrap_or_else(|_| {
+            serde_json::from_str(&metadata_str).unwrap_or_else(|_| {
                 serde_json::Value::Object(serde_json::Map::new())
             })
         };
@@ -633,26 +693,33 @@ impl Modal {
 
         let url = match connection_type {
             ConnectionType::Postgres => {
-                let host = self
+                let host = self.fields.get(1).map_or_else(
+                    || "localhost".to_string(),
+                    |f| f.value().to_string(),
+                );
+                let port = self.fields.get(2).map_or_else(
+                    || "5432".to_string(),
+                    |f| f.value().to_string(),
+                );
+                let user = self
                     .fields
-                    .get(1)
-                    .map_or("localhost", |f| f.value.as_str());
-                let port =
-                    self.fields.get(2).map_or("5432", |f| f.value.as_str());
-                let user = self.fields.get(3).map_or("", |f| f.value.as_str());
-                let database =
-                    self.fields.get(4).map_or("postgres", |f| f.value.as_str());
-                build_postgres_url(host, port, user, database)
+                    .get(3)
+                    .map_or(String::new(), |f| f.value().to_string());
+                let database = self.fields.get(4).map_or_else(
+                    || "postgres".to_string(),
+                    |f| f.value().to_string(),
+                );
+                build_postgres_url(&host, &port, &user, &database)
             }
             ConnectionType::Sqlite => self
                 .fields
                 .get(1)
-                .map(|f| f.value.clone())
+                .map(|f| f.value().to_string())
                 .unwrap_or_default(),
         };
 
         Some(Connection {
-            name: self.fields[0].value.clone(),
+            name: self.fields[0].value().to_string(),
             r#type: connection_type,
             url,
             environment,
@@ -678,7 +745,7 @@ impl Modal {
                 self.fields.iter().collect()
             };
 
-        !required_fields.iter().any(|f| f.value.trim().is_empty())
+        !required_fields.iter().any(|f| f.value().trim().is_empty())
     }
 
     /// Handle key events for UI navigation only
@@ -772,39 +839,34 @@ impl Modal {
                     self.toggle_password_storage();
                     return ModalAction::None;
                 }
+                self.forward_key_to_field(key);
+                ModalAction::None
+            }
+            (
+                _,
+                KeyCode::Backspace
+                | KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Home
+                | KeyCode::End
+                | KeyCode::Delete,
+            ) => {
                 if self.current_field < self.visible_fields_count() {
-                    self.add_char(c);
-                }
-                ModalAction::None
-            }
-            (_, KeyCode::Backspace) => {
-                self.remove_char();
-                ModalAction::None
-            }
-            (_, KeyCode::Left) => {
-                if let Some(button_idx) = self.is_on_button() {
+                    self.forward_key_to_field(key);
+                } else if let Some(button_idx) = self.is_on_button() {
                     let storage =
                         usize::from(self.is_password_storage_row_visible());
                     let button_start = self.visible_fields_count() + storage;
                     let count = self.button_count();
-                    let new_button_idx = (button_idx + count - 1) % count;
-                    self.current_field = button_start + new_button_idx;
-                } else {
-                    self.prev_field();
+                    if key.code == KeyCode::Left {
+                        let new_button_idx = (button_idx + count - 1) % count;
+                        self.current_field = button_start + new_button_idx;
+                    } else if key.code == KeyCode::Right {
+                        let new_button_idx = (button_idx + 1) % count;
+                        self.current_field = button_start + new_button_idx;
+                    }
                 }
-                ModalAction::None
-            }
-            (_, KeyCode::Right) => {
-                if let Some(button_idx) = self.is_on_button() {
-                    let storage =
-                        usize::from(self.is_password_storage_row_visible());
-                    let button_start = self.visible_fields_count() + storage;
-                    let count = self.button_count();
-                    let new_button_idx = (button_idx + 1) % count;
-                    self.current_field = button_start + new_button_idx;
-                } else {
-                    self.next_field();
-                }
+
                 ModalAction::None
             }
             _ => ModalAction::None,
@@ -820,7 +882,7 @@ impl Modal {
             }
             (_, KeyCode::BackTab | KeyCode::Up) => {
                 if self.step1_focus_on_url {
-                    self.step1_focus_on_url = false;
+                    self.set_url_focus(false);
                 } else {
                     self.step1_type_index = self
                         .step1_type_index
@@ -835,7 +897,7 @@ impl Modal {
                 } else if self.step1_type_index + 1 < STEP1_DB_TYPES.len() {
                     self.step1_type_index += 1;
                 } else {
-                    self.step1_focus_on_url = true;
+                    self.set_url_focus(true);
                 }
                 ModalAction::None
             }
@@ -843,14 +905,8 @@ impl Modal {
                 self.enter_step2();
                 ModalAction::None
             }
-            (_, KeyCode::Char(c))
-                if self.step1_focus_on_url && !c.is_control() =>
-            {
-                self.step1_import_url.push(c);
-                ModalAction::None
-            }
-            (_, KeyCode::Backspace) if self.step1_focus_on_url => {
-                self.step1_import_url.pop();
+            _ if self.step1_focus_on_url => {
+                self.step1_import_url.input(key);
                 ModalAction::None
             }
             _ => ModalAction::None,
@@ -882,7 +938,7 @@ impl Modal {
                     if let Some(field_idx) = self.dropdown_open
                         && let Some(field) = self.fields.get_mut(field_idx)
                     {
-                        field.value = value.to_string();
+                        field.set_value(value);
                     }
                 }
                 self.close_dropdown(false);
@@ -1032,20 +1088,7 @@ impl Modal {
             .alignment(Alignment::Left)
             .render(url_label_row, buf);
 
-        let url_value = if self.step1_import_url.is_empty() {
-            " ".to_string()
-        } else {
-            self.step1_import_url.clone()
-        };
-        let url_style = if self.step1_focus_on_url {
-            Style::default().fg(Color::Yellow).bg(Color::DarkGray)
-        } else {
-            Style::default().fg(Color::White)
-        };
-        Paragraph::new(format!("  {url_value}"))
-            .style(url_style)
-            .alignment(Alignment::Left)
-            .render(layout[5], buf);
+        Widget::render(&self.step1_import_url, layout[5], buf);
     }
 
     /// Fixed height for fields section; dropdown is drawn as overlay and does not expand layout.
@@ -1127,16 +1170,14 @@ impl Modal {
                 if !opts.is_empty() {
                     overlay = Some((row_area, opts, hi));
                 }
-            } else {
+            } else if field.is_dropdown() {
+                // Dropdown: render value with arrow as Paragraph
                 let label = format!("{}:", field.label);
-                let value = if field.value.is_empty() {
+                let value_str = field.value();
+                let value = if value_str.is_empty() {
                     " ".repeat(18)
-                } else if i == self.password_field_index() {
-                    "•".repeat(field.value.len())
-                } else if field.is_dropdown() {
-                    format!("{} ▼", field.value)
                 } else {
-                    field.value.clone()
+                    format!("{value_str} ▼")
                 };
                 let text = format!("{label:<12} {value}");
                 let style = if field.is_focused {
@@ -1148,6 +1189,27 @@ impl Modal {
                     .style(style)
                     .alignment(Alignment::Left)
                     .render(row_area, buf);
+            } else {
+                // Free-text: split row into label + textarea
+                let label = format!("{:<12} ", format!("{}:", field.label));
+                let label_width = u16::try_from(label.len()).unwrap_or(14);
+                let chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([
+                        Constraint::Length(label_width),
+                        Constraint::Min(1),
+                    ])
+                    .split(row_area);
+                let label_style = if field.is_focused {
+                    Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                Paragraph::new(label)
+                    .style(label_style)
+                    .render(chunks[0], buf);
+                // Render via reference to avoid cloning the textarea
+                Widget::render(&field.input, chunks[1], buf);
             }
             visible_index += 1;
         }
@@ -1192,10 +1254,11 @@ impl Modal {
             Style::default().fg(Color::White)
         };
         let arrow = if is_open { " ▲" } else { " ▼" };
-        let value_display = if field.value.is_empty() {
+        let v = field.value();
+        let value_display = if v.is_empty() {
             " ".to_string()
         } else {
-            format!("{}{}", field.value, arrow)
+            format!("{v}{arrow}")
         };
         let label = format!("{}:", field.label);
         let trigger_text = format!("{label:<12} {value_display}");
@@ -1343,11 +1406,16 @@ impl Widget for ConfirmationModal {
         }
 
         // Center a fixed-size modal
-        let modal_width = CONFIRMATION_MODAL_WIDTH;
-        let modal_height = CONFIRMATION_MODAL_HEIGHT;
-        let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
-        let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
-        let modal_area = Rect::new(x, y, modal_width, modal_height);
+        let x =
+            area.x + (area.width.saturating_sub(CONFIRMATION_MODAL_WIDTH)) / 2;
+        let y = area.y
+            + (area.height.saturating_sub(CONFIRMATION_MODAL_HEIGHT)) / 2;
+        let modal_area = Rect::new(
+            x,
+            y,
+            CONFIRMATION_MODAL_WIDTH,
+            CONFIRMATION_MODAL_HEIGHT,
+        );
 
         let block = Block::default()
             .title("Confirm Delete")
@@ -1475,50 +1543,44 @@ impl Widget for CellValueModal {
 }
 
 impl PasswordModal {
+    fn make_input() -> TextArea<'static> {
+        let mut input = TextArea::default();
+        input.set_cursor_line_style(Style::default());
+        // Show visible cursor in the password field
+        input.set_cursor_style(
+            Style::default().bg(Color::Yellow).fg(Color::Black),
+        );
+        // Mask characters so the password is never visible
+        input.set_mask_char('•');
+        // No undo/redo for password fields
+        input.set_max_histories(0);
+        input
+    }
+
     #[must_use]
-    pub const fn new(connection: Connection, prompt: String) -> Self {
+    pub fn new(connection: Connection, prompt: String) -> Self {
         Self {
             is_open: true,
-            password: String::new(),
+            input: Self::make_input(),
             connection: Some(connection),
             prompt,
-            cursor_position: 0,
             selected_button: 0,
         }
+    }
+
+    /// Get the current password text.
+    #[must_use]
+    pub fn password(&self) -> String {
+        self.input.lines().first().cloned().unwrap_or_default()
     }
 
     pub const fn close(&mut self) {
         self.is_open = false;
     }
 
-    pub fn add_char(&mut self, c: char) {
-        self.password.insert(self.cursor_position, c);
-        self.cursor_position += 1;
-    }
-
-    pub fn remove_char(&mut self) {
-        if self.cursor_position > 0 {
-            self.password.remove(self.cursor_position - 1);
-            self.cursor_position -= 1;
-        }
-    }
-
-    pub const fn move_cursor_left(&mut self) {
-        if self.cursor_position > 0 {
-            self.cursor_position -= 1;
-        }
-    }
-
-    pub const fn move_cursor_right(&mut self) {
-        if self.cursor_position < self.password.len() {
-            self.cursor_position += 1;
-        }
-    }
-
-    /// Clear the password field and reset cursor position
+    /// Clear the password field
     pub fn clear_password(&mut self) {
-        self.password.clear();
-        self.cursor_position = 0;
+        self.input = Self::make_input();
     }
 
     pub fn handle_key_events(&mut self, key: KeyEvent) -> ModalAction {
@@ -1543,20 +1605,26 @@ impl PasswordModal {
                 if self.selected_button == 1 {
                     self.selected_button = 0;
                 } else {
-                    self.move_cursor_left();
+                    self.input.input(key);
                 }
                 ModalAction::None
             }
             (_, KeyCode::Right) => {
                 if self.selected_button == 0 {
-                    self.selected_button = 1;
-                } else {
-                    self.move_cursor_right();
+                    // Move to button if cursor is already at end of input
+                    let line =
+                        self.input.lines().first().cloned().unwrap_or_default();
+                    let (_, col) = self.input.cursor();
+                    if col >= line.len() {
+                        self.selected_button = 1;
+                    } else {
+                        self.input.input(key);
+                    }
                 }
                 ModalAction::None
             }
             (_, KeyCode::Enter) => match self.selected_button {
-                0 if !self.password.is_empty() => {
+                0 if !self.password().is_empty() => {
                     self.close();
                     ModalAction::Save
                 }
@@ -1566,16 +1634,8 @@ impl PasswordModal {
                 }
                 _ => ModalAction::None,
             },
-            (_, KeyCode::Char(c)) if !c.is_control() => {
-                if self.selected_button == 0 {
-                    self.add_char(c);
-                }
-                ModalAction::None
-            }
-            (_, KeyCode::Backspace) => {
-                if self.selected_button == 0 {
-                    self.remove_char();
-                }
+            _ if self.selected_button == 0 => {
+                self.input.input(key);
                 ModalAction::None
             }
             _ => ModalAction::None,
@@ -1590,11 +1650,11 @@ impl Widget for PasswordModal {
         }
 
         // Center a fixed-size modal
-        let modal_width = PASSWORD_MODAL_WIDTH;
-        let modal_height = PASSWORD_MODAL_HEIGHT;
-        let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
-        let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
-        let modal_area = Rect::new(x, y, modal_width, modal_height);
+        let x = area.x + (area.width.saturating_sub(PASSWORD_MODAL_WIDTH)) / 2;
+        let y =
+            area.y + (area.height.saturating_sub(PASSWORD_MODAL_HEIGHT)) / 2;
+        let modal_area =
+            Rect::new(x, y, PASSWORD_MODAL_WIDTH, PASSWORD_MODAL_HEIGHT);
 
         let block = Block::default()
             .title("Enter Password")
@@ -1623,41 +1683,9 @@ impl Widget for PasswordModal {
             .alignment(Alignment::Left)
             .render(prompt_layout, buf);
 
-        // Render password input (masked) with cursor
-        let masked_password: String =
-            self.password.chars().map(|_| '•').collect();
-        let cursor_pos =
-            self.cursor_position.min(masked_password.chars().count());
-        let mut spans = Vec::new();
-
-        // Get byte position for cursor
-        let cursor_byte_pos = masked_password
-            .char_indices()
-            .nth(cursor_pos)
-            .map_or(masked_password.len(), |(i, _)| i);
-
-        // Add masked password before cursor
-        if cursor_pos > 0 {
-            spans.push(Span::raw(&masked_password[..cursor_byte_pos]));
-        }
-
-        // Add cursor
-        spans.push(Span::styled(
-            "█",
-            Style::default().fg(Color::White).bg(Color::Black),
-        ));
-
-        // Add masked password after cursor
-        if cursor_pos < masked_password.chars().count() {
-            spans.push(Span::raw(&masked_password[cursor_byte_pos..]));
-        }
-
-        let line = Line::from(spans);
+        // Render password input — masking is handled by set_mask_char('•')
         let content_layout = *inner_layout.get(1).unwrap_or(&Rect::ZERO);
-        Paragraph::new(line)
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Left)
-            .render(content_layout, buf);
+        Widget::render(&self.input, content_layout, buf);
 
         // Render buttons
         let buttons = Buttons {

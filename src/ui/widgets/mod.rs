@@ -5,7 +5,6 @@ pub mod modal;
 pub mod sql_executor;
 pub mod status_line;
 pub mod table;
-pub mod text_input;
 pub mod top_bar_view;
 
 use unicode_width::UnicodeWidthStr;

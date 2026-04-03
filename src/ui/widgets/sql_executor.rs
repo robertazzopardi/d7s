@@ -2,21 +2,37 @@ use ratatui::{
     prelude::*,
     widgets::{Paragraph, StatefulWidget, Wrap},
 };
+use ratatui_textarea::TextArea;
 
-use crate::ui::widgets::{
-    table::{DataTable, RawTableRow, TableDataState},
-    text_input::TextInput,
-};
+use crate::ui::widgets::table::{DataTable, RawTableRow, TableDataState};
 
 /// State for the SQL executor widget
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SqlExecutorState {
-    input: TextInput,
+    input: TextArea<'static>,
     pub results: Option<Vec<Vec<String>>>,
     pub column_names: Vec<String>,
     pub error_message: Option<String>,
     pub is_active: bool,
     pub table_state: TableDataState<RawTableRow>,
+}
+
+impl Default for SqlExecutorState {
+    fn default() -> Self {
+        let mut input = TextArea::default();
+        input.set_cursor_line_style(Style::default());
+        input.set_cursor_style(Style::default());
+        // SQL is loaded from an external editor, so undo/redo within the widget isn't useful
+        input.set_max_histories(0);
+        Self {
+            input,
+            results: None,
+            column_names: Vec::new(),
+            error_message: None,
+            is_active: false,
+            table_state: TableDataState::default(),
+        }
+    }
 }
 
 impl SqlExecutorState {
@@ -54,14 +70,24 @@ impl SqlExecutorState {
     }
 
     /// Replace the SQL input text entirely after loading from external editor
-    pub fn set_sql(&mut self, sql: String) {
-        self.input.set_text(sql);
+    pub fn set_sql(&mut self, sql: &str) {
+        let lines: Vec<String> = sql.lines().map(String::from).collect();
+        self.input = TextArea::new(if lines.is_empty() {
+            vec![String::new()]
+        } else {
+            lines
+        });
+        self.input.set_cursor_line_style(Style::default());
+        self.input.set_cursor_style(Style::default());
+        self.input.set_max_histories(0);
+        self.input.move_cursor(ratatui_textarea::CursorMove::Bottom);
+        self.input.move_cursor(ratatui_textarea::CursorMove::End);
     }
 
     /// Get the SQL input text
     #[must_use]
-    pub fn sql_input(&self) -> &str {
-        self.input.text()
+    pub fn sql_input(&self) -> String {
+        self.input.lines().join("\n")
     }
 }
 

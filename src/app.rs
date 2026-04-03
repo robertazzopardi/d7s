@@ -107,19 +107,19 @@ impl App<'_> {
             self.open_editor_requested = false;
             let temp_path = std::path::Path::new("/tmp/d7s_sql_editor.sql");
             let current_sql =
-                self.database_explorer.sql_executor.sql_input().to_string();
+                self.database_explorer.sql_executor.sql_input().clone();
             std::fs::write(temp_path, &current_sql)?;
             Self::run_editor(terminal, temp_path)?;
             let new_sql =
                 std::fs::read_to_string(temp_path).unwrap_or_default();
-            let new_sql = new_sql.trim_end_matches('\n').to_string();
+            let new_sql = new_sql.trim_end_matches('\n');
             if !new_sql.is_empty() {
-                self.database_explorer.sql_executor.set_sql(new_sql.clone());
+                self.database_explorer.sql_executor.set_sql(new_sql);
                 // Save current state and enter SqlExecutor to show results
                 let current_state = self.database_explorer.state.clone();
                 self.database_explorer.previous_state = Some(current_state);
                 self.database_explorer.state =
-                    DatabaseExplorerState::SqlResults(new_sql);
+                    DatabaseExplorerState::SqlResults(new_sql.to_string());
                 self.execute_sql_query().await;
             }
         }

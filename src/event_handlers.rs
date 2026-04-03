@@ -225,6 +225,7 @@ impl App<'_> {
                     search_bar.set_cursor_line_style(Style::default());
                     search_bar.set_placeholder_text("/");
                     search_bar.set_style(Style::default().fg(Color::White));
+                    search_bar.set_max_histories(0);
                     search_bar.set_block(
                         Block::default()
                             .border_style(Color::White)
@@ -353,7 +354,7 @@ impl App<'_> {
                 return Ok(false);
             };
 
-            (connection, password_modal.password.clone())
+            (connection, password_modal.password())
         };
 
         // Store the state before attempting connection to check if it changed
