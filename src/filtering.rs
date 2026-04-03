@@ -4,8 +4,13 @@ use crate::{app::App, app_state::DatabaseExplorerState};
 impl App<'_> {
     /// Apply the current search filter to the active table
     pub fn apply_filter(&mut self) {
-        let query: String = self.search_filter.get_filter_query().to_string();
-        self.apply_filter_with_query(&query);
+        let Some(search_filter) = &self.search_filter.clone() else {
+            return;
+        };
+        let Some(query) = search_filter.lines().first() else {
+            return;
+        };
+        self.apply_filter_with_query(query);
     }
 
     /// Check if any filter is currently active

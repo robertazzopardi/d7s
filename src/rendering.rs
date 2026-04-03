@@ -66,7 +66,7 @@ impl App<'_> {
         // Create the main content area (layout[1] is the middle section)
         let layout_rect =
             layout.get(1).copied().unwrap_or_else(|| frame.area());
-        let main_area = if self.search_filter.is_active {
+        let main_area = if self.search_filter.is_some() {
             // If search filter is active, create a layout with search filter at top
             let search_layout = Layout::default()
                 .direction(Direction::Vertical)
@@ -80,11 +80,9 @@ impl App<'_> {
                 search_layout.first().copied().unwrap_or_else(Rect::default);
 
             // Render search filter
-            frame.render_stateful_widget(
-                self.search_filter.clone(),
-                search_layout_rect,
-                &mut (),
-            );
+            if let Some(textarea) = &self.search_filter {
+                frame.render_widget(textarea, search_layout_rect);
+            }
 
             search_layout.get(1).copied().unwrap_or_else(Rect::default)
         } else {

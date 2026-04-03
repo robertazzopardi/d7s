@@ -2,17 +2,18 @@ use color_eyre::Result;
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
-use ratatui::widgets::TableState;
+use ratatui::{
+    style::{Color, Style},
+    widgets::{Block, Borders, TableState},
+};
+use ratatui_textarea::TextArea;
 
 use crate::{
     app::App,
     app_state::{AppState, DatabaseExplorerState},
     db::connection::ConnectionType,
     services::{ConnectionService, PasswordService},
-    ui::{
-        handlers::handle_search_filter_input,
-        widgets::modal::{ModalAction, TestResult},
-    },
+    ui::widgets::modal::{ModalAction, TestResult},
 };
 
 impl App<'_> {
@@ -26,13 +27,14 @@ impl App<'_> {
                 self.clear_status();
                 self.on_key_event(key).await?;
             }
+            // Ignore non-press key events
+            // Terminal resize is handled automatically by ratatui
             Event::Key(_)
             | Event::FocusGained
             | Event::FocusLost
             | Event::Mouse(_)
             | Event::Paste(_)
-            | Event::Resize(_, _) => {} // Ignore non-press key events
-                                        // Terminal resize is handled automatically by ratatui
+            | Event::Resize(_, _) => {}
         }
 
         Ok(())
@@ -41,8 +43,21 @@ impl App<'_> {
     /// Handles the key events and updates the state of [`App`].
     pub async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Handle search filter input first
-        if self.handle_search_filter(key) {
-            return Ok(());
+        if let Some(textarea) = &mut self.search_filter {
+            if key.code == KeyCode::Esc {
+                self.clear_filter();
+                self.search_filter = None;
+                return Ok(());
+            }
+            if key.code == KeyCode::Enter {
+                self.apply_filter();
+                self.search_filter = None;
+                return Ok(());
+            }
+
+            if textarea.input(key) {
+                return Ok(());
+            }
         }
 
         // Handle modal events
@@ -133,6 +148,8 @@ impl App<'_> {
                     } else {
                         self.go_back_in_database();
                     }
+                } else if self.state == AppState::ConnectionList {
+                    self.clear_filter();
                 }
 
                 Ok(true)
@@ -204,42 +221,20 @@ impl App<'_> {
             }
             (_, KeyCode::Char('/')) => {
                 if !self.modal_manager.is_any_modal_open() {
-                    self.search_filter.activate();
+                    let mut search_bar = TextArea::default();
+                    search_bar.set_cursor_line_style(Style::default());
+                    search_bar.set_placeholder_text("/");
+                    search_bar.set_style(Style::default().fg(Color::White));
+                    search_bar.set_block(
+                        Block::default()
+                            .border_style(Color::White)
+                            .borders(Borders::ALL)
+                            .title(" Search Filter (ESC to cancel) "),
+                    );
+                    self.search_filter = Some(search_bar);
                 }
             }
             _ => {}
-        }
-    }
-
-    /// Handle search filter input
-    fn handle_search_filter(&mut self, key: KeyEvent) -> bool {
-        if !self.search_filter.is_active {
-            return false;
-        }
-
-        let mut should_clear = false;
-        let mut should_apply = false;
-        let filter_handled = handle_search_filter_input(
-            key,
-            &mut self.search_filter,
-            &mut || {
-                if key.code == KeyCode::Esc {
-                    should_clear = true;
-                } else {
-                    should_apply = true;
-                }
-            },
-        );
-
-        if filter_handled {
-            if should_clear {
-                self.clear_filter();
-            } else if should_apply {
-                self.apply_filter();
-            }
-            true
-        } else {
-            false
         }
     }
 

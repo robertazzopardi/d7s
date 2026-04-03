@@ -9,6 +9,7 @@ use crossterm::{
     },
 };
 use ratatui::DefaultTerminal;
+use ratatui_textarea::TextArea;
 
 use crate::{
     app_state::{AppState, DatabaseExplorerState},
@@ -17,8 +18,8 @@ use crate::{
     filtered_data::FilteredData,
     services::{ConnectionService, PasswordService},
     ui::widgets::{
-        hotkey::Hotkey, modal::ModalManager, search_filter::SearchFilter,
-        status_line::StatusLine, top_bar_view::CONNECTION_HOTKEYS,
+        hotkey::Hotkey, modal::ModalManager, status_line::StatusLine,
+        top_bar_view::CONNECTION_HOTKEYS,
     },
 };
 
@@ -45,7 +46,7 @@ pub struct App<'a> {
     /// Database explorer state (when connected to a database)
     pub(crate) database_explorer: DatabaseExplorer,
     /// Search filter widget
-    pub(crate) search_filter: SearchFilter,
+    pub(crate) search_filter: Option<TextArea<'a>>,
     /// Status line widget
     pub(crate) status_line: StatusLine,
     /// Password management service
@@ -64,7 +65,7 @@ impl Default for App<'_> {
             hotkeys: CONNECTION_HOTKEYS.to_vec(),
             state: AppState::ConnectionList,
             database_explorer: DatabaseExplorer::default(),
-            search_filter: SearchFilter::new(),
+            search_filter: None,
             status_line: StatusLine::new(),
             password_service: PasswordService::new(),
             build_info: String::new(),
@@ -87,35 +88,42 @@ impl App<'_> {
     }
 
     /// Run the application's main loop.
-    pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
+    pub async fn run(&mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
         while self.running {
             terminal.draw(|frame| self.render(frame))?;
             self.handle_crossterm_events().await?;
 
-            if self.open_editor_requested {
-                self.open_editor_requested = false;
-                let temp_path = std::path::Path::new("/tmp/d7s_sql_editor.sql");
-                let current_sql =
-                    self.database_explorer.sql_executor.sql_input().to_string();
-                std::fs::write(temp_path, &current_sql)?;
-                Self::run_editor(&mut terminal, temp_path)?;
-                let new_sql =
-                    std::fs::read_to_string(temp_path).unwrap_or_default();
-                let new_sql = new_sql.trim_end_matches('\n').to_string();
-                if !new_sql.is_empty() {
-                    self.database_explorer
-                        .sql_executor
-                        .set_sql(new_sql.clone());
-                    // Save current state and enter SqlExecutor to show results
-                    let current_state = self.database_explorer.state.clone();
-                    self.database_explorer.previous_state = Some(current_state);
-                    self.database_explorer.state =
-                        DatabaseExplorerState::SqlResults(new_sql);
-                    self.execute_sql_query().await;
-                }
+            self.handle_external_terminal(&mut terminal).await?;
+        }
+        Ok(())
+    }
+
+    async fn handle_external_terminal(
+        &mut self,
+        terminal: &mut DefaultTerminal,
+    ) -> Result<(), color_eyre::eyre::Error> {
+        if self.open_editor_requested {
+            self.open_editor_requested = false;
+            let temp_path = std::path::Path::new("/tmp/d7s_sql_editor.sql");
+            let current_sql =
+                self.database_explorer.sql_executor.sql_input().to_string();
+            std::fs::write(temp_path, &current_sql)?;
+            Self::run_editor(terminal, temp_path)?;
+            let new_sql =
+                std::fs::read_to_string(temp_path).unwrap_or_default();
+            let new_sql = new_sql.trim_end_matches('\n').to_string();
+            if !new_sql.is_empty() {
+                self.database_explorer.sql_executor.set_sql(new_sql.clone());
+                // Save current state and enter SqlExecutor to show results
+                let current_state = self.database_explorer.state.clone();
+                self.database_explorer.previous_state = Some(current_state);
+                self.database_explorer.state =
+                    DatabaseExplorerState::SqlResults(new_sql);
+                self.execute_sql_query().await;
             }
         }
+
         Ok(())
     }
 
@@ -124,7 +132,10 @@ impl App<'_> {
         if let Ok(connections) = ConnectionService::get_all() {
             self.database_explorer.connections = FilteredData::new(connections);
             // Reapply filter if one is active
-            if !self.search_filter.get_filter_query().is_empty() {
+            if let Some(search_filter) = &self.search_filter
+                && let Some(line) = search_filter.lines().first()
+                && !line.is_empty()
+            {
                 self.apply_filter();
             }
         }
