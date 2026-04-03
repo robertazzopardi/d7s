@@ -2,11 +2,9 @@ pub mod buttons;
 pub mod hotkey;
 pub mod hotkey_view;
 pub mod modal;
-pub mod search_filter;
 pub mod sql_executor;
 pub mod status_line;
 pub mod table;
-pub mod text_input;
 pub mod top_bar_view;
 
 use unicode_width::UnicodeWidthStr;

@@ -2,17 +2,19 @@ use color_eyre::Result;
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
-use ratatui::widgets::TableState;
+use ratatui::{
+    style::{Color, Style},
+    widgets::{Block, Borders, TableState},
+};
+use ratatui_textarea::TextArea;
 
 use crate::{
     app::App,
     app_state::{AppState, DatabaseExplorerState},
     db::connection::ConnectionType,
     services::{ConnectionService, PasswordService},
-    ui::{
-        handlers::{handle_search_filter_input, handle_sql_executor_input},
-        widgets::modal::{ModalAction, TestResult},
-    },
+    sql::safety::split_statements,
+    ui::widgets::modal::{ModalAction, TestResult},
 };
 
 impl App<'_> {
@@ -26,13 +28,14 @@ impl App<'_> {
                 self.clear_status();
                 self.on_key_event(key).await?;
             }
+            // Ignore non-press key events
+            // Terminal resize is handled automatically by ratatui
             Event::Key(_)
             | Event::FocusGained
             | Event::FocusLost
             | Event::Mouse(_)
             | Event::Paste(_)
-            | Event::Resize(_, _) => {} // Ignore non-press key events
-                                        // Terminal resize is handled automatically by ratatui
+            | Event::Resize(_, _) => {}
         }
 
         Ok(())
@@ -41,13 +44,21 @@ impl App<'_> {
     /// Handles the key events and updates the state of [`App`].
     pub async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Handle search filter input first
-        if self.handle_search_filter(key) {
-            return Ok(());
-        }
+        if let Some(textarea) = &mut self.search_filter {
+            if key.code == KeyCode::Esc {
+                self.clear_filter();
+                self.search_filter = None;
+                return Ok(());
+            }
+            if key.code == KeyCode::Enter {
+                self.apply_filter();
+                self.search_filter = None;
+                return Ok(());
+            }
 
-        // Handle SQL executor input
-        if self.handle_sql_executor_input(key) {
-            return Ok(());
+            if textarea.input(key) {
+                return Ok(());
+            }
         }
 
         // Handle modal events
@@ -66,8 +77,9 @@ impl App<'_> {
         Ok(())
     }
 
-    /// Handle application shortcuts (q, n, d, e, t, s, Esc, Enter)
+    /// Handle application shortcuts (q, n, d, e, E, t, Esc, Enter)
     /// Returns true if the key was handled and should stop processing
+    #[allow(clippy::too_many_lines)]
     async fn handle_hotkeys(&mut self, key: KeyEvent) -> Result<bool> {
         match (key.modifiers, key.code) {
             (_, KeyCode::Char('q'))
@@ -104,9 +116,10 @@ impl App<'_> {
                     DatabaseExplorerState::Connections
                 ) {
                     self.handle_edit_connection();
-                    return Ok(true);
+                } else if self.state == AppState::DatabaseConnected {
+                    self.open_editor_requested = true;
                 }
-                Ok(false)
+                Ok(true)
             }
             (_, KeyCode::Char('t')) => {
                 if self.state == AppState::DatabaseConnected {
@@ -114,11 +127,28 @@ impl App<'_> {
                 }
                 Ok(true)
             }
-            (_, KeyCode::Char('s')) => {
-                if self.state == AppState::DatabaseConnected {
-                    self.enter_sql_executor_mode();
+            (_, KeyCode::Char('E')) => {
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::SqlResults(_)
+                ) {
+                    let statements = split_statements(
+                        &self.database_explorer.sql_executor.sql_input(),
+                    );
+                    if statements.is_empty() {
+                        self.set_status(
+                            "No SQL statements found in editor file.",
+                        );
+                        return Ok(true);
+                    }
+                    let options = statements
+                        .into_iter()
+                        .map(|s| s.text)
+                        .collect::<Vec<_>>();
+                    self.modal_manager.open_sql_query_selection_modal(options);
+                    return Ok(true);
                 }
-                Ok(true)
+                Ok(false)
             }
             (_, KeyCode::Esc) => {
                 if self.modal_manager.is_any_modal_open() {
@@ -133,22 +163,18 @@ impl App<'_> {
                 } else if self.state == AppState::DatabaseConnected {
                     let is_sql_executor = matches!(
                         self.database_explorer.state,
-                        DatabaseExplorerState::SqlExecutor
+                        DatabaseExplorerState::SqlResults(_)
                     );
 
                     if is_sql_executor {
-                        // Restore the previous state before SQL executor was opened
-                        self.database_explorer.sql_executor.deactivate();
-                        if let Some(previous_state) =
-                            self.database_explorer.previous_state.take()
-                        {
-                            self.database_explorer.state = previous_state;
-                        }
+                        self.escape_from_or_return_to_sql_editor();
                     } else if self.has_active_filter() {
                         self.clear_filter();
                     } else {
                         self.go_back_in_database();
                     }
+                } else if self.state == AppState::ConnectionList {
+                    self.clear_filter();
                 }
 
                 Ok(true)
@@ -165,6 +191,15 @@ impl App<'_> {
                 Ok(true)
             }
             _ => Ok(false),
+        }
+    }
+
+    fn escape_from_or_return_to_sql_editor(&mut self) {
+        self.database_explorer.sql_executor.deactivate();
+        if let Some(previous_state) =
+            self.database_explorer.previous_state.take()
+        {
+            self.database_explorer.state = previous_state;
         }
     }
 
@@ -211,57 +246,22 @@ impl App<'_> {
             }
             (_, KeyCode::Char('/')) => {
                 if !self.modal_manager.is_any_modal_open() {
-                    self.search_filter.activate();
+                    let mut search_bar = TextArea::default();
+                    search_bar.set_cursor_line_style(Style::default());
+                    search_bar.set_placeholder_text("/");
+                    search_bar.set_style(Style::default().fg(Color::White));
+                    search_bar.set_max_histories(0);
+                    search_bar.set_block(
+                        Block::default()
+                            .border_style(Color::White)
+                            .borders(Borders::ALL)
+                            .title(" Search Filter (ESC to cancel) "),
+                    );
+                    self.search_filter = Some(search_bar);
                 }
             }
             _ => {}
         }
-    }
-
-    /// Handle search filter input
-    fn handle_search_filter(&mut self, key: KeyEvent) -> bool {
-        if !self.search_filter.is_active {
-            return false;
-        }
-
-        let mut should_clear = false;
-        let mut should_apply = false;
-        let filter_handled = handle_search_filter_input(
-            key,
-            &mut self.search_filter,
-            &mut || {
-                if key.code == KeyCode::Esc {
-                    should_clear = true;
-                } else {
-                    should_apply = true;
-                }
-            },
-        );
-
-        if filter_handled {
-            if should_clear {
-                self.clear_filter();
-            } else if should_apply {
-                self.apply_filter();
-            }
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Handle SQL executor input
-    fn handle_sql_executor_input(&mut self, key: KeyEvent) -> bool {
-        let is_sql_executor = matches!(
-            self.database_explorer.state,
-            DatabaseExplorerState::SqlExecutor
-        );
-
-        is_sql_executor
-            && handle_sql_executor_input(
-                key,
-                &mut self.database_explorer.sql_executor,
-            )
     }
 
     /// Handle delete connection action
@@ -311,18 +311,9 @@ impl App<'_> {
             DatabaseExplorerState::Databases => todo!(),
             DatabaseExplorerState::Schemas => todo!(),
             DatabaseExplorerState::Tables(_) => todo!(),
-            DatabaseExplorerState::SqlExecutor => todo!(),
+            DatabaseExplorerState::SqlResults(_) => todo!(),
         }
         Ok(())
-    }
-
-    /// Enter SQL executor mode
-    fn enter_sql_executor_mode(&mut self) {
-        let explorer = &mut self.database_explorer;
-        // Save the current state before entering SQL executor
-        explorer.previous_state = Some(explorer.state.clone());
-        explorer.state = DatabaseExplorerState::SqlExecutor;
-        self.database_explorer.sql_executor.activate();
     }
 
     /// Handle modal events
@@ -334,7 +325,29 @@ impl App<'_> {
                 if self.handle_password_modal_save().await? {
                     return Ok(());
                 }
-                self.handle_connection_modal_save();
+                if let Some(statement) =
+                    self.modal_manager.was_sql_query_selected()
+                    && matches!(key.code, KeyCode::Enter)
+                {
+                    self.prepare_sql_statement_execution(statement).await;
+                    self.modal_manager.cleanup_closed_modals();
+                    return Ok(());
+                }
+                if let Some(statement) =
+                    self.modal_manager.was_sql_execution_confirmed()
+                    && matches!(key.code, KeyCode::Enter)
+                {
+                    self.execute_sql_statement_now(statement).await;
+                    self.modal_manager.cleanup_closed_modals();
+                    return Ok(());
+                }
+                if self
+                    .modal_manager
+                    .get_connection_modal()
+                    .is_some_and(|m| m.is_open)
+                {
+                    self.handle_connection_modal_save();
+                }
             }
             ModalAction::Test => {
                 self.handle_connection_modal_test().await;
@@ -388,7 +401,7 @@ impl App<'_> {
                 return Ok(false);
             };
 
-            (connection, password_modal.password.clone())
+            (connection, password_modal.password())
         };
 
         // Store the state before attempting connection to check if it changed

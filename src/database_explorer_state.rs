@@ -87,7 +87,7 @@ impl DatabaseExplorer {
                 }
             }
             DatabaseExplorerState::Connections
-            | DatabaseExplorerState::SqlExecutor => {}
+            | DatabaseExplorerState::SqlResults(_) => {}
         }
     }
 
@@ -116,7 +116,7 @@ impl DatabaseExplorer {
                 .table_data
                 .as_mut()
                 .map(|table_data| &mut table_data.table.view.state),
-            DatabaseExplorerState::SqlExecutor => {
+            DatabaseExplorerState::SqlResults(_) => {
                 Some(&mut self.sql_executor.table_state.view.state)
             }
         }

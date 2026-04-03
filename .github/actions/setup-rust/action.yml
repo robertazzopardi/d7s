@@ -1,0 +1,38 @@
+name: Setup Rust
+description: Install Rust toolchain, cache dependencies, and Linux system libs.
+
+inputs:
+  toolchain:
+    description: Rust toolchain channel to install.
+    required: false
+    default: stable
+  components:
+    description: Optional rustup components (comma-separated).
+    required: false
+    default: ""
+  cache:
+    description: Enable Cargo cache.
+    required: false
+    default: "true"
+  install-linux-dbus:
+    description: Install libdbus-1-dev on Linux.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ${{ inputs.components }}
+
+    - name: Cache Cargo dependencies
+      if: inputs.cache == 'true'
+      uses: Swatinem/rust-cache@v2
+
+    - name: Install system dependencies (Linux)
+      if: inputs.install-linux-dbus == 'true' && runner.os == 'Linux'
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev

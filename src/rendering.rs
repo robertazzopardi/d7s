@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    prelude::{Position, *},
+    prelude::*,
     widgets::{Block, Borders},
 };
 
@@ -66,7 +66,7 @@ impl App<'_> {
         // Create the main content area (layout[1] is the middle section)
         let layout_rect =
             layout.get(1).copied().unwrap_or_else(|| frame.area());
-        let main_area = if self.search_filter.is_active {
+        let main_area = if self.search_filter.is_some() {
             // If search filter is active, create a layout with search filter at top
             let search_layout = Layout::default()
                 .direction(Direction::Vertical)
@@ -80,11 +80,9 @@ impl App<'_> {
                 search_layout.first().copied().unwrap_or_else(Rect::default);
 
             // Render search filter
-            frame.render_stateful_widget(
-                self.search_filter.clone(),
-                search_layout_rect,
-                &mut (),
-            );
+            if let Some(textarea) = &self.search_filter {
+                frame.render_widget(textarea, search_layout_rect);
+            }
 
             search_layout.get(1).copied().unwrap_or_else(Rect::default)
         } else {
@@ -122,6 +120,17 @@ impl App<'_> {
         }
 
         if let Some(modal) = self.modal_manager.get_confirmation_modal() {
+            frame.render_widget(modal.clone(), area);
+        }
+
+        if let Some(modal) =
+            self.modal_manager.get_sql_execution_confirmation_modal()
+        {
+            frame.render_widget(modal.clone(), area);
+        }
+
+        if let Some(modal) = self.modal_manager.get_sql_query_selection_modal()
+        {
             frame.render_widget(modal.clone(), area);
         }
 
@@ -180,64 +189,12 @@ impl App<'_> {
                     area,
                 );
             }
-            DatabaseExplorerState::SqlExecutor => {
+            DatabaseExplorerState::SqlResults(_) => {
                 frame.render_stateful_widget(
                     SqlExecutor,
                     area,
                     &mut self.database_explorer.sql_executor,
                 );
-
-                // Set cursor position if SQL executor is active and showing input
-                if self.database_explorer.sql_executor.is_active
-                    && self.database_explorer.sql_executor.results.is_none()
-                    && self
-                        .database_explorer
-                        .sql_executor
-                        .error_message
-                        .is_none()
-                {
-                    let cursor_pos =
-                        self.database_explorer.sql_executor.cursor_position();
-                    let text = self.database_explorer.sql_executor.sql_input();
-
-                    // Calculate cursor position accounting for text wrapping
-                    // Paragraph wraps text at area width
-                    let area_width = area.width as usize;
-
-                    if area_width > 0 {
-                        // Get characters before cursor
-                        let chars_before_cursor: Vec<char> =
-                            text.chars().take(cursor_pos).collect();
-
-                        // Calculate which line the cursor is on by simulating wrapping
-                        let mut current_line = 0;
-                        let mut current_line_length = 0;
-
-                        for _ch in &chars_before_cursor {
-                            if current_line_length >= area_width {
-                                current_line += 1;
-                                current_line_length = 0;
-                            }
-                            current_line_length += 1;
-                        }
-
-                        if let Ok(line_y) = u16::try_from(current_line)
-                            && let Ok(line_x) =
-                                u16::try_from(current_line_length)
-                        {
-                            // Calculate x position on the current line
-                            // Clamp to area bounds
-                            let cursor_x = (area.x + line_x)
-                                .min(area.x + area.width.saturating_sub(1));
-                            let cursor_y = (area.y + line_y)
-                                .min(area.y + area.height.saturating_sub(1));
-
-                            frame.set_cursor_position(Position::new(
-                                cursor_x, cursor_y,
-                            ));
-                        }
-                    }
-                }
             }
         }
     }
