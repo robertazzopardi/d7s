@@ -38,7 +38,7 @@ tui-menu = "0.3.1"
 unicode-width = { version = "0.2", default-features = false }
 
 # Async
-tokio = { version = "1.47.0", features = ["full"] }
+tokio = { version = "1.50.0", features = ["full"] }
 async-trait = "0.1"
 
 # Database
