@@ -13,6 +13,7 @@ pub struct SqlExecutorState {
     pub results: Option<Vec<Vec<String>>>,
     pub column_names: Vec<String>,
     pub error_message: Option<String>,
+    selected_statement: Option<String>,
     pub is_active: bool,
     pub table_state: TableDataState<RawTableRow>,
 }
@@ -29,6 +30,7 @@ impl Default for SqlExecutorState {
             results: None,
             column_names: Vec::new(),
             error_message: None,
+            selected_statement: None,
             is_active: false,
             table_state: TableDataState::default(),
         }
@@ -82,12 +84,22 @@ impl SqlExecutorState {
         self.input.set_max_histories(0);
         self.input.move_cursor(ratatui_textarea::CursorMove::Bottom);
         self.input.move_cursor(ratatui_textarea::CursorMove::End);
+        self.selected_statement = None;
     }
 
     /// Get the SQL input text
     #[must_use]
     pub fn sql_input(&self) -> String {
         self.input.lines().join("\n")
+    }
+
+    pub fn set_selected_statement(&mut self, statement: impl Into<String>) {
+        self.selected_statement = Some(statement.into());
+    }
+
+    #[must_use]
+    pub fn selected_statement(&self) -> Option<&str> {
+        self.selected_statement.as_deref()
     }
 }
 

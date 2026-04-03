@@ -10,6 +10,7 @@ mod filtered_data;
 mod filtering;
 mod rendering;
 mod services;
+mod sql;
 mod ui;
 
 use app::App;

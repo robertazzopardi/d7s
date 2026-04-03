@@ -13,6 +13,7 @@ use crate::{
     app_state::{AppState, DatabaseExplorerState},
     db::connection::ConnectionType,
     services::{ConnectionService, PasswordService},
+    sql::safety::split_statements,
     ui::widgets::modal::{ModalAction, TestResult},
 };
 
@@ -76,8 +77,9 @@ impl App<'_> {
         Ok(())
     }
 
-    /// Handle application shortcuts (q, n, d, e, t, s, Esc, Enter)
+    /// Handle application shortcuts (q, n, d, e, E, t, Esc, Enter)
     /// Returns true if the key was handled and should stop processing
+    #[allow(clippy::too_many_lines)]
     async fn handle_hotkeys(&mut self, key: KeyEvent) -> Result<bool> {
         match (key.modifiers, key.code) {
             (_, KeyCode::Char('q'))
@@ -124,6 +126,29 @@ impl App<'_> {
                     self.handle_toggle_table_view().await?;
                 }
                 Ok(true)
+            }
+            (_, KeyCode::Char('E')) => {
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::SqlResults(_)
+                ) {
+                    let statements = split_statements(
+                        &self.database_explorer.sql_executor.sql_input(),
+                    );
+                    if statements.is_empty() {
+                        self.set_status(
+                            "No SQL statements found in editor file.",
+                        );
+                        return Ok(true);
+                    }
+                    let options = statements
+                        .into_iter()
+                        .map(|s| s.text)
+                        .collect::<Vec<_>>();
+                    self.modal_manager.open_sql_query_selection_modal(options);
+                    return Ok(true);
+                }
+                Ok(false)
             }
             (_, KeyCode::Esc) => {
                 if self.modal_manager.is_any_modal_open() {
@@ -300,7 +325,29 @@ impl App<'_> {
                 if self.handle_password_modal_save().await? {
                     return Ok(());
                 }
-                self.handle_connection_modal_save();
+                if let Some(statement) =
+                    self.modal_manager.was_sql_query_selected()
+                    && matches!(key.code, KeyCode::Enter)
+                {
+                    self.prepare_sql_statement_execution(statement).await;
+                    self.modal_manager.cleanup_closed_modals();
+                    return Ok(());
+                }
+                if let Some(statement) =
+                    self.modal_manager.was_sql_execution_confirmed()
+                    && matches!(key.code, KeyCode::Enter)
+                {
+                    self.execute_sql_statement_now(statement).await;
+                    self.modal_manager.cleanup_closed_modals();
+                    return Ok(());
+                }
+                if self
+                    .modal_manager
+                    .get_connection_modal()
+                    .is_some_and(|m| m.is_open)
+                {
+                    self.handle_connection_modal_save();
+                }
             }
             ModalAction::Test => {
                 self.handle_connection_modal_test().await;

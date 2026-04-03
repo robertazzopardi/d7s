@@ -213,7 +213,7 @@ impl App<'_> {
                 }
             }
             DatabaseExplorerState::SqlResults(_) => {
-                self.execute_sql_query().await;
+                // Enter should not re-run SQL in results mode.
             }
         }
         Ok(())
@@ -273,10 +273,12 @@ impl App<'_> {
         let sql = self
             .database_explorer
             .sql_executor
-            .sql_input()
+            .selected_statement()
+            .unwrap_or_default()
             .trim()
             .to_string();
         if sql.is_empty() {
+            self.set_status("No SQL statement selected for execution.");
             return;
         }
 

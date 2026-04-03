@@ -1,4 +1,4 @@
-use std::process::Command;
+use std::{path::Path, process::Command};
 
 use color_eyre::Result;
 use crossterm::{
@@ -17,6 +17,7 @@ use crate::{
     db::{TableData, sqlite::init_db},
     filtered_data::FilteredData,
     services::{ConnectionService, PasswordService},
+    sql::safety::{StatementSafety, classify_statement, split_statements},
     ui::widgets::{
         hotkey::Hotkey, modal::ModalManager, status_line::StatusLine,
         top_bar_view::CONNECTION_HOTKEYS,
@@ -115,12 +116,26 @@ impl App<'_> {
             let new_sql = new_sql.trim_end_matches('\n');
             if !new_sql.is_empty() {
                 self.database_explorer.sql_executor.set_sql(new_sql);
-                // Save current state and enter SqlExecutor to show results
-                let current_state = self.database_explorer.state.clone();
-                self.database_explorer.previous_state = Some(current_state);
-                self.database_explorer.state =
-                    DatabaseExplorerState::SqlResults(new_sql.to_string());
-                self.execute_sql_query().await;
+                let statements = split_statements(new_sql);
+                if statements.is_empty() {
+                    self.set_status("No SQL statements found in editor file.");
+                    return Ok(());
+                }
+
+                if statements.len() == 1 {
+                    if let Some(statement) = statements.first() {
+                        self.prepare_sql_statement_execution(
+                            statement.text.clone(),
+                        )
+                        .await;
+                    }
+                } else {
+                    let options = statements
+                        .into_iter()
+                        .map(|s| s.text)
+                        .collect::<Vec<_>>();
+                    self.modal_manager.open_sql_query_selection_modal(options);
+                }
             }
         }
 
@@ -241,20 +256,65 @@ impl App<'_> {
         self.status_line.clear();
     }
 
-    fn run_editor(
-        terminal: &mut DefaultTerminal,
-        path: &std::path::Path,
-    ) -> Result<()> {
+    fn run_editor(terminal: &mut DefaultTerminal, path: &Path) -> Result<()> {
         let editor = std::env::var("VISUAL")
             .or_else(|_| std::env::var("EDITOR"))
             .unwrap_or_else(|_| "vim".to_string());
+        let (program, args) = Self::parse_editor_command(&editor);
+
         std::io::stdout().execute(LeaveAlternateScreen)?;
         disable_raw_mode()?;
-        Command::new(&editor).arg(path).status()?;
+        let mut cmd = Command::new(&program);
+        cmd.args(args);
+        cmd.arg(path).status()?;
         std::io::stdout().execute(EnterAlternateScreen)?;
         enable_raw_mode()?;
         terminal.clear()?;
         Ok(())
+    }
+
+    fn parse_editor_command(editor: &str) -> (String, Vec<String>) {
+        let mut parts = editor.split_whitespace();
+        let program = parts.next().unwrap_or("vim").to_string();
+        let args = parts.map(ToString::to_string).collect();
+        (program, args)
+    }
+
+    fn enter_sql_results_state(&mut self, statement: String) {
+        if !matches!(
+            self.database_explorer.state,
+            DatabaseExplorerState::SqlResults(_)
+        ) {
+            let current_state = self.database_explorer.state.clone();
+            self.database_explorer.previous_state = Some(current_state);
+        }
+        self.database_explorer.state =
+            DatabaseExplorerState::SqlResults(statement);
+    }
+
+    pub(crate) async fn prepare_sql_statement_execution(
+        &mut self,
+        statement: String,
+    ) {
+        if classify_statement(&statement)
+            == StatementSafety::RequiresConfirmation
+        {
+            self.modal_manager
+                .open_sql_execution_confirmation_modal(statement);
+        } else {
+            self.execute_sql_statement_now(statement).await;
+        }
+    }
+
+    pub(crate) async fn execute_sql_statement_now(
+        &mut self,
+        statement: String,
+    ) {
+        self.enter_sql_results_state(statement.clone());
+        self.database_explorer
+            .sql_executor
+            .set_selected_statement(statement);
+        self.execute_sql_query().await;
     }
 }
 

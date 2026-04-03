@@ -74,6 +74,7 @@ rust_decimal = { version = "1.40.0", default-features = false, features = ["db-t
 color-eyre = "0.6.3"
 directories = "6.0.0"
 ratatui-textarea = "0.8.0"
+sqlparser = "0.61.0"
 
 [lints.clippy]
 indexing_slicing = "deny"

@@ -14,9 +14,10 @@ pub const CONNECTION_HOTKEYS: [Hotkey; 5] = [
     Hotkey::new('y', "Copy value"),
 ];
 
-pub const DATABASE_HOTKEYS: [Hotkey; 4] = [
+pub const DATABASE_HOTKEYS: [Hotkey; 5] = [
     Hotkey::new('e', "SQL Editor"),
     Hotkey::new('t', "Toggle View"),
+    Hotkey::new('E', "Run SQL"),
     Hotkey::new('/', "Search"),
     Hotkey::new('y', "Copy value"),
 ];

@@ -12,7 +12,7 @@ After discovering k9s, I thought it had the perfect format for a database client
 - **Connection management** — save, edit, and delete named connections.
 - **Credential storage** — passwords are stored in the platform keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service), or never saved and prompted everytime.
 - **Database traversal** — navigate databases, schemas, tables, columns, and row data with keyboard-driven menus, supports vim.
-- **SQL executor** — run arbitrary SQL queries and view results as a table.
+- **SQL executor** — execute SQL from the editor, choose a statement when multiple are present, with read-only-by-default safety and confirmation for mutating statements.
 - **Environment tagging** — label each connection as dev, staging, or prod.
 
 ## Install

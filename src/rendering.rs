@@ -123,6 +123,17 @@ impl App<'_> {
             frame.render_widget(modal.clone(), area);
         }
 
+        if let Some(modal) =
+            self.modal_manager.get_sql_execution_confirmation_modal()
+        {
+            frame.render_widget(modal.clone(), area);
+        }
+
+        if let Some(modal) = self.modal_manager.get_sql_query_selection_modal()
+        {
+            frame.render_widget(modal.clone(), area);
+        }
+
         if let Some(modal) = self.modal_manager.get_cell_value_modal() {
             frame.render_widget(modal.clone(), area);
         }

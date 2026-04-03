@@ -42,6 +42,8 @@ pub enum ModalType {
     #[default]
     Connection,
     Confirmation,
+    SqlExecutionConfirmation,
+    SqlQuerySelection,
     CellValue,
     Password,
 }
@@ -263,6 +265,22 @@ pub struct CellValueModal {
     pub is_open: bool,
     pub column_name: String,
     pub cell_value: String,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct SqlExecutionConfirmationModal {
+    pub is_open: bool,
+    pub selected_button: usize,
+    pub message: String,
+    pub statement: String,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct SqlQuerySelectionModal {
+    pub is_open: bool,
+    pub selected_index: usize,
+    pub statements: Vec<String>,
+    submitted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1399,6 +1417,121 @@ impl ConfirmationModal {
     }
 }
 
+impl SqlExecutionConfirmationModal {
+    #[must_use]
+    pub fn new(statement: String) -> Self {
+        let preview = statement
+            .lines()
+            .take(3)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .chars()
+            .take(180)
+            .collect::<String>();
+        let message = format!(
+            "This statement may modify data.\n\nExecute anyway?\n\n{preview}"
+        );
+        Self {
+            is_open: true,
+            selected_button: 1, // Default to "No"
+            message,
+            statement,
+        }
+    }
+
+    pub const fn close(&mut self) {
+        self.is_open = false;
+    }
+
+    pub const fn next_button(&mut self) {
+        self.selected_button = (self.selected_button + 1) % 2;
+    }
+
+    pub const fn prev_button(&mut self) {
+        self.selected_button = (self.selected_button + 1) % 2;
+    }
+
+    #[must_use]
+    pub const fn confirm(&self) -> bool {
+        self.selected_button == 0
+    }
+
+    pub const fn handle_key_events(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc | KeyCode::Enter) => {
+                self.close();
+            }
+            (_, KeyCode::Left) => {
+                self.prev_button();
+            }
+            (_, KeyCode::Right) => {
+                self.next_button();
+            }
+            _ => {}
+        }
+    }
+}
+
+impl SqlQuerySelectionModal {
+    #[must_use]
+    pub const fn new(statements: Vec<String>) -> Self {
+        Self {
+            is_open: true,
+            selected_index: 0,
+            statements,
+            submitted: false,
+        }
+    }
+
+    pub const fn close(&mut self) {
+        self.is_open = false;
+    }
+
+    pub const fn next(&mut self) {
+        if self.statements.is_empty() {
+            return;
+        }
+        self.selected_index = (self.selected_index + 1) % self.statements.len();
+    }
+
+    pub const fn prev(&mut self) {
+        if self.statements.is_empty() {
+            return;
+        }
+        self.selected_index = (self.selected_index + self.statements.len() - 1)
+            % self.statements.len();
+    }
+
+    #[must_use]
+    pub fn selected_statement(&self) -> Option<String> {
+        self.statements.get(self.selected_index).cloned()
+    }
+
+    pub const fn submitted(&self) -> bool {
+        self.submitted
+    }
+
+    pub const fn handle_key_events(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                self.submitted = false;
+                self.close();
+            }
+            (_, KeyCode::Up | KeyCode::Char('k' | 'K')) => {
+                self.prev();
+            }
+            (_, KeyCode::Down | KeyCode::Char('j' | 'J')) => {
+                self.next();
+            }
+            (_, KeyCode::Enter) => {
+                self.submitted = true;
+                self.close();
+            }
+            _ => {}
+        }
+    }
+}
+
 impl Widget for ConfirmationModal {
     fn render(self, area: Rect, buf: &mut Buffer) {
         if !self.is_open {
@@ -1450,6 +1583,116 @@ impl Widget for ConfirmationModal {
         };
         let button_layout = *inner_layout.get(1).unwrap_or(&Rect::ZERO);
         buttons.render(button_layout, buf);
+    }
+}
+
+impl Widget for SqlExecutionConfirmationModal {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if !self.is_open {
+            return;
+        }
+
+        let x =
+            area.x + (area.width.saturating_sub(CONFIRMATION_MODAL_WIDTH)) / 2;
+        let y = area.y
+            + (area.height.saturating_sub(CONFIRMATION_MODAL_HEIGHT)) / 2;
+        let modal_area = Rect::new(
+            x,
+            y,
+            CONFIRMATION_MODAL_WIDTH,
+            CONFIRMATION_MODAL_HEIGHT,
+        );
+
+        let block = Block::default()
+            .title("Confirm SQL Execution")
+            .title_alignment(Alignment::Center)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow))
+            .style(Style::default().bg(Color::Black));
+        Clear.render(modal_area, buf);
+        block.render(modal_area, buf);
+
+        let inner_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Length(1)])
+            .margin(1)
+            .split(modal_area);
+
+        let content_layout = *inner_layout.first().unwrap_or(&Rect::ZERO);
+        Paragraph::new(self.message)
+            .style(Style::default().fg(Color::White))
+            .alignment(Alignment::Center)
+            .render(content_layout, buf);
+
+        let buttons = Buttons {
+            buttons: vec!["Yes", "No"],
+            selected: self.selected_button,
+        };
+        let button_layout = *inner_layout.get(1).unwrap_or(&Rect::ZERO);
+        buttons.render(button_layout, buf);
+    }
+}
+
+impl Widget for SqlQuerySelectionModal {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if !self.is_open {
+            return;
+        }
+
+        let width = 76u16.min(area.width.saturating_sub(2));
+        let height = 12u16.min(area.height.saturating_sub(2));
+        let x = area.x + (area.width.saturating_sub(width)) / 2;
+        let y = area.y + (area.height.saturating_sub(height)) / 2;
+        let modal_area = Rect::new(x, y, width, height);
+
+        let block = Block::default()
+            .title("Select SQL Statement")
+            .title_alignment(Alignment::Center)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .style(Style::default().bg(Color::Black));
+        Clear.render(modal_area, buf);
+        let inner = block.inner(modal_area);
+        block.render(modal_area, buf);
+        let max_rows = inner.height.saturating_sub(1) as usize;
+        let start = self
+            .selected_index
+            .saturating_sub(max_rows.saturating_sub(1));
+        let end = (start + max_rows).min(self.statements.len());
+
+        for (row, (idx, stmt)) in self.statements[start..end]
+            .iter()
+            .enumerate()
+            .map(|(row, stmt)| (row, (start + row, stmt)))
+        {
+            let is_selected = idx == self.selected_index;
+            let style = if is_selected {
+                Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let preview = stmt
+                .lines()
+                .next()
+                .map(str::trim)
+                .unwrap_or_default()
+                .chars()
+                .take((inner.width.saturating_sub(6)) as usize)
+                .collect::<String>();
+            let label = format!(
+                "{} {}. {}",
+                if is_selected { ">" } else { " " },
+                idx + 1,
+                preview
+            );
+            let row_area = Rect {
+                x: inner.x,
+                y: inner.y + u16::try_from(row).unwrap_or(0),
+                width: inner.width,
+                height: 1,
+            };
+            Paragraph::new(label).style(style).render(row_area, buf);
+        }
     }
 }
 
@@ -1702,6 +1945,8 @@ impl Widget for PasswordModal {
 pub struct ModalManager {
     connection_modal: Option<Modal>,
     confirmation_modal: Option<ConfirmationModal>,
+    sql_execution_confirmation_modal: Option<SqlExecutionConfirmationModal>,
+    sql_query_selection_modal: Option<SqlQuerySelectionModal>,
     cell_value_modal: Option<CellValueModal>,
     password_modal: Option<PasswordModal>,
     active_modal_type: Option<ModalType>,
@@ -1714,6 +1959,8 @@ impl ModalManager {
         Self {
             connection_modal: None,
             confirmation_modal: None,
+            sql_execution_confirmation_modal: None,
+            sql_query_selection_modal: None,
             cell_value_modal: None,
             password_modal: None,
             active_modal_type: None,
@@ -1725,6 +1972,14 @@ impl ModalManager {
     pub fn is_any_modal_open(&self) -> bool {
         self.connection_modal.as_ref().is_some_and(|m| m.is_open)
             || self.confirmation_modal.as_ref().is_some_and(|m| m.is_open)
+            || self
+                .sql_execution_confirmation_modal
+                .as_ref()
+                .is_some_and(|m| m.is_open)
+            || self
+                .sql_query_selection_modal
+                .as_ref()
+                .is_some_and(|m| m.is_open)
             || self.cell_value_modal.as_ref().is_some_and(|m| m.is_open)
             || self.password_modal.as_ref().is_some_and(|m| m.is_open)
     }
@@ -1764,6 +2019,18 @@ impl ModalManager {
         self.active_modal_type = Some(ModalType::Confirmation);
     }
 
+    pub fn open_sql_execution_confirmation_modal(&mut self, statement: String) {
+        let modal = SqlExecutionConfirmationModal::new(statement);
+        self.sql_execution_confirmation_modal = Some(modal);
+        self.active_modal_type = Some(ModalType::SqlExecutionConfirmation);
+    }
+
+    pub fn open_sql_query_selection_modal(&mut self, statements: Vec<String>) {
+        let modal = SqlQuerySelectionModal::new(statements);
+        self.sql_query_selection_modal = Some(modal);
+        self.active_modal_type = Some(ModalType::SqlQuerySelection);
+    }
+
     /// Open a cell value display modal
     pub fn open_cell_value_modal(
         &mut self,
@@ -1801,6 +2068,17 @@ impl ModalManager {
             }
             Some(ModalType::CellValue) => {
                 if let Some(modal) = &mut self.cell_value_modal {
+                    modal.close();
+                }
+            }
+            Some(ModalType::SqlExecutionConfirmation) => {
+                if let Some(modal) = &mut self.sql_execution_confirmation_modal
+                {
+                    modal.close();
+                }
+            }
+            Some(ModalType::SqlQuerySelection) => {
+                if let Some(modal) = &mut self.sql_query_selection_modal {
                     modal.close();
                 }
             }
@@ -1854,6 +2132,37 @@ impl ModalManager {
                         self.active_modal_type = None;
                     }
                     ModalAction::Cancel
+                } else {
+                    ModalAction::None
+                }
+            }
+            Some(ModalType::SqlExecutionConfirmation) => {
+                if let Some(modal) = &mut self.sql_execution_confirmation_modal
+                {
+                    modal.handle_key_events(key);
+                    if !modal.is_open {
+                        self.active_modal_type = None;
+                    }
+                    if modal.confirm() {
+                        ModalAction::Save
+                    } else {
+                        ModalAction::Cancel
+                    }
+                } else {
+                    ModalAction::None
+                }
+            }
+            Some(ModalType::SqlQuerySelection) => {
+                if let Some(modal) = &mut self.sql_query_selection_modal {
+                    modal.handle_key_events(key);
+                    if !modal.is_open {
+                        self.active_modal_type = None;
+                    }
+                    if modal.submitted() {
+                        ModalAction::Save
+                    } else {
+                        ModalAction::Cancel
+                    }
                 } else {
                     ModalAction::None
                 }
@@ -1931,6 +2240,18 @@ impl ModalManager {
             self.cell_value_modal = None;
         }
 
+        if let Some(modal) = &self.sql_execution_confirmation_modal
+            && !modal.is_open
+        {
+            self.sql_execution_confirmation_modal = None;
+        }
+
+        if let Some(modal) = &self.sql_query_selection_modal
+            && !modal.is_open
+        {
+            self.sql_query_selection_modal = None;
+        }
+
         if let Some(modal) = &self.password_modal
             && !modal.is_open
         {
@@ -1955,5 +2276,45 @@ impl ModalManager {
     #[must_use]
     pub const fn get_cell_value_modal(&self) -> Option<&CellValueModal> {
         self.cell_value_modal.as_ref()
+    }
+
+    /// Check if SQL execution confirmation modal was just closed and confirmed.
+    #[must_use]
+    pub fn was_sql_execution_confirmed(&self) -> Option<String> {
+        if let Some(modal) = &self.sql_execution_confirmation_modal
+            && !modal.is_open
+            && modal.confirm()
+        {
+            return Some(modal.statement.clone());
+        }
+        None
+    }
+
+    /// Get a reference to the SQL execution confirmation modal.
+    #[must_use]
+    pub const fn get_sql_execution_confirmation_modal(
+        &self,
+    ) -> Option<&SqlExecutionConfirmationModal> {
+        self.sql_execution_confirmation_modal.as_ref()
+    }
+
+    /// Check if SQL query selection modal was closed via Enter and return selected statement.
+    #[must_use]
+    pub fn was_sql_query_selected(&self) -> Option<String> {
+        if let Some(modal) = &self.sql_query_selection_modal
+            && !modal.is_open
+            && modal.submitted()
+        {
+            return modal.selected_statement();
+        }
+        None
+    }
+
+    /// Get SQL query selection modal for rendering.
+    #[must_use]
+    pub const fn get_sql_query_selection_modal(
+        &self,
+    ) -> Option<&SqlQuerySelectionModal> {
+        self.sql_query_selection_modal.as_ref()
     }
 }
