@@ -14,7 +14,7 @@ pub struct TableNavigationHandler;
 
 impl TableNavigationHandler {
     /// Wraps the selection for a `TableState` - going past the end wraps to the beginning and vice versa
-    pub fn wrap_rows<T: TableData>(state: &mut TableState, items: &[T]) {
+    pub const fn wrap_rows<T: TableData>(state: &mut TableState, items: &[T]) {
         if let Some(selected) = state.selected() {
             if items.is_empty() {
                 state.select(None);

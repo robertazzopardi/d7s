@@ -212,8 +212,8 @@ impl App<'_> {
                         .open_cell_value_modal(column_name, cell_value);
                 }
             }
-            DatabaseExplorerState::SqlExecutor => {
-                self.execute_sql_query().await;
+            DatabaseExplorerState::SqlResults(_) => {
+                // Enter should not re-run SQL in results mode.
             }
         }
         Ok(())
@@ -269,14 +269,16 @@ impl App<'_> {
     }
 
     /// Execute SQL query from the SQL executor
-    async fn execute_sql_query(&mut self) {
+    pub(crate) async fn execute_sql_query(&mut self) {
         let sql = self
             .database_explorer
             .sql_executor
-            .sql_input()
+            .selected_statement()
+            .unwrap_or_default()
             .trim()
             .to_string();
         if sql.is_empty() {
+            self.set_status("No SQL statement selected for execution.");
             return;
         }
 
@@ -344,7 +346,7 @@ impl App<'_> {
                     explorer.state = DatabaseExplorerState::Databases;
                 }
             }
-            DatabaseExplorerState::SqlExecutor => {
+            DatabaseExplorerState::SqlResults(_) => {
                 // SQLite: Go back to tables
                 // Postgres: Go back to schemas
                 if is_sqlite {
@@ -371,7 +373,7 @@ impl App<'_> {
             DatabaseExplorerState::Connections => {
                 self.database_explorer.connections.navigate(key);
             }
-            DatabaseExplorerState::SqlExecutor => {
+            DatabaseExplorerState::SqlResults(_) => {
                 TableNavigationHandler::navigate_table(
                     &self.database_explorer.sql_executor.table_state.model,
                     &mut self.database_explorer.sql_executor.table_state.view,
