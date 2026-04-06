@@ -90,7 +90,39 @@ impl App<'_> {
         };
 
         // Use explorer state for title and content (Connections uses same path as other states)
-        let title = self.database_explorer.state.to_string();
+        let title = match &self.database_explorer.state {
+            DatabaseExplorerState::TableData(_, _) => {
+                let base = self.database_explorer.state.to_string();
+                if let Some(meta) = &self.database_explorer.table_data_virtual {
+                    let filtered = self
+                        .database_explorer
+                        .table_data
+                        .as_ref()
+                        .is_some_and(|t| t.is_filtered());
+                    let visible = self
+                        .database_explorer
+                        .table_data
+                        .as_ref()
+                        .map(|t| t.table.model.items.len())
+                        .unwrap_or(0);
+                    format!(
+                        "{}{}",
+                        base.trim_end(),
+                        meta.title_suffix(filtered, visible)
+                    )
+                } else {
+                    base
+                }
+            }
+            DatabaseExplorerState::Connections
+            | DatabaseExplorerState::Databases
+            | DatabaseExplorerState::Schemas
+            | DatabaseExplorerState::Tables(_)
+            | DatabaseExplorerState::Columns(_, _)
+            | DatabaseExplorerState::SqlResults(_) => {
+                self.database_explorer.state.to_string()
+            }
+        };
         let block = Block::new()
             .borders(Borders::ALL)
             .title(title)

@@ -151,10 +151,12 @@ impl Database for Sqlite {
         Ok(columns)
     }
 
-    async fn get_table_data_with_columns(
+    async fn get_table_data_page(
         &self,
         schema_name: &str,
         table_name: &str,
+        offset: u64,
+        limit: u32,
     ) -> Result<(Vec<Vec<String>>, Vec<String>), Box<dyn std::error::Error>>
     {
         let columns: Vec<String> = self
@@ -167,9 +169,13 @@ impl Database for Sqlite {
         let conn = SqliteConnection::open(&self.path)?;
 
         let column_count = columns.len();
-        let mut stmt = conn.prepare(&format!("SELECT * FROM {table_name};"))?;
+        let limit_i = i64::from(limit);
+        let offset_i = i64::try_from(offset).unwrap_or(i64::MAX);
+        let mut stmt = conn.prepare(&format!(
+            "SELECT * FROM {table_name} LIMIT ?1 OFFSET ?2"
+        ))?;
         let data = stmt
-            .query_map([], |row| {
+            .query_map(params![limit_i, offset_i], |row| {
                 let values = (0..column_count)
                     .map(|i| convert_sqlite_value_to_string(row, i))
                     .collect();
@@ -178,6 +184,20 @@ impl Database for Sqlite {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok((data, columns))
+    }
+
+    async fn get_table_row_count(
+        &self,
+        _schema_name: &str,
+        table_name: &str,
+    ) -> Result<u64, Box<dyn std::error::Error>> {
+        let conn = SqliteConnection::open(&self.path)?;
+        let count: i64 = conn.query_row(
+            &format!("SELECT COUNT(*) FROM {table_name}"),
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as u64)
     }
 
     async fn get_databases(
