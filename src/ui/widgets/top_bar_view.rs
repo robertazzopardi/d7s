@@ -16,7 +16,7 @@ pub const CONNECTION_HOTKEYS: [Hotkey; 5] = [
 
 pub const DATABASE_HOTKEYS: [Hotkey; 5] = [
     Hotkey::new('e', "SQL Editor"),
-    Hotkey::new('t', "Toggle View"),
+    Hotkey::new('t', "Table structure"),
     Hotkey::new('E', "Run SQL"),
     Hotkey::new('/', "Search"),
     Hotkey::new('y', "Copy value"),
