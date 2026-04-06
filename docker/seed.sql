@@ -308,6 +308,42 @@ INSERT INTO complex_types.full_types (
      '2024-01-19 11:10:00+00', '123e4567-e89b-12d3-a456-426614174000', '{"zero": 0}', '{"is_zero": false}',
      ARRAY[0], ARRAY['zero'], ARRAY[0.0]);
 
+-- Custom enum types for the complex_types schema
+CREATE TYPE complex_types.user_role AS ENUM ('admin', 'moderator', 'editor', 'viewer', 'guest');
+CREATE TYPE complex_types.order_status AS ENUM ('pending', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded');
+CREATE TYPE complex_types.priority_level AS ENUM ('critical', 'high', 'medium', 'low', 'none');
+CREATE TYPE complex_types.day_of_week AS ENUM ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday');
+CREATE TYPE complex_types.color AS ENUM ('red', 'orange', 'yellow', 'green', 'blue', 'indigo', 'violet');
+
+CREATE TABLE complex_types.enum_types (
+    id SERIAL PRIMARY KEY,
+    label VARCHAR(100),
+    role complex_types.user_role,
+    status complex_types.order_status,
+    priority complex_types.priority_level,
+    scheduled_day complex_types.day_of_week,
+    badge_color complex_types.color,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO complex_types.enum_types (label, role, status, priority, scheduled_day, badge_color) VALUES
+    ('Alice Admin',       'admin',     'delivered',  'critical', 'monday',    'red'),
+    ('Bob Moderator',     'moderator', 'shipped',     'high',    'wednesday', 'orange'),
+    ('Carol Editor',      'editor',    'processing',  'medium',  'friday',    'yellow'),
+    ('Dave Viewer',       'viewer',    'pending',     'low',     'tuesday',   'green'),
+    ('Eve Guest',         'guest',     'cancelled',   'none',    'saturday',  'blue'),
+    ('Frank Admin',       'admin',     'refunded',    'high',    'thursday',  'indigo'),
+    ('Grace Moderator',   'moderator', 'delivered',   'medium',  'sunday',    'violet'),
+    ('Hank Editor',       'editor',    'shipped',     'critical','monday',    'red'),
+    ('Ivy Viewer',        'viewer',    'processing',  'low',     'wednesday', 'green'),
+    ('Jack Guest',        'guest',     'pending',     'none',    'friday',    'blue'),
+    ('Kate Admin',        'admin',     'delivered',   'high',    'tuesday',   'orange'),
+    ('Liam Editor',       'editor',    'cancelled',   'medium',  'saturday',  'yellow'),
+    -- NULLs to test nullable enum columns
+    ('Null Role',         NULL,        'pending',     'low',     'monday',    'red'),
+    ('Null Status',       'viewer',    NULL,          'none',    'thursday',  'violet'),
+    ('All Nulls',         NULL,        NULL,          NULL,      NULL,        NULL);
+
 -- Add comments for better documentation
 COMMENT ON SCHEMA public IS 'Default schema for standard tables';
 COMMENT ON SCHEMA test_schema IS 'Schema with basic test tables and relationships';
@@ -324,3 +360,8 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO d7s_user;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA test_schema TO d7s_user;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA edge_cases TO d7s_user;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA complex_types TO d7s_user;
+GRANT USAGE ON TYPE complex_types.user_role TO d7s_user;
+GRANT USAGE ON TYPE complex_types.order_status TO d7s_user;
+GRANT USAGE ON TYPE complex_types.priority_level TO d7s_user;
+GRANT USAGE ON TYPE complex_types.day_of_week TO d7s_user;
+GRANT USAGE ON TYPE complex_types.color TO d7s_user;

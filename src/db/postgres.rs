@@ -1,3 +1,8 @@
+use std::{
+    collections::{HashMap, HashSet, hash_map::Entry},
+    sync::{Mutex, OnceLock},
+};
+
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use rust_decimal::Decimal;
 use tokio_postgres::{
@@ -9,6 +14,66 @@ use uuid::Uuid;
 use crate::db::{
     Column, Database, DatabaseInfo, Schema, Table, TableData, TableRow,
 };
+
+/// Cache key: one physical Postgres database table (server + db + schema + table).
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct PostgresTableIdentity {
+    host: String,
+    port: String,
+    database: String,
+    schema: String,
+    table: String,
+}
+
+/// Column order and which columns are user-defined types (cast to `::text` when selecting).
+#[derive(Debug, Clone)]
+struct CachedTableColumnInfo {
+    ordered_columns: Vec<String>,
+    udt_columns: HashSet<String>,
+}
+
+static TABLE_COLUMN_CACHE: OnceLock<
+    Mutex<HashMap<PostgresTableIdentity, CachedTableColumnInfo>>,
+> = OnceLock::new();
+
+fn table_column_cache()
+-> &'static Mutex<HashMap<PostgresTableIdentity, CachedTableColumnInfo>> {
+    TABLE_COLUMN_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Escape a `PostgreSQL` identifier (double-quoted).
+fn pg_quote_ident(ident: &str) -> String {
+    format!("\"{}\"", ident.replace('"', "\"\""))
+}
+
+fn build_table_data_select(
+    schema_name: &str,
+    table_name: &str,
+    info: &CachedTableColumnInfo,
+) -> String {
+    let select_list = if info.ordered_columns.is_empty() {
+        "*".to_string()
+    } else {
+        info.ordered_columns
+            .iter()
+            .map(|col| {
+                let q = pg_quote_ident(col);
+                if info.udt_columns.contains(col) {
+                    format!("{q}::text")
+                } else {
+                    q
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    format!(
+        "SELECT {select_list} FROM {}.{} LIMIT 100",
+        pg_quote_ident(schema_name),
+        pg_quote_ident(table_name)
+    )
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Postgres {
@@ -202,9 +267,11 @@ impl Database for Postgres {
     {
         let client = self.get_connection().await?;
 
-        let query =
-            format!("SELECT * FROM {schema_name}.{table_name} LIMIT 100");
+        let layout = self
+            .get_or_fetch_table_column_layout(&client, schema_name, table_name)
+            .await?;
 
+        let query = build_table_data_select(schema_name, table_name, &layout);
         let rows = client.query(&query, &[]).await?;
         let mut column_names = Vec::new();
 
@@ -251,6 +318,65 @@ impl Database for Postgres {
 }
 
 impl Postgres {
+    /// Load ordered columns and UDT flags from `information_schema`, using a process-wide cache.
+    async fn get_or_fetch_table_column_layout(
+        &self,
+        client: &tokio_postgres::Client,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<CachedTableColumnInfo, Box<dyn std::error::Error>> {
+        let key = PostgresTableIdentity {
+            host: self.host.clone().unwrap_or_else(|| "localhost".to_string()),
+            port: self.port.clone().unwrap_or_else(|| "5432".to_string()),
+            database: self.database.clone(),
+            schema: schema_name.to_string(),
+            table: table_name.to_string(),
+        };
+
+        {
+            let guard = table_column_cache().lock().map_err(|_| {
+                std::io::Error::other("table column cache lock poisoned")
+            })?;
+            if let Some(info) = guard.get(&key) {
+                return Ok(info.clone());
+            }
+        }
+
+        let layout_query = r"
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = $1 AND table_name = $2
+            ORDER BY ordinal_position
+        ";
+
+        let rows = client
+            .query(layout_query, &[&schema_name, &table_name])
+            .await?;
+        let mut ordered_columns = Vec::new();
+        let mut udt_columns = HashSet::new();
+        for row in rows {
+            let name: String = row.get(0);
+            let data_type: String = row.get(1);
+            ordered_columns.push(name.clone());
+            if data_type == "USER-DEFINED" {
+                udt_columns.insert(name);
+            }
+        }
+
+        let info = CachedTableColumnInfo {
+            ordered_columns,
+            udt_columns,
+        };
+
+        let mut guard = table_column_cache().lock().map_err(|_| {
+            std::io::Error::other("table column cache lock poisoned")
+        })?;
+        match guard.entry(key) {
+            Entry::Occupied(e) => Ok(e.get().clone()),
+            Entry::Vacant(e) => Ok(e.insert(info).clone()),
+        }
+    }
+
     async fn get_connection(
         &self,
     ) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
