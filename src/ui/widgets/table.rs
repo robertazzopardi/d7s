@@ -136,92 +136,130 @@ impl TableDataState<RawTableRow> {
     }
 }
 
+fn col_width(len: usize) -> usize {
+    len + 1
+}
+
+/// First column index to show so that:
+/// - if the full table fits, `0` (all columns visible);
+/// - otherwise the window contains `selected` and fits as many columns as possible in `area_width`;
+/// - on ties, prefers `start` closest to `scroll_hint` (stable scrolling).
+fn horizontal_window_start(
+    longest_item_lens: &[usize],
+    area_width: usize,
+    selected: usize,
+    scroll_hint: usize,
+) -> usize {
+    let n = longest_item_lens.len();
+    if n == 0 {
+        return 0;
+    }
+
+    let total: usize = longest_item_lens.iter().map(|&l| col_width(l)).sum();
+    if total <= area_width {
+        return 0;
+    }
+
+    let Some(&sel_len) = longest_item_lens.get(selected) else {
+        return 0;
+    };
+    if col_width(sel_len) > area_width {
+        return selected;
+    }
+
+    let mut best_start = selected;
+    let mut best_count = 0usize;
+    let mut best_dist = usize::MAX;
+
+    for start in 0..=selected {
+        let mut w = 0usize;
+        let mut last = start.saturating_sub(1);
+        for (i, &len) in longest_item_lens.iter().enumerate().skip(start) {
+            let cw = col_width(len);
+            if w + cw > area_width {
+                break;
+            }
+            w += cw;
+            last = i;
+        }
+
+        if last < selected {
+            continue;
+        }
+
+        let count = last - start + 1;
+        let dist = start.abs_diff(scroll_hint);
+
+        if count > best_count {
+            best_count = count;
+            best_start = start;
+            best_dist = dist;
+        } else if count == best_count
+            && (dist < best_dist || (dist == best_dist && start < best_start))
+        {
+            best_start = start;
+            best_dist = dist;
+        }
+    }
+
+    best_start.min(n.saturating_sub(1))
+}
+
+/// Visible column indices and optional relative selection index for ratatui's subset table.
+fn visible_columns_packed(
+    longest_item_lens: &[usize],
+    start: usize,
+    area_width: usize,
+) -> Vec<usize> {
+    let mut vis_cols = Vec::new();
+    let mut cumulative_width = 0usize;
+
+    for (idx, &len) in longest_item_lens.iter().enumerate().skip(start) {
+        let cw = col_width(len);
+        if cumulative_width + cw > area_width {
+            break;
+        }
+        cumulative_width += cw;
+        vis_cols.push(idx);
+    }
+
+    if vis_cols.is_empty() && !longest_item_lens.is_empty() {
+        vis_cols.push(start.min(longest_item_lens.len() - 1));
+    }
+
+    vis_cols
+}
+
 /// Helper function to calculate visible columns for `DataTable`
 fn calculate_visible_columns_for_table(
     longest_item_lens: &[usize],
     column_offset: usize,
     selected_col_opt: Option<usize>,
     area_width: u16,
-) -> (Vec<usize>, Option<usize>) {
+) -> (Vec<usize>, Option<usize>, usize) {
     let area_width = area_width as usize;
-    selected_col_opt.map_or_else(
-        || {
-            // No column selected - just calculate visible columns from current offset
-            let mut vis_cols = Vec::new();
-            let mut cumulative_width = 0usize;
-            for (idx, &len) in
-                longest_item_lens.iter().enumerate().skip(column_offset)
-            {
-                let col_width = len + 1;
-                if cumulative_width + col_width > area_width {
-                    break;
-                }
-                cumulative_width += col_width;
-                vis_cols.push(idx);
-            }
+    let n = longest_item_lens.len();
 
-            if vis_cols.is_empty() {
-                vis_cols.push(column_offset.min(longest_item_lens.len() - 1));
-            }
+    let start = if let Some(selected_col) = selected_col_opt {
+        horizontal_window_start(
+            longest_item_lens,
+            area_width,
+            selected_col,
+            column_offset,
+        )
+    } else {
+        column_offset.min(n.saturating_sub(1))
+    };
 
-            (vis_cols, None)
-        },
-        |selected_col| {
-            // Adjust offset locally to ensure selected column is visible
-            let mut eff_offset = column_offset;
-            if selected_col < eff_offset {
-                eff_offset = selected_col;
-            } else {
-                // Calculate if selected column is visible with current offset
-                let mut cumulative_width = 0usize;
-                let mut visible_end = eff_offset;
-                for (idx, &len) in
-                    longest_item_lens.iter().enumerate().skip(eff_offset)
-                {
-                    let col_width = len + 1;
-                    if cumulative_width + col_width > area_width {
-                        break;
-                    }
-                    cumulative_width += col_width;
-                    visible_end = idx + 1;
-                }
-                if selected_col >= visible_end {
-                    eff_offset = selected_col;
-                }
-            }
+    let vis_cols = visible_columns_packed(longest_item_lens, start, area_width);
+    let rel = selected_col_opt.map(|selected_col| {
+        vis_cols
+            .iter()
+            .position(|&idx| idx == selected_col)
+            .unwrap_or(0)
+    });
 
-            // Clamp effective offset
-            if eff_offset >= longest_item_lens.len() {
-                eff_offset = longest_item_lens.len().saturating_sub(1);
-            }
-
-            // Calculate visible columns with effective offset
-            let mut vis_cols = Vec::new();
-            let mut cumulative_width = 0usize;
-            for (idx, &len) in
-                longest_item_lens.iter().enumerate().skip(eff_offset)
-            {
-                let col_width = len + 1;
-                if cumulative_width + col_width > area_width {
-                    break;
-                }
-                cumulative_width += col_width;
-                vis_cols.push(idx);
-            }
-
-            if vis_cols.is_empty() {
-                vis_cols.push(eff_offset.min(longest_item_lens.len() - 1));
-            }
-
-            // Find relative position of selected column in visible columns
-            let rel_selected_col = vis_cols
-                .iter()
-                .position(|&idx| idx == selected_col)
-                .unwrap_or(0);
-
-            (vis_cols, Some(rel_selected_col))
-        },
-    )
+    (vis_cols, rel, start)
 }
 
 // pub struct TableWidget;
@@ -240,13 +278,14 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
         }
 
         let selected_col_opt = state.view.state.selected_column();
-        let (visible_cols, relative_selected_col) =
+        let (visible_cols, relative_selected_col, scroll_start) =
             calculate_visible_columns_for_table(
                 &state.model.longest_item_lens,
                 state.view.column_offset,
                 selected_col_opt,
                 area.width,
             );
+        state.view.column_offset = scroll_start;
 
         let original_col = state.view.state.selected_column();
         state.view.state.select_column(relative_selected_col);
@@ -375,42 +414,4 @@ fn create_table_styles()
         highlight_symbol,
         HighlightSpacing::Always,
     )
-}
-
-/// Adjusts `column_offset` to ensure the selected column is visible
-pub fn adjust_offset_for_selected_column(
-    column_offset: &mut usize,
-    longest_item_lens: &[usize],
-    selected_col: usize,
-    area_width: usize,
-) {
-    if longest_item_lens.is_empty() {
-        return;
-    }
-
-    // Calculate cumulative widths to determine visible range
-    let mut cumulative_width = 0;
-    let mut visible_end = *column_offset;
-    for (idx, &len) in longest_item_lens.iter().enumerate().skip(*column_offset)
-    {
-        let col_width = len + 1; // Add 1 for padding
-        if cumulative_width + col_width > area_width {
-            break;
-        }
-        cumulative_width += col_width;
-        visible_end = idx + 1;
-    }
-
-    // Adjust offset if selected column is not visible
-    if selected_col < *column_offset {
-        *column_offset = selected_col;
-    } else if selected_col >= visible_end {
-        // Scroll to show selected column - try to show it at the start
-        *column_offset = selected_col;
-    }
-
-    // Clamp offset to valid range
-    if *column_offset >= longest_item_lens.len() {
-        *column_offset = longest_item_lens.len().saturating_sub(1);
-    }
 }

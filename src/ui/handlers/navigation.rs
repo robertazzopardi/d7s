@@ -104,15 +104,6 @@ impl TableNavigationHandler {
                 } else {
                     view.state.select_column(Some(num_cols - 1));
                 }
-
-                if let Some(selected_col) = view.state.selected_column() {
-                    crate::ui::widgets::table::adjust_offset_for_selected_column(
-                        &mut view.column_offset,
-                        &model.longest_item_lens,
-                        selected_col,
-                        80,
-                    );
-                }
             }
             KeyCode::Char('l' | 'w') | KeyCode::Right => {
                 let num_cols =
@@ -129,15 +120,6 @@ impl TableNavigationHandler {
                     }
                 } else {
                     view.state.select_column(Some(0));
-                }
-
-                if let Some(selected_col) = view.state.selected_column() {
-                    crate::ui::widgets::table::adjust_offset_for_selected_column(
-                        &mut view.column_offset,
-                        &model.longest_item_lens,
-                        selected_col,
-                        80,
-                    );
                 }
             }
             KeyCode::Char('g') => {
