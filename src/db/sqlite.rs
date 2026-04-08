@@ -197,7 +197,7 @@ impl Database for Sqlite {
             [],
             |row| row.get(0),
         )?;
-        Ok(count as u64)
+        Ok(count.cast_unsigned())
     }
 
     async fn get_databases(

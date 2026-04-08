@@ -7,7 +7,7 @@ use crate::{
     db::{Database, connection::ConnectionType},
     filtered_data::FilteredData,
     ui::{handlers::TableNavigationHandler, widgets::table::TableDataState},
-    virtual_table::{VirtualTableMeta, VIRTUAL_TABLE_PAGE_SIZE},
+    virtual_table::{VIRTUAL_TABLE_PAGE_SIZE, VirtualTableMeta},
 };
 
 impl App<'_> {
@@ -155,30 +155,28 @@ impl App<'_> {
             .ok();
         let page_size = VIRTUAL_TABLE_PAGE_SIZE;
 
-        match database
+        if let Ok((data, column_names)) = database
             .get_table_data_page(schema_name, table_name, 0, page_size)
             .await
         {
-            Ok((data, column_names)) => {
-                let loaded = data.len();
-                let meta = VirtualTableMeta::from_fetch(0, page_size, loaded, total_rows);
-                let mut table = TableDataState::default();
-                table.reset(data, &column_names);
-                let filtered = FilteredData {
-                    original: table.model.items.clone(),
-                    table,
-                };
-                explorer.table_data = Some(filtered);
-                explorer.table_data_virtual = Some(meta);
-                explorer.state = DatabaseExplorerState::TableData(
-                    schema_name.to_string(),
-                    table_name.to_string(),
-                );
-            }
-            Err(_) => {
-                explorer.table_data_virtual = None;
-                self.set_status("Failed to load table data");
-            }
+            let loaded = data.len();
+            let meta =
+                VirtualTableMeta::from_fetch(0, page_size, loaded, total_rows);
+            let mut table = TableDataState::default();
+            table.reset(data, &column_names);
+            let filtered = FilteredData {
+                original: table.model.items.clone(),
+                table,
+            };
+            explorer.table_data = Some(filtered);
+            explorer.table_data_virtual = Some(meta);
+            explorer.state = DatabaseExplorerState::TableData(
+                schema_name.to_string(),
+                table_name.to_string(),
+            );
+        } else {
+            explorer.table_data_virtual = None;
+            self.set_status("Failed to load table data");
         }
 
         Ok(())
@@ -212,10 +210,7 @@ impl App<'_> {
             Ok((data, column_names)) => {
                 let loaded = data.len();
                 let meta = VirtualTableMeta::from_fetch(
-                    new_start,
-                    page_size,
-                    loaded,
-                    total_rows,
+                    new_start, page_size, loaded, total_rows,
                 );
                 let mut table_state = TableDataState::default();
                 table_state.reset(data, &column_names);
@@ -244,7 +239,7 @@ impl App<'_> {
             return Ok(());
         }
         let page_size = meta.page_size;
-        let new_start = meta.window_start.saturating_sub(page_size as u64);
+        let new_start = meta.window_start.saturating_sub(u64::from(page_size));
         let total_rows = meta.total_rows;
 
         let DatabaseExplorerState::TableData(schema, table) = &explorer.state
@@ -262,10 +257,7 @@ impl App<'_> {
             Ok((data, column_names)) => {
                 let loaded = data.len();
                 let meta = VirtualTableMeta::from_fetch(
-                    new_start,
-                    page_size,
-                    loaded,
-                    total_rows,
+                    new_start, page_size, loaded, total_rows,
                 );
                 let mut table_state = TableDataState::default();
                 table_state.reset(data, &column_names);
@@ -292,8 +284,10 @@ impl App<'_> {
             return Ok(false);
         }
         let code = key.code;
-        if !matches!(code, KeyCode::Down | KeyCode::Up | KeyCode::Char('j' | 'k'))
-        {
+        if !matches!(
+            code,
+            KeyCode::Down | KeyCode::Up | KeyCode::Char('j' | 'k')
+        ) {
             return Ok(false);
         }
 

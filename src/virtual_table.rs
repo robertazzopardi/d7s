@@ -16,7 +16,7 @@ pub struct VirtualTableMeta {
 
 impl VirtualTableMeta {
     #[must_use]
-    pub fn from_fetch(
+    pub const fn from_fetch(
         window_start: u64,
         page_size: u32,
         loaded_row_count: usize,
@@ -46,21 +46,21 @@ impl VirtualTableMeta {
             return format!(" ({visible_rows} matches · filter)");
         }
         if self.loaded_count == 0 {
-            return match self.total_rows {
-                Some(t) => format!(" (0 of {t} · j/k across pages)"),
-                None => " (empty page · j/k across pages)".to_string(),
-            };
+            return self.total_rows.map_or_else(
+                || " (empty page · j/k across pages)".to_string(),
+                |t| format!(" (0 of {t} · j/k across pages)"),
+            );
         }
         let start = self.window_start + 1;
         let end = self.window_start + self.loaded_count as u64;
-        match self.total_rows {
-            Some(t) => format!(" ({start}-{end} of {t} · j/k across pages)"),
-            None => format!(" ({start}-{end} · j/k across pages)"),
-        }
+        self.total_rows.map_or_else(
+            || format!(" ({start}-{end} · j/k across pages)"),
+            |t| format!(" ({start}-{end} of {t} · j/k across pages)"),
+        )
     }
 }
 
-fn compute_has_more_after(
+const fn compute_has_more_after(
     window_start: u64,
     page_size: u32,
     loaded: usize,

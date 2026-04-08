@@ -314,7 +314,7 @@ impl Database for Postgres {
         );
         let row = client.query_one(&q, &[]).await?;
         let count: i64 = row.get(0);
-        Ok(count as u64)
+        Ok(count.cast_unsigned())
     }
 
     async fn get_databases(

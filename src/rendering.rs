@@ -94,17 +94,15 @@ impl App<'_> {
             DatabaseExplorerState::TableData(_, _) => {
                 let base = self.database_explorer.state.to_string();
                 if let Some(meta) = &self.database_explorer.table_data_virtual {
-                    let filtered = self
-                        .database_explorer
-                        .table_data
-                        .as_ref()
-                        .is_some_and(|t| t.is_filtered());
+                    let filtered =
+                        self.database_explorer.table_data.as_ref().is_some_and(
+                            super::filtered_data::FilteredData::is_filtered,
+                        );
                     let visible = self
                         .database_explorer
                         .table_data
                         .as_ref()
-                        .map(|t| t.table.model.items.len())
-                        .unwrap_or(0);
+                        .map_or(0, |t| t.table.model.items.len());
                     format!(
                         "{}{}",
                         base.trim_end(),
