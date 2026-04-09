@@ -46,7 +46,7 @@ fn pg_quote_ident(ident: &str) -> String {
     format!("\"{}\"", ident.replace('"', "\"\""))
 }
 
-fn build_table_data_select(
+fn build_table_data_select_base(
     schema_name: &str,
     table_name: &str,
     info: &CachedTableColumnInfo,
@@ -69,7 +69,7 @@ fn build_table_data_select(
     };
 
     format!(
-        "SELECT {select_list} FROM {}.{} LIMIT 100",
+        "SELECT {select_list} FROM {}.{}",
         pg_quote_ident(schema_name),
         pg_quote_ident(table_name)
     )
@@ -259,10 +259,12 @@ impl Database for Postgres {
         Ok(columns)
     }
 
-    async fn get_table_data_with_columns(
+    async fn get_table_data_page(
         &self,
         schema_name: &str,
         table_name: &str,
+        offset: u64,
+        limit: u32,
     ) -> Result<(Vec<Vec<String>>, Vec<String>), Box<dyn std::error::Error>>
     {
         let client = self.get_connection().await?;
@@ -271,8 +273,12 @@ impl Database for Postgres {
             .get_or_fetch_table_column_layout(&client, schema_name, table_name)
             .await?;
 
-        let query = build_table_data_select(schema_name, table_name, &layout);
-        let rows = client.query(&query, &[]).await?;
+        let base =
+            build_table_data_select_base(schema_name, table_name, &layout);
+        let query = format!("{base} LIMIT $1 OFFSET $2");
+        let limit_i: i64 = i64::from(limit);
+        let offset_i: i64 = offset.try_into().unwrap_or(i64::MAX);
+        let rows = client.query(&query, &[&limit_i, &offset_i]).await?;
         let mut column_names = Vec::new();
 
         if let Some(first_row) = rows.first() {
@@ -293,6 +299,22 @@ impl Database for Postgres {
             .collect();
 
         Ok((data, column_names))
+    }
+
+    async fn get_table_row_count(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<u64, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+        let q = format!(
+            "SELECT COUNT(*)::bigint FROM {}.{}",
+            pg_quote_ident(schema_name),
+            pg_quote_ident(table_name),
+        );
+        let row = client.query_one(&q, &[]).await?;
+        let count: i64 = row.get(0);
+        Ok(count.cast_unsigned())
     }
 
     async fn get_databases(

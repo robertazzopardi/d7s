@@ -41,11 +41,21 @@ pub trait Database: Send + Sync {
         table_name: &str,
     ) -> Result<Vec<Column>, Box<dyn std::error::Error>>;
 
-    async fn get_table_data_with_columns(
+    /// Returns up to `limit` rows starting at `offset` (0-based), plus column names.
+    async fn get_table_data_page(
         &self,
         schema_name: &str,
         table_name: &str,
+        offset: u64,
+        limit: u32,
     ) -> Result<(Vec<Vec<String>>, Vec<String>), Box<dyn std::error::Error>>;
+
+    /// Total row count for the table (for paging UI). May be expensive on huge tables.
+    async fn get_table_row_count(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<u64, Box<dyn std::error::Error>>;
 
     async fn get_databases(
         &self,

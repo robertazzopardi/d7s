@@ -8,6 +8,7 @@ use crate::{
     },
     filtered_data::FilteredData,
     ui::{sql_executor::SqlExecutorState, widgets::table::RawTableRow},
+    virtual_table::VirtualTableMeta,
 };
 
 /// Groups all database exploration state together
@@ -33,6 +34,8 @@ pub struct DatabaseExplorer {
     pub columns: Option<FilteredData<Column>>,
     /// Cached table row data
     pub table_data: Option<FilteredData<RawTableRow>>,
+    /// Paging metadata when browsing table rows (`None` when not viewing table data).
+    pub table_data_virtual: Option<VirtualTableMeta>,
     /// SQL executor state
     pub sql_executor: SqlExecutorState,
 }
@@ -54,6 +57,7 @@ impl DatabaseExplorer {
             tables: None,
             columns: None,
             table_data: None,
+            table_data_virtual: None,
             sql_executor: SqlExecutorState::new(),
         }
     }

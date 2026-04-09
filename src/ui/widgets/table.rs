@@ -136,7 +136,7 @@ impl TableDataState<RawTableRow> {
     }
 }
 
-fn col_width(len: usize) -> usize {
+const fn col_width(len: usize) -> usize {
     len + 1
 }
 
@@ -240,16 +240,17 @@ fn calculate_visible_columns_for_table(
     let area_width = area_width as usize;
     let n = longest_item_lens.len();
 
-    let start = if let Some(selected_col) = selected_col_opt {
-        horizontal_window_start(
-            longest_item_lens,
-            area_width,
-            selected_col,
-            column_offset,
-        )
-    } else {
-        column_offset.min(n.saturating_sub(1))
-    };
+    let start = selected_col_opt.map_or_else(
+        || column_offset.min(n.saturating_sub(1)),
+        |selected_col| {
+            horizontal_window_start(
+                longest_item_lens,
+                area_width,
+                selected_col,
+                column_offset,
+            )
+        },
+    );
 
     let vis_cols = visible_columns_packed(longest_item_lens, start, area_width);
     let rel = selected_col_opt.map(|selected_col| {

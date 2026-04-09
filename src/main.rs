@@ -12,6 +12,7 @@ mod rendering;
 mod services;
 mod sql;
 mod ui;
+mod virtual_table;
 
 use app::App;
 
