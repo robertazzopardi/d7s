@@ -71,6 +71,17 @@ impl App<'_> {
             return Ok(());
         }
 
+        // Paged table data: j/k at the window edge load the next/previous page
+        if self.state == AppState::DatabaseConnected
+            && matches!(
+                self.database_explorer.state,
+                DatabaseExplorerState::TableData(..)
+            )
+            && self.try_step_virtual_table_page(key).await?
+        {
+            return Ok(());
+        }
+
         // Handle navigation keys (j/k/h/l, 0/$, g/G, /)
         self.handle_navigation_keys(key);
 

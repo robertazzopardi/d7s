@@ -39,6 +39,17 @@ INSERT INTO public.users (username, email, full_name, age, is_active, bio) VALUE
     ('frank_garcia', 'frank.garcia@example.com', 'Frank Garcia', 27, true, NULL),
     ('grace_harris', 'grace@example.com', NULL, 26, true, 'User with NULL full name');
 
+-- Large table for virtual / paged table browsing (10k rows)
+CREATE TABLE public.big_seed (
+    id SERIAL PRIMARY KEY,
+    payload TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO public.big_seed (payload)
+SELECT 'row_' || gs.i::text
+FROM generate_series(1, 10000) AS gs(i);
+
 INSERT INTO public.products (name, description, price, quantity, is_available, category_id, tags) VALUES
     ('Laptop', 'High-performance laptop', 1299.99, 50, true, 1, ARRAY['electronics', 'computers']),
     ('Phone', 'Latest smartphone', 799.99, 100, true, 1, ARRAY['electronics', 'mobile']),

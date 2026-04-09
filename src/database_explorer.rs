@@ -1,5 +1,5 @@
 use color_eyre::Result;
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
     app::App,
@@ -7,6 +7,7 @@ use crate::{
     db::{Database, connection::ConnectionType},
     filtered_data::FilteredData,
     ui::{handlers::TableNavigationHandler, widgets::table::TableDataState},
+    virtual_table::{VIRTUAL_TABLE_PAGE_SIZE, VirtualTableMeta},
 };
 
 impl App<'_> {
@@ -136,7 +137,7 @@ impl App<'_> {
         Ok(())
     }
 
-    /// Load table data for a table
+    /// Load table data for a table (first page of a paged / virtual table).
     pub async fn load_table_data(
         &mut self,
         schema_name: &str,
@@ -148,27 +149,200 @@ impl App<'_> {
             return Ok(());
         };
 
+        let total_rows = database
+            .get_table_row_count(schema_name, table_name)
+            .await
+            .ok();
+        let page_size = VIRTUAL_TABLE_PAGE_SIZE;
+
         if let Ok((data, column_names)) = database
-            .get_table_data_with_columns(schema_name, table_name)
+            .get_table_data_page(schema_name, table_name, 0, page_size)
             .await
         {
+            let loaded = data.len();
+            let meta =
+                VirtualTableMeta::from_fetch(0, page_size, loaded, total_rows);
             let mut table = TableDataState::default();
             table.reset(data, &column_names);
-            // Convert to FilteredData
             let filtered = FilteredData {
                 original: table.model.items.clone(),
                 table,
             };
             explorer.table_data = Some(filtered);
+            explorer.table_data_virtual = Some(meta);
             explorer.state = DatabaseExplorerState::TableData(
                 schema_name.to_string(),
                 table_name.to_string(),
             );
         } else {
+            explorer.table_data_virtual = None;
             self.set_status("Failed to load table data");
         }
 
         Ok(())
+    }
+
+    /// Load the next page of rows for the current table data view.
+    pub async fn fetch_next_table_page(&mut self) -> Result<()> {
+        let explorer = &mut self.database_explorer;
+        let Some(meta) = explorer.table_data_virtual.as_ref() else {
+            return Ok(());
+        };
+        if !meta.has_more_after {
+            self.set_status("Already at last page.");
+            return Ok(());
+        }
+        let DatabaseExplorerState::TableData(schema, table) = &explorer.state
+        else {
+            return Ok(());
+        };
+        let new_start = meta.window_start + meta.loaded_count as u64;
+        let page_size = meta.page_size;
+        let total_rows = meta.total_rows;
+        let Some(database) = explorer.database.as_ref() else {
+            return Ok(());
+        };
+
+        match database
+            .get_table_data_page(schema, table, new_start, page_size)
+            .await
+        {
+            Ok((data, column_names)) => {
+                let loaded = data.len();
+                let meta = VirtualTableMeta::from_fetch(
+                    new_start, page_size, loaded, total_rows,
+                );
+                let mut table_state = TableDataState::default();
+                table_state.reset(data, &column_names);
+                explorer.table_data = Some(FilteredData {
+                    original: table_state.model.items.clone(),
+                    table: table_state,
+                });
+                explorer.table_data_virtual = Some(meta);
+            }
+            Err(e) => {
+                self.set_status(format!("Failed to load page: {e}"));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Load the previous page of rows for the current table data view.
+    pub async fn fetch_prev_table_page(&mut self) -> Result<()> {
+        let explorer = &mut self.database_explorer;
+        let Some(meta) = explorer.table_data_virtual.as_ref() else {
+            return Ok(());
+        };
+        if !meta.has_more_before {
+            self.set_status("Already at first page.");
+            return Ok(());
+        }
+        let page_size = meta.page_size;
+        let new_start = meta.window_start.saturating_sub(u64::from(page_size));
+        let total_rows = meta.total_rows;
+
+        let DatabaseExplorerState::TableData(schema, table) = &explorer.state
+        else {
+            return Ok(());
+        };
+        let Some(database) = explorer.database.as_ref() else {
+            return Ok(());
+        };
+
+        match database
+            .get_table_data_page(schema, table, new_start, page_size)
+            .await
+        {
+            Ok((data, column_names)) => {
+                let loaded = data.len();
+                let meta = VirtualTableMeta::from_fetch(
+                    new_start, page_size, loaded, total_rows,
+                );
+                let mut table_state = TableDataState::default();
+                table_state.reset(data, &column_names);
+                explorer.table_data = Some(FilteredData {
+                    original: table_state.model.items.clone(),
+                    table: table_state,
+                });
+                explorer.table_data_virtual = Some(meta);
+            }
+            Err(e) => {
+                self.set_status(format!("Failed to load page: {e}"));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// At the first/last row of a loaded page, j/k loads the previous/next page.
+    pub async fn try_step_virtual_table_page(
+        &mut self,
+        key: KeyEvent,
+    ) -> Result<bool> {
+        if !key.modifiers.is_empty() {
+            return Ok(false);
+        }
+        let code = key.code;
+        if !matches!(
+            code,
+            KeyCode::Down | KeyCode::Up | KeyCode::Char('j' | 'k')
+        ) {
+            return Ok(false);
+        }
+
+        let edge: Option<bool> = {
+            let explorer = &self.database_explorer;
+            if !matches!(explorer.state, DatabaseExplorerState::TableData(..)) {
+                return Ok(false);
+            }
+            let Some(meta) = explorer.table_data_virtual.as_ref() else {
+                return Ok(false);
+            };
+            let Some(ref table_fd) = explorer.table_data else {
+                return Ok(false);
+            };
+            if table_fd.is_filtered() {
+                return Ok(false);
+            }
+            let Some(selected) = table_fd.table.view.state.selected() else {
+                return Ok(false);
+            };
+            let len = table_fd.table.model.items.len();
+            if len == 0 {
+                return Ok(false);
+            }
+
+            if matches!(code, KeyCode::Char('j') | KeyCode::Down)
+                && selected == len - 1
+                && meta.has_more_after
+            {
+                Some(true)
+            } else if matches!(code, KeyCode::Char('k') | KeyCode::Up)
+                && selected == 0
+                && meta.has_more_before
+            {
+                Some(false)
+            } else {
+                None
+            }
+        };
+
+        match edge {
+            Some(true) => {
+                self.fetch_next_table_page().await?;
+                Ok(true)
+            }
+            Some(false) => {
+                self.fetch_prev_table_page().await?;
+                if let Some(ref mut td) = self.database_explorer.table_data {
+                    let last = td.table.model.items.len().saturating_sub(1);
+                    td.table.view.state.select(Some(last));
+                }
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 
     /// Handle database navigation when Enter is pressed
