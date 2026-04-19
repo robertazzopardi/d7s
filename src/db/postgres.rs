@@ -1,18 +1,21 @@
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet, hash_map::Entry},
     sync::{Mutex, OnceLock},
 };
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use rust_decimal::Decimal;
+use serde_json::Value;
 use tokio_postgres::{
     NoTls, Row,
-    types::{FromSql, Type},
+    types::{FromSql, ToSql, Type},
 };
 use uuid::Uuid;
 
 use crate::db::{
-    Column, Database, DatabaseInfo, Schema, Table, TableData, TableRow,
+    Column, Database, DatabaseInfo, DbRowId, Schema, Table, TableData,
+    TableDataPage, TableRow,
 };
 
 /// Cache key: one physical Postgres database table (server + db + schema + table).
@@ -44,6 +47,240 @@ fn table_column_cache()
 /// Escape a `PostgreSQL` identifier (double-quoted).
 fn pg_quote_ident(ident: &str) -> String {
     format!("\"{}\"", ident.replace('"', "\"\""))
+}
+
+/// `pg_catalog.format_type` string for a column, for `CAST($n AS …)` in updates.
+fn pg_resolve_format_type(
+    types: &HashMap<String, String>,
+    col: &str,
+) -> String {
+    types
+        .get(col)
+        .cloned()
+        .or_else(|| {
+            types
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(col))
+                .map(|(_, v)| v.clone())
+        })
+        .unwrap_or_else(|| "text".to_string())
+}
+
+async fn pg_column_format_types(
+    client: &tokio_postgres::Client,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+    let q = r"
+        SELECT a.attname::text AS col,
+               pg_catalog.format_type(a.atttypid, a.atttypmod) AS fmt
+        FROM pg_catalog.pg_attribute a
+        INNER JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
+        INNER JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
+        WHERE n.nspname = $1
+          AND c.relname = $2
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+    ";
+    let rows = client.query(q, &[&schema_name, &table_name]).await?;
+    let mut m = HashMap::with_capacity(rows.len());
+    for row in rows {
+        let col: String = row.get(0);
+        let fmt: String = row.get(1);
+        m.insert(col, fmt);
+    }
+    Ok(m)
+}
+
+/// Base element type for a one-dimensional `format_type` array (e.g. `text[]` → `text`).
+/// Returns `None` for non-arrays or multidimensional arrays (not handled here).
+fn pg_array_element_base_type(format_type: &str) -> Option<&str> {
+    let ft = format_type.trim();
+    if !ft.ends_with("[]") {
+        return None;
+    }
+    let base = ft[..ft.len() - 2].trim();
+    if base.ends_with("[]") {
+        return None;
+    }
+    Some(base)
+}
+
+fn pg_array_elem_base_is_numeric(elem_base: &str) -> bool {
+    let b = elem_base.to_ascii_lowercase();
+    matches!(
+        b.as_str(),
+        "smallint"
+            | "integer"
+            | "bigint"
+            | "int2"
+            | "int4"
+            | "int8"
+            | "oid"
+            | "real"
+            | "float4"
+            | "float8"
+            | "double precision"
+    ) || b.starts_with("numeric(")
+        || b.starts_with("decimal(")
+        || b == "numeric"
+        || b == "decimal"
+        || b == "money"
+}
+
+fn pg_json_scalar_to_string(v: Value) -> String {
+    match v {
+        Value::String(s) => s,
+        Value::Number(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Null => "NULL".to_string(),
+        Value::Array(_) | Value::Object(_) => {
+            serde_json::to_string(&v).unwrap_or_else(|_| v.to_string())
+        }
+    }
+}
+
+/// Split `inner` on commas outside of double quotes (with basic `\"` escapes).
+fn pg_split_array_list(inner: &str) -> Vec<String> {
+    let mut res = Vec::new();
+    let mut cur = String::new();
+    let mut in_quote = false;
+    let mut prev_escape = false;
+    for ch in inner.chars() {
+        if prev_escape {
+            cur.push(ch);
+            prev_escape = false;
+            continue;
+        }
+        match ch {
+            '\\' => {
+                prev_escape = true;
+                cur.push(ch);
+            }
+            '"' => {
+                in_quote = !in_quote;
+                cur.push(ch);
+            }
+            ',' if !in_quote => {
+                res.push(pg_trim_array_token(&cur));
+                cur.clear();
+            }
+            _ => cur.push(ch),
+        }
+    }
+    res.push(pg_trim_array_token(&cur));
+    res.into_iter().filter(|s| !s.is_empty()).collect()
+}
+
+fn pg_trim_array_token(s: &str) -> String {
+    let s = s.trim();
+    if s.len() >= 2 && s.starts_with('"') && s.ends_with('"') {
+        s[1..s.len() - 1]
+            .replace(r#"\""#, "\"")
+            .replace(r"\\", r"\")
+    } else {
+        s.to_string()
+    }
+}
+
+fn pg_parse_array_elements(raw: &str) -> Result<Vec<String>, ()> {
+    let t = raw.trim();
+    if t.is_empty() {
+        return Ok(vec![]);
+    }
+    if let Ok(json_vals) = serde_json::from_str::<Vec<Value>>(t) {
+        return Ok(json_vals
+            .into_iter()
+            .map(pg_json_scalar_to_string)
+            .collect());
+    }
+    let inner = if let Some(s) =
+        t.strip_prefix('[').and_then(|x| x.strip_suffix(']'))
+    {
+        s
+    } else if let Some(s) =
+        t.strip_prefix('{').and_then(|x| x.strip_suffix('}'))
+    {
+        s
+    } else {
+        return Ok(vec![t.to_string()]);
+    };
+    Ok(pg_split_array_list(inner))
+}
+
+fn pg_array_elem_needs_quotes(s: &str) -> bool {
+    s.is_empty()
+        || !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        || s.chars()
+            .any(|c| matches!(c, ',' | '{' | '}' | ' ' | '\t' | '\n' | '\r'))
+}
+
+fn pg_format_array_text_element(s: &str) -> String {
+    if s.contains('"') || s.contains('\\') || pg_array_elem_needs_quotes(s) {
+        let escaped = s.replace('\\', r"\\").replace('"', r#"\""#);
+        return format!("\"{escaped}\"");
+    }
+    s.to_string()
+}
+
+/// Turn UI / JSON-like array text into a `PostgreSQL` array literal for `CAST($1::text AS …[])`.
+fn pg_user_text_to_pg_array_literal(
+    raw: &str,
+    elem_base: &str,
+) -> Result<String, ()> {
+    let elems = pg_parse_array_elements(raw)?;
+    let numeric = pg_array_elem_base_is_numeric(elem_base);
+    let boolean = elem_base.eq_ignore_ascii_case("boolean");
+    let mut parts = Vec::with_capacity(elems.len());
+    for e in elems {
+        let e = e.trim();
+        if e.is_empty() {
+            continue;
+        }
+        if e.eq_ignore_ascii_case("null") {
+            parts.push("NULL".to_string());
+            continue;
+        }
+        if boolean {
+            let v = match e.to_ascii_lowercase().as_str() {
+                "t" | "true" | "1" | "yes" | "y" => "t",
+                "f" | "false" | "0" | "no" | "n" => "f",
+                _ => return Err(()),
+            };
+            parts.push(v.to_string());
+            continue;
+        }
+        if numeric {
+            parts.push(e.to_string());
+            continue;
+        }
+        parts.push(pg_format_array_text_element(e));
+    }
+    Ok(format!("{{{}}}", parts.join(",")))
+}
+
+/// Normalize values for `CAST($n::text AS <format_type>)`: arrays get a proper `{…}` literal.
+fn pg_coerce_typed_text_input<'a>(
+    raw: &'a str,
+    pg_format_type: &str,
+) -> Cow<'a, str> {
+    if let Some(elem_base) = pg_array_element_base_type(pg_format_type) {
+        let t = raw.trim();
+        if t.starts_with('{') && t.ends_with('}') {
+            return Cow::Borrowed(raw);
+        }
+        if let Ok(lit) = pg_user_text_to_pg_array_literal(t, elem_base) {
+            return Cow::Owned(lit);
+        }
+    }
+    Cow::Borrowed(raw)
+}
+
+fn prepend_ctid_to_select(base_select: &str) -> String {
+    let Some(rest) = base_select.strip_prefix("SELECT ") else {
+        return base_select.to_string();
+    };
+    format!("SELECT ctid::text, {rest}")
 }
 
 fn build_table_data_select_base(
@@ -265,8 +502,7 @@ impl Database for Postgres {
         table_name: &str,
         offset: u64,
         limit: u32,
-    ) -> Result<(Vec<Vec<String>>, Vec<String>), Box<dyn std::error::Error>>
-    {
+    ) -> Result<TableDataPage, Box<dyn std::error::Error>> {
         let client = self.get_connection().await?;
 
         let layout = self
@@ -275,7 +511,8 @@ impl Database for Postgres {
 
         let base =
             build_table_data_select_base(schema_name, table_name, &layout);
-        let query = format!("{base} LIMIT $1 OFFSET $2");
+        let query =
+            format!("{} LIMIT $1 OFFSET $2", prepend_ctid_to_select(&base));
         let limit_i: i64 = i64::from(limit);
         let offset_i: i64 = offset.try_into().unwrap_or(i64::MAX);
         let rows = client.query(&query, &[&limit_i, &offset_i]).await?;
@@ -283,22 +520,132 @@ impl Database for Postgres {
 
         if let Some(first_row) = rows.first() {
             for column in first_row.columns() {
-                column_names.push(column.name().to_string());
+                let name = column.name();
+                if name == "ctid" {
+                    continue;
+                }
+                column_names.push(name.to_string());
             }
         }
 
-        let data = rows
-            .iter()
-            .map(|row| {
-                row.columns()
-                    .iter()
-                    .enumerate()
-                    .map(|(i, col)| column_to_string(row, i, col.type_()))
-                    .collect()
-            })
-            .collect();
+        let mut row_ids = Vec::with_capacity(rows.len());
+        let mut data = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let cols = row.columns();
+            let Some(first_col) = cols.first() else {
+                continue;
+            };
+            let ctid = column_to_string(row, 0, first_col.type_());
+            row_ids.push(Some(DbRowId::PostgresCtid(ctid)));
+            let values: Vec<String> = cols
+                .iter()
+                .enumerate()
+                .skip(1)
+                .map(|(i, col)| column_to_string(row, i, col.type_()))
+                .collect();
+            data.push(values);
+        }
 
-        Ok((data, column_names))
+        Ok(TableDataPage {
+            rows: data,
+            column_names,
+            row_ids,
+        })
+    }
+
+    async fn get_primary_key_columns(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+        let q = "
+            SELECT kcu.column_name
+            FROM information_schema.table_constraints tc
+            INNER JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_schema = kcu.constraint_schema
+                AND tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema = kcu.table_schema
+                AND tc.table_name = kcu.table_name
+            WHERE tc.constraint_type = 'PRIMARY KEY'
+                AND tc.table_schema = $1
+                AND tc.table_name = $2
+            ORDER BY kcu.ordinal_position
+        ";
+        let rows = client.query(q, &[&schema_name, &table_name]).await?;
+        Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect())
+    }
+
+    async fn update_table_cell(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+        set_column: &str,
+        new_value: &str,
+        primary_key: &[(String, String)],
+        row_id_fallback: Option<DbRowId>,
+    ) -> Result<u64, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+        let col_types =
+            pg_column_format_types(&client, schema_name, table_name).await?;
+        let set_ty = pg_resolve_format_type(&col_types, set_column);
+        let set_q = pg_quote_ident(set_column);
+        let tgt = format!(
+            "{}.{}",
+            pg_quote_ident(schema_name),
+            pg_quote_ident(table_name),
+        );
+
+        if !primary_key.is_empty() {
+            // Bind every value as text on the wire (`$n::text`), then cast to the column type.
+            // Otherwise PostgreSQL infers `$n` as the target type (e.g. int4) and tokio-postgres
+            // rejects `&str` for that OID.
+            let mut sql = format!(
+                "UPDATE {tgt} SET {set_q} = CAST($1::text AS {set_ty}) WHERE "
+            );
+            let mut owned: Vec<String> =
+                Vec::with_capacity(1 + primary_key.len());
+            owned.push(
+                pg_coerce_typed_text_input(new_value, &set_ty).into_owned(),
+            );
+            for (i, (k, v)) in primary_key.iter().enumerate() {
+                if i > 0 {
+                    sql.push_str(" AND ");
+                }
+                let param_num = i + 2;
+                let pk_ty = pg_resolve_format_type(&col_types, k);
+                sql.push_str(&format!(
+                    "{} = CAST(${}::text AS {pk_ty})",
+                    pg_quote_ident(k),
+                    param_num
+                ));
+                owned.push(pg_coerce_typed_text_input(v, &pk_ty).into_owned());
+            }
+            let mut params: Vec<&(dyn ToSql + Sync)> =
+                Vec::with_capacity(owned.len());
+            for s in &owned {
+                params.push(s);
+            }
+            let n = client.execute(&sql, &params[..]).await?;
+            return Ok(n);
+        }
+
+        if let Some(DbRowId::PostgresCtid(ctid)) = row_id_fallback {
+            let sql = format!(
+                "UPDATE {tgt} SET {set_q} = CAST($1::text AS {set_ty}) WHERE ctid = $2::text::tid"
+            );
+            let set_bound =
+                pg_coerce_typed_text_input(new_value, &set_ty).into_owned();
+            let p0: &(dyn ToSql + Sync) = &set_bound;
+            let p1: &(dyn ToSql + Sync) = &ctid;
+            let n = client.execute(&sql, &[p0, p1]).await?;
+            return Ok(n);
+        }
+
+        Err(
+            "Cannot update row: table has no primary key and no row address was recorded"
+                .into(),
+        )
     }
 
     async fn get_table_row_count(

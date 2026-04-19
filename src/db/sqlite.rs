@@ -1,12 +1,78 @@
+use std::collections::HashMap;
+
 use color_eyre::Result;
 use rusqlite::{Connection as SqliteConnection, params};
 use rusqlite_migration::{M, Migrations};
 
 use crate::db::{
-    Column, Database, DatabaseInfo, Schema, Table, TableData, TableRow,
+    Column, Database, DatabaseInfo, DbRowId, Schema, Table, TableData,
+    TableDataPage, TableRow,
     connection::{Connection, ConnectionType, Environment},
     get_db_path,
 };
+
+fn sqlite_quote_ident(ident: &str) -> String {
+    format!(r#""{}""#, ident.replace('"', "\"\""))
+}
+
+fn sqlite_table_decltypes(
+    conn: &SqliteConnection,
+    table_name: &str,
+) -> Result<HashMap<String, String>, rusqlite::Error> {
+    let mut stmt =
+        conn.prepare(&format!("PRAGMA table_info('{table_name}')"))?;
+    let mut m = HashMap::new();
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        let decl: String = row.get::<_, Option<String>>(2)?.unwrap_or_default();
+        m.insert(name, decl);
+    }
+    Ok(m)
+}
+
+fn sqlite_resolve_decl<'a>(
+    decls: &'a HashMap<String, String>,
+    col: &str,
+) -> &'a str {
+    decls
+        .get(col)
+        .map(String::as_str)
+        .or_else(|| {
+            decls
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(col))
+                .map(|(_, v)| v.as_str())
+        })
+        .unwrap_or("")
+}
+
+/// Target for `SQLite` [`CAST`](https://www.sqlite.org/lang_expr.html#castexpr): `INTEGER`, `REAL`, `TEXT`, or `BLOB`.
+fn sqlite_cast_keyword(decl: &str) -> &'static str {
+    let d = decl.trim();
+    if d.is_empty() {
+        return "TEXT";
+    }
+    let u = d.to_ascii_uppercase();
+    if u.contains("INT") || u == "BOOLEAN" || u == "BOOL" {
+        return "INTEGER";
+    }
+    if u.contains("BLOB") {
+        return "BLOB";
+    }
+    if u.contains("REAL")
+        || u.contains("FLOA")
+        || u.contains("DOUB")
+        || u.contains("NUM")
+        || u.contains("DEC")
+    {
+        return "REAL";
+    }
+    if u.contains("CHAR") || u.contains("CLOB") || u.contains("TEXT") {
+        return "TEXT";
+    }
+    "TEXT"
+}
 
 pub struct Sqlite {
     pub name: String,
@@ -157,8 +223,7 @@ impl Database for Sqlite {
         table_name: &str,
         offset: u64,
         limit: u32,
-    ) -> Result<(Vec<Vec<String>>, Vec<String>), Box<dyn std::error::Error>>
-    {
+    ) -> Result<TableDataPage, Box<dyn std::error::Error>> {
         let columns: Vec<String> = self
             .get_columns(schema_name, table_name)
             .await?
@@ -171,19 +236,123 @@ impl Database for Sqlite {
         let column_count = columns.len();
         let limit_i = i64::from(limit);
         let offset_i = i64::try_from(offset).unwrap_or(i64::MAX);
-        let mut stmt = conn.prepare(&format!(
-            "SELECT * FROM {table_name} LIMIT ?1 OFFSET ?2"
-        ))?;
-        let data = stmt
-            .query_map(params![limit_i, offset_i], |row| {
-                let values = (0..column_count)
-                    .map(|i| convert_sqlite_value_to_string(row, i))
-                    .collect();
-                Ok(values)
+        let tq = sqlite_quote_ident(table_name);
+        let col_list = columns
+            .iter()
+            .map(|c| sqlite_quote_ident(c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query_rowid =
+            format!("SELECT rowid, {col_list} FROM {tq} LIMIT ?1 OFFSET ?2");
+        let (data, row_ids) = if let Ok(mut stmt) = conn.prepare(&query_rowid) {
+            let mut row_ids = Vec::new();
+            let data = stmt
+                .query_map(params![limit_i, offset_i], |row| {
+                    let rid = row.get::<_, i64>(0)?;
+                    row_ids.push(Some(DbRowId::Sqlite(rid)));
+                    let values = (0..column_count)
+                        .map(|i| convert_sqlite_value_to_string(row, i + 1))
+                        .collect();
+                    Ok(values)
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            (data, row_ids)
+        } else {
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {col_list} FROM {tq} LIMIT ?1 OFFSET ?2"
+            ))?;
+            let data = stmt
+                .query_map(params![limit_i, offset_i], |row| {
+                    let values = (0..column_count)
+                        .map(|i| convert_sqlite_value_to_string(row, i))
+                        .collect();
+                    Ok(values)
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            let row_ids = vec![None; data.len()];
+            (data, row_ids)
+        };
+
+        Ok(TableDataPage {
+            rows: data,
+            column_names: columns,
+            row_ids,
+        })
+    }
+
+    async fn get_primary_key_columns(
+        &self,
+        _schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let conn = SqliteConnection::open(&self.path)?;
+        let mut stmt =
+            conn.prepare(&format!("PRAGMA table_info('{table_name}')"))?;
+        let mut pk_cols: Vec<(i64, String)> = stmt
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                let pk: i64 = row.get(5)?;
+                Ok((pk, name))
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        pk_cols.retain(|(pk, _)| *pk > 0);
+        pk_cols.sort_by_key(|(pk, _)| *pk);
+        Ok(pk_cols.into_iter().map(|(_, n)| n).collect())
+    }
 
-        Ok((data, columns))
+    async fn update_table_cell(
+        &self,
+        _schema_name: &str,
+        table_name: &str,
+        set_column: &str,
+        new_value: &str,
+        primary_key: &[(String, String)],
+        row_id_fallback: Option<DbRowId>,
+    ) -> Result<u64, Box<dyn std::error::Error>> {
+        let conn = SqliteConnection::open(&self.path)?;
+        let decls = sqlite_table_decltypes(&conn, table_name)?;
+        let set_kw =
+            sqlite_cast_keyword(sqlite_resolve_decl(&decls, set_column));
+        let tq = sqlite_quote_ident(table_name);
+        let cq = sqlite_quote_ident(set_column);
+
+        if !primary_key.is_empty() {
+            let mut sql =
+                format!("UPDATE {tq} SET {cq} = CAST(?1 AS {set_kw}) WHERE ");
+            for (i, (k, _)) in primary_key.iter().enumerate() {
+                if i > 0 {
+                    sql.push_str(" AND ");
+                }
+                let param_num = i + 2;
+                let pk_kw = sqlite_cast_keyword(sqlite_resolve_decl(&decls, k));
+                sql.push_str(&format!(
+                    "{} = CAST(?{param_num} AS {pk_kw})",
+                    sqlite_quote_ident(k)
+                ));
+            }
+            let mut refs: Vec<&dyn rusqlite::ToSql> = Vec::new();
+            refs.push(&new_value);
+            for (_, v) in primary_key {
+                refs.push(v);
+            }
+            let n = u64::try_from(conn.execute(&sql, refs.as_slice())?)
+                .unwrap_or(0);
+            return Ok(n);
+        }
+
+        if let Some(DbRowId::Sqlite(rid)) = row_id_fallback {
+            let sql = format!(
+                "UPDATE {tq} SET {cq} = CAST(?1 AS {set_kw}) WHERE rowid = ?2"
+            );
+            let n = u64::try_from(conn.execute(&sql, params![new_value, rid])?)
+                .unwrap_or(0);
+            return Ok(n);
+        }
+
+        Err(
+            "Cannot update row: table has no usable primary key and rowid is not available"
+                .into(),
+        )
     }
 
     async fn get_table_row_count(

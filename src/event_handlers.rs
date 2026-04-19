@@ -346,6 +346,12 @@ impl App<'_> {
 
         match action {
             ModalAction::Save => {
+                if let Some(apply) = self.modal_manager.take_cell_value_apply()
+                {
+                    self.apply_cell_value_edit(apply).await?;
+                    self.modal_manager.cleanup_closed_modals();
+                    return Ok(());
+                }
                 if self.handle_password_modal_save().await? {
                     return Ok(());
                 }

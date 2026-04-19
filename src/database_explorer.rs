@@ -4,7 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use crate::{
     app::App,
     app_state::DatabaseExplorerState,
-    db::{Database, connection::ConnectionType},
+    db::{Database, DbRowId, TableDataPage, connection::ConnectionType},
     filtered_data::FilteredData,
     ui::{handlers::TableNavigationHandler, widgets::table::TableDataState},
     virtual_table::{VIRTUAL_TABLE_PAGE_SIZE, VirtualTableMeta},
@@ -155,15 +155,20 @@ impl App<'_> {
             .ok();
         let page_size = VIRTUAL_TABLE_PAGE_SIZE;
 
-        if let Ok((data, column_names)) = database
+        if let Ok(page) = database
             .get_table_data_page(schema_name, table_name, 0, page_size)
             .await
         {
+            let TableDataPage {
+                rows: data,
+                column_names,
+                row_ids,
+            } = page;
             let loaded = data.len();
             let meta =
                 VirtualTableMeta::from_fetch(0, page_size, loaded, total_rows);
             let mut table = TableDataState::default();
-            table.reset(data, &column_names);
+            table.reset(data, &column_names, Some(row_ids));
             let filtered = FilteredData {
                 original: table.model.items.clone(),
                 table,
@@ -208,13 +213,18 @@ impl App<'_> {
             .get_table_data_page(schema, table, new_start, page_size)
             .await
         {
-            Ok((data, column_names)) => {
+            Ok(page) => {
+                let TableDataPage {
+                    rows: data,
+                    column_names,
+                    row_ids,
+                } = page;
                 let loaded = data.len();
                 let meta = VirtualTableMeta::from_fetch(
                     new_start, page_size, loaded, total_rows,
                 );
                 let mut table_state = TableDataState::default();
-                table_state.reset(data, &column_names);
+                table_state.reset(data, &column_names, Some(row_ids));
                 explorer.table_data = Some(FilteredData {
                     original: table_state.model.items.clone(),
                     table: table_state,
@@ -255,13 +265,18 @@ impl App<'_> {
             .get_table_data_page(schema, table, new_start, page_size)
             .await
         {
-            Ok((data, column_names)) => {
+            Ok(page) => {
+                let TableDataPage {
+                    rows: data,
+                    column_names,
+                    row_ids,
+                } = page;
                 let loaded = data.len();
                 let meta = VirtualTableMeta::from_fetch(
                     new_start, page_size, loaded, total_rows,
                 );
                 let mut table_state = TableDataState::default();
-                table_state.reset(data, &column_names);
+                table_state.reset(data, &column_names, Some(row_ids));
                 explorer.table_data = Some(FilteredData {
                     original: table_state.model.items.clone(),
                     table: table_state,
@@ -379,12 +394,56 @@ impl App<'_> {
                 let table_name = table_name.clone();
                 self.load_table_data(&schema_name, &table_name).await?;
             }
-            DatabaseExplorerState::TableData(_schema_name, _table_name) => {
-                if let Some((column_name, cell_value)) =
-                    self.get_selected_cell_value()
+            DatabaseExplorerState::TableData(schema_name, table_name) => {
+                if let Some((column_name, cell_value, row_idx, col_idx, snap)) =
+                    self.get_selected_cell_for_modal()
                 {
-                    self.modal_manager
-                        .open_cell_value_modal(column_name, cell_value);
+                    let schema = schema_name.clone();
+                    let table = table_name.clone();
+                    let db_row_id = self.get_selected_row_db_id();
+                    let Some(database) =
+                        self.database_explorer.database.as_ref()
+                    else {
+                        return Ok(());
+                    };
+                    let pk_names = database
+                        .get_primary_key_columns(&schema, &table)
+                        .await
+                        .unwrap_or_default();
+                    let col_names: &[String] = self
+                        .database_explorer
+                        .table_data
+                        .as_ref()
+                        .and_then(|t| {
+                            t.table.model.dynamic_column_names.as_ref()
+                        })
+                        .map_or(&[][..], |names| names.as_slice());
+                    let primary_key: Vec<(String, String)> = pk_names
+                        .into_iter()
+                        .filter_map(|pk| {
+                            let idx = col_names
+                                .iter()
+                                .position(|c| c == &pk)
+                                .or_else(|| {
+                                col_names
+                                    .iter()
+                                    .position(|c| c.eq_ignore_ascii_case(&pk))
+                            })?;
+                            let val = snap.get(idx)?.clone();
+                            Some((pk, val))
+                        })
+                        .collect();
+                    self.modal_manager.open_cell_value_modal(
+                        column_name,
+                        cell_value,
+                        row_idx,
+                        col_idx,
+                        snap,
+                        schema,
+                        table,
+                        primary_key,
+                        db_row_id,
+                    );
                 }
             }
             DatabaseExplorerState::SqlResults(_) => {
@@ -421,8 +480,10 @@ impl App<'_> {
         Some(table.name.clone())
     }
 
-    /// Get the selected cell value from table data
-    fn get_selected_cell_value(&self) -> Option<(String, String)> {
+    /// Selected cell plus row index, column index, and full row snapshot (for syncing filtered data).
+    fn get_selected_cell_for_modal(
+        &self,
+    ) -> Option<(String, String, usize, usize, Vec<String>)> {
         let explorer = &self.database_explorer;
         let table_data_filtered = explorer.table_data.as_ref()?;
         let table_data = &table_data_filtered.table;
@@ -440,7 +501,78 @@ impl App<'_> {
 
         let column_name = column_names.get(selected_col)?.clone();
         let cell_value = row.values.get(selected_col)?.clone();
-        Some((column_name, cell_value))
+        let snap = row.values.clone();
+        Some((column_name, cell_value, selected_row, selected_col, snap))
+    }
+
+    fn get_selected_row_db_id(&self) -> Option<DbRowId> {
+        let explorer = &self.database_explorer;
+        let fd = explorer.table_data.as_ref()?;
+        let selected = fd.table.view.state.selected()?;
+        let row = fd.table.model.items.get(selected)?;
+        row.db_row_id.clone()
+    }
+
+    /// Persist a cell edit from the modal, then refresh the grid.
+    pub async fn apply_cell_value_edit(
+        &mut self,
+        apply: crate::ui::widgets::modal::CellValueApply,
+    ) -> Result<()> {
+        let Some(database) = self.database_explorer.database.as_ref() else {
+            self.set_status("Not connected.");
+            return Ok(());
+        };
+        match database
+            .update_table_cell(
+                &apply.schema_name,
+                &apply.table_name,
+                &apply.set_column,
+                &apply.new_value,
+                &apply.primary_key,
+                apply.db_row_id.clone(),
+            )
+            .await
+        {
+            Ok(0) => {
+                self.set_status(
+                    "No row was updated (it may have changed in the database).",
+                );
+            }
+            Ok(_) => {
+                self.apply_cell_value_edit_in_memory(&apply);
+                self.set_status("Cell updated.");
+            }
+            Err(e) => {
+                self.set_status(format!("Update failed: {e}"));
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_cell_value_edit_in_memory(
+        &mut self,
+        apply: &crate::ui::widgets::modal::CellValueApply,
+    ) {
+        let Some(fd) = self.database_explorer.table_data.as_mut() else {
+            return;
+        };
+        if let Some(row) = fd.table.model.items.get_mut(apply.row_index)
+            && let Some(cell) = row.values.get_mut(apply.col_index)
+        {
+            *cell = apply.new_value.clone();
+        }
+        if let Some(ix) = fd
+            .original
+            .iter()
+            .position(|r| r.values == apply.row_snapshot)
+            && let Some(cell) = fd
+                .original
+                .get_mut(ix)
+                .and_then(|r| r.values.get_mut(apply.col_index))
+        {
+            *cell = apply.new_value.clone();
+        }
+        fd.table.recompute_column_widths();
     }
 
     /// Execute SQL query from the SQL executor

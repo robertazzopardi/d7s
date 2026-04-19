@@ -55,7 +55,7 @@ impl SqlExecutorState {
         self.results = Some(results.clone());
         self.column_names.clone_from(&column_names.to_vec());
         self.error_message = None;
-        self.table_state.reset(results, column_names);
+        self.table_state.reset(results, column_names, None);
     }
 
     #[allow(dead_code)]
@@ -68,7 +68,7 @@ impl SqlExecutorState {
         self.results = None;
         self.column_names.clear();
         self.error_message = None;
-        self.table_state.reset(vec![], &[]);
+        self.table_state.reset(vec![], &[], None);
     }
 
     /// Replace the SQL input text entirely after loading from external editor

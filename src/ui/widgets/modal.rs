@@ -13,11 +13,15 @@ use ratatui::{
 };
 use ratatui_textarea::TextArea;
 use tui_menu::{MenuEvent, MenuItem, MenuState};
+use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    db::connection::{
-        Connection, ConnectionType, build_postgres_url,
-        parse_connection_string, parse_postgres_url,
+    db::{
+        DbRowId,
+        connection::{
+            Connection, ConnectionType, build_postgres_url,
+            parse_connection_string, parse_postgres_url,
+        },
     },
     ui::widgets::buttons::Buttons,
 };
@@ -260,11 +264,36 @@ pub struct ConfirmationModal {
     pub connection: Option<Connection>,
 }
 
-#[derive(Default, Debug, Clone)]
+/// Result of confirming an edit in the cell value modal (persisted to the DB, then UI).
+#[derive(Debug, Clone)]
+pub struct CellValueApply {
+    pub schema_name: String,
+    pub table_name: String,
+    pub set_column: String,
+    pub row_snapshot: Vec<String>,
+    pub row_index: usize,
+    pub col_index: usize,
+    pub new_value: String,
+    pub primary_key: Vec<(String, String)>,
+    pub db_row_id: Option<DbRowId>,
+}
+
+#[derive(Debug, Clone)]
 pub struct CellValueModal {
     pub is_open: bool,
     pub column_name: String,
-    pub cell_value: String,
+    schema_name: String,
+    table_name: String,
+    input: TextArea<'static>,
+    /// When true, keyboard input goes to the textarea; when false, OK/Cancel row is focused.
+    focus_editor: bool,
+    /// 0 = OK, 1 = Cancel (only when `!focus_editor`)
+    selected_button: usize,
+    row_snapshot: Vec<String>,
+    row_index: usize,
+    col_index: usize,
+    primary_key: Vec<(String, String)>,
+    db_row_id: Option<DbRowId>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -1697,22 +1726,136 @@ impl Widget for SqlQuerySelectionModal {
 }
 
 impl CellValueModal {
+    fn new_cell_textarea(lines: Vec<String>) -> TextArea<'static> {
+        let mut input = TextArea::new(lines);
+        input.set_cursor_line_style(Style::default());
+        input.set_cursor_style(Style::default());
+        input.set_style(Style::default().fg(Color::White));
+        input.set_max_histories(0);
+        input
+    }
+
     #[must_use]
-    pub const fn new(column_name: String, cell_value: String) -> Self {
-        Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        column_name: String,
+        cell_value: String,
+        row_index: usize,
+        col_index: usize,
+        row_snapshot: Vec<String>,
+        schema_name: String,
+        table_name: String,
+        primary_key: Vec<(String, String)>,
+        db_row_id: Option<DbRowId>,
+    ) -> Self {
+        let lines: Vec<String> = if cell_value.is_empty() {
+            vec![String::new()]
+        } else {
+            cell_value.lines().map(String::from).collect()
+        };
+        let mut s = Self {
             is_open: true,
             column_name,
-            cell_value,
-        }
+            schema_name,
+            table_name,
+            input: Self::new_cell_textarea(lines),
+            focus_editor: true,
+            selected_button: 0,
+            row_snapshot,
+            row_index,
+            col_index,
+            primary_key,
+            db_row_id,
+        };
+        s.set_editor_focused(true);
+        s
     }
 
     pub const fn close(&mut self) {
         self.is_open = false;
     }
 
-    pub const fn handle_key_events(&mut self, key: KeyEvent) {
-        if let (_, KeyCode::Esc | KeyCode::Enter) = (key.modifiers, key.code) {
-            self.close();
+    fn set_editor_focused(&mut self, focused: bool) {
+        self.focus_editor = focused;
+        if focused {
+            self.input.set_style(Style::default().fg(Color::White));
+            self.input.set_cursor_style(
+                Style::default().bg(Color::Yellow).fg(Color::Black),
+            );
+        } else {
+            self.input.set_style(Style::default().fg(Color::DarkGray));
+            self.input.set_cursor_style(Style::default());
+        }
+    }
+
+    pub fn handle_key_events(&mut self, key: KeyEvent) -> ModalAction {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                self.close();
+                ModalAction::Cancel
+            }
+            (_, KeyCode::Tab) => {
+                if self.focus_editor {
+                    self.selected_button = 0;
+                    self.set_editor_focused(false);
+                } else {
+                    self.set_editor_focused(true);
+                }
+                ModalAction::None
+            }
+            (_, KeyCode::BackTab) => {
+                self.set_editor_focused(true);
+                ModalAction::None
+            }
+            (_, KeyCode::Left) => {
+                if !self.focus_editor && self.selected_button > 0 {
+                    self.selected_button = 0;
+                } else if self.focus_editor {
+                    self.input.input(key);
+                }
+                ModalAction::None
+            }
+            (_, KeyCode::Right) => {
+                if !self.focus_editor && self.selected_button < 1 {
+                    self.selected_button = 1;
+                } else if self.focus_editor {
+                    self.input.input(key);
+                }
+                ModalAction::None
+            }
+            (_, KeyCode::Enter) => {
+                if self.focus_editor {
+                    self.input.input(key);
+                    ModalAction::None
+                } else if self.selected_button == 0 {
+                    self.close();
+                    ModalAction::Save
+                } else {
+                    self.close();
+                    ModalAction::Cancel
+                }
+            }
+            _ if self.focus_editor => {
+                self.input.input(key);
+                ModalAction::None
+            }
+            _ => ModalAction::None,
+        }
+    }
+
+    /// Snapshot for persisting the edit after OK ([`ModalAction::Save`]).
+    #[must_use]
+    pub fn build_apply(&self) -> CellValueApply {
+        CellValueApply {
+            schema_name: self.schema_name.clone(),
+            table_name: self.table_name.clone(),
+            set_column: self.column_name.clone(),
+            row_snapshot: self.row_snapshot.clone(),
+            row_index: self.row_index,
+            col_index: self.col_index,
+            new_value: self.input.lines().join("\n"),
+            primary_key: self.primary_key.clone(),
+            db_row_id: self.db_row_id.clone(),
         }
     }
 }
@@ -1723,32 +1866,36 @@ impl Widget for CellValueModal {
             return;
         }
 
-        // Calculate modal size based on content
         let max_width = 80u16;
-        let value_width = self.cell_value.len().min((max_width - 4) as usize);
-        let modal_width =
-            u16::try_from((value_width + 4).max(40).min(max_width as usize))
-                .unwrap_or(max_width);
+        let name_w = self.column_name.chars().count();
+        let content_max_line = self
+            .input
+            .lines()
+            .iter()
+            .map(|s| UnicodeWidthStr::width(s.as_str()))
+            .max()
+            .unwrap_or(0);
+        let modal_width = u16::try_from(
+            (name_w.max(content_max_line).saturating_add(4))
+                .max(40)
+                .min(max_width as usize),
+        )
+        .unwrap_or(max_width);
 
-        // Calculate height: title + column name + value (with wrapping) + buttons
-        // Estimate lines needed: ceil(cell_value.len() / (modal_width - 4))
-        let content_width = (modal_width.saturating_sub(4)).max(1) as usize;
-        let value_lines = if self.cell_value.is_empty() {
-            1u16
-        } else {
-            u16::try_from(self.cell_value.len().div_ceil(content_width))
-                .unwrap_or(1u16)
-        };
-        let modal_height = (3u16.saturating_add(value_lines).saturating_add(1))
-            .min(area.height.saturating_sub(4))
-            .max(8);
+        let line_count = self.input.lines().len().max(1);
+        let textarea_lines =
+            u16::try_from(line_count.min(12)).unwrap_or(12).max(3);
+        let modal_height =
+            (2u16.saturating_add(textarea_lines).saturating_add(1))
+                .min(area.height.saturating_sub(4))
+                .max(8);
 
         let x = area.x + (area.width.saturating_sub(modal_width)) / 2;
         let y = area.y + (area.height.saturating_sub(modal_height)) / 2;
         let modal_area = Rect::new(x, y, modal_width, modal_height);
 
         let block = Block::default()
-            .title(self.column_name)
+            .title(self.column_name.clone())
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Cyan))
@@ -1756,31 +1903,27 @@ impl Widget for CellValueModal {
         Clear.render(modal_area, buf);
         block.render(modal_area, buf);
 
-        // Layout inside the modal: Column name, Value, Button
         let inner_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1), // Column name
-                Constraint::Min(3),    // Value (with wrapping)
-                Constraint::Length(1), // Button
+                Constraint::Length(textarea_lines),
+                Constraint::Length(1),
             ])
             .margin(1)
             .split(modal_area);
 
-        // Render cell value with word wrapping
-        let content_layout = *inner_layout.get(1).unwrap_or(&Rect::ZERO);
-        Paragraph::new(self.cell_value)
-            .style(Style::default().fg(Color::White))
-            .alignment(Alignment::Left)
-            .wrap(ratatui::widgets::Wrap { trim: false })
-            .render(content_layout, buf);
+        let content_layout = *inner_layout.first().unwrap_or(&Rect::ZERO);
+        Widget::render(&self.input, content_layout, buf);
 
-        // Render button
         let buttons = Buttons {
-            buttons: vec!["OK"],
-            selected: 0,
+            buttons: vec!["OK", "Cancel"],
+            selected: if self.focus_editor {
+                0
+            } else {
+                self.selected_button
+            },
         };
-        let button_layout = *inner_layout.get(2).unwrap_or(&Rect::ZERO);
+        let button_layout = *inner_layout.get(1).unwrap_or(&Rect::ZERO);
         buttons.render(button_layout, buf);
     }
 }
@@ -1948,6 +2091,7 @@ pub struct ModalManager {
     sql_execution_confirmation_modal: Option<SqlExecutionConfirmationModal>,
     sql_query_selection_modal: Option<SqlQuerySelectionModal>,
     cell_value_modal: Option<CellValueModal>,
+    cell_value_apply: Option<CellValueApply>,
     password_modal: Option<PasswordModal>,
     active_modal_type: Option<ModalType>,
 }
@@ -1962,6 +2106,7 @@ impl ModalManager {
             sql_execution_confirmation_modal: None,
             sql_query_selection_modal: None,
             cell_value_modal: None,
+            cell_value_apply: None,
             password_modal: None,
             active_modal_type: None,
         }
@@ -2032,12 +2177,30 @@ impl ModalManager {
     }
 
     /// Open a cell value display modal
+    #[allow(clippy::too_many_arguments)]
     pub fn open_cell_value_modal(
         &mut self,
         column_name: String,
         cell_value: String,
+        row_index: usize,
+        col_index: usize,
+        row_snapshot: Vec<String>,
+        schema_name: String,
+        table_name: String,
+        primary_key: Vec<(String, String)>,
+        db_row_id: Option<DbRowId>,
     ) {
-        let modal = CellValueModal::new(column_name, cell_value);
+        let modal = CellValueModal::new(
+            column_name,
+            cell_value,
+            row_index,
+            col_index,
+            row_snapshot,
+            schema_name,
+            table_name,
+            primary_key,
+            db_row_id,
+        );
         self.cell_value_modal = Some(modal);
         self.active_modal_type = Some(ModalType::CellValue);
     }
@@ -2126,12 +2289,14 @@ impl ModalManager {
             }
             Some(ModalType::CellValue) => {
                 if let Some(modal) = &mut self.cell_value_modal {
-                    modal.handle_key_events(key);
-                    // If modal was closed, clear the active type
+                    let action = modal.handle_key_events(key);
+                    if action == ModalAction::Save {
+                        self.cell_value_apply = Some(modal.build_apply());
+                    }
                     if !modal.is_open {
                         self.active_modal_type = None;
                     }
-                    ModalAction::Cancel
+                    action
                 } else {
                     ModalAction::None
                 }
@@ -2276,6 +2441,12 @@ impl ModalManager {
     #[must_use]
     pub const fn get_cell_value_modal(&self) -> Option<&CellValueModal> {
         self.cell_value_modal.as_ref()
+    }
+
+    /// Take a pending cell edit after the modal closed with OK ([`ModalAction::Save`]).
+    #[must_use]
+    pub const fn take_cell_value_apply(&mut self) -> Option<CellValueApply> {
+        self.cell_value_apply.take()
     }
 
     /// Check if SQL execution confirmation modal was just closed and confirmed.
