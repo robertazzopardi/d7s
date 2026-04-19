@@ -102,6 +102,19 @@ impl App<'_> {
                 self.copy();
                 Ok(true)
             }
+            (_, KeyCode::Char(c @ '1'..='5')) => {
+                if self.state == AppState::DatabaseConnected {
+                    let idx = usize::from(c as u8 - b'1');
+                    if let Some((schema, table)) =
+                        self.database_explorer.recent_tables.get(idx).cloned()
+                    {
+                        self.load_table_data(&schema, &table).await?;
+                    }
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
             (_, KeyCode::Char('n')) => {
                 if matches!(
                     self.database_explorer.state,

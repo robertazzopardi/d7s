@@ -41,7 +41,7 @@ pub struct App<'a> {
     /// Is the application running?
     pub(crate) running: bool,
     pub(crate) modal_manager: ModalManager,
-    pub(crate) hotkeys: Vec<Hotkey<'a>>,
+    pub(crate) hotkeys: Vec<Hotkey>,
     /// Current application state
     pub(crate) state: AppState,
     /// Database explorer state (when connected to a database)
