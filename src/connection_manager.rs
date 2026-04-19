@@ -120,6 +120,7 @@ impl App<'_> {
     /// Disconnect from the current database
     pub fn disconnect_from_database(&mut self) {
         self.database_explorer.state = DatabaseExplorerState::Connections;
+        self.database_explorer.recent_tables.clear();
         self.state = AppState::ConnectionList;
 
         // Update hotkeys for connection mode

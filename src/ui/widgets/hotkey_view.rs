@@ -6,12 +6,12 @@ use ratatui::{
 use super::hotkey::Hotkey;
 
 pub struct HotkeyView<'a> {
-    pub hotkeys: &'a [Hotkey<'a>],
+    pub hotkeys: &'a [Hotkey],
 }
 
 impl<'a> HotkeyView<'a> {
     #[must_use]
-    pub const fn new(hotkeys: &'a [Hotkey<'a>]) -> Self {
+    pub const fn new(hotkeys: &'a [Hotkey]) -> Self {
         Self { hotkeys }
     }
 }
@@ -21,20 +21,30 @@ impl Widget for HotkeyView<'_> {
         let mut y = area.y;
         let mut x = area.x;
         let max_y = area.y + area.height;
-        let column_width = 30; // Width for each column
+        let area_right = area.x.saturating_add(area.width);
+        let column_width: u16 = 30;
 
         for hotkey in self.hotkeys {
             // Check if we need to start a new column
             if y >= max_y {
-                x += column_width;
+                let next_x = x.saturating_add(column_width);
+                if next_x >= area_right {
+                    break;
+                }
+                x = next_x;
                 y = area.y;
             }
 
-            // Create a rectangle for this hotkey row
-            let hotkey_area = Rect::new(x, y, column_width, 1);
+            let avail = area_right.saturating_sub(x);
+            if avail == 0 {
+                break;
+            }
+            let line_width = column_width.min(avail);
+            let hotkey_area = Rect::new(x, y, line_width, 1);
 
-            Paragraph::new(format!("<{}> {}", hotkey, hotkey.description))
-                .render(hotkey_area, buf);
+            let line =
+                format!("<{}> {}", hotkey, hotkey.description.display_suffix());
+            Paragraph::new(line).render(hotkey_area, buf);
 
             y += 1;
         }

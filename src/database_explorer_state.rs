@@ -7,7 +7,13 @@ use crate::{
         Column, Database, DatabaseInfo, Schema, Table, connection::Connection,
     },
     filtered_data::FilteredData,
-    ui::{sql_executor::SqlExecutorState, widgets::table::RawTableRow},
+    ui::{
+        sql_executor::SqlExecutorState,
+        widgets::{
+            hotkey::{Hotkey, HotkeyDescription},
+            table::RawTableRow,
+        },
+    },
     virtual_table::VirtualTableMeta,
 };
 
@@ -38,6 +44,8 @@ pub struct DatabaseExplorer {
     pub table_data_virtual: Option<VirtualTableMeta>,
     /// SQL executor state
     pub sql_executor: SqlExecutorState,
+    /// Most recently opened tables (schema, table), newest first; max 5 entries.
+    pub recent_tables: Vec<(String, String)>,
 }
 
 impl DatabaseExplorer {
@@ -59,7 +67,35 @@ impl DatabaseExplorer {
             table_data: None,
             table_data_virtual: None,
             sql_executor: SqlExecutorState::new(),
+            recent_tables: Vec::new(),
         }
+    }
+
+    /// Record that a table was opened for data view; updates MRU (max 5).
+    pub fn record_recent_table_open(&mut self, schema: &str, table: &str) {
+        let pair = (schema.to_string(), table.to_string());
+        self.recent_tables.retain(|p| p != &pair);
+        self.recent_tables.insert(0, pair);
+        self.recent_tables.truncate(5);
+    }
+
+    /// Hotkey strip for the MRU column (`1`–`5` → reopen table data).
+    #[must_use]
+    pub fn recent_table_hotkeys(&self) -> Vec<Hotkey> {
+        self.recent_tables
+            .iter()
+            .enumerate()
+            .take(5)
+            .map(|(i, (schema, table))| Hotkey {
+                keycode: KeyCode::Char(
+                    (b'1' + u8::try_from(i).unwrap_or(0)) as char,
+                ),
+                description: HotkeyDescription::RecentTable {
+                    schema: schema.clone(),
+                    table: table.clone(),
+                },
+            })
+            .collect()
     }
 
     /// Navigate the currently active explorer table (excludes Connections and `SqlExecutor`)

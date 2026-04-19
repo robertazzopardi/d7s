@@ -44,18 +44,26 @@ impl App<'_> {
         let first_layout =
             layout.first().copied().unwrap_or_else(Rect::default);
 
-        let (current_connection, build_info) = if matches!(
+        let (current_connection, build_info, recent_hotkeys) = if matches!(
             self.database_explorer.state,
             DatabaseExplorerState::Connections
         ) {
-            (&Connection::default(), Some(self.build_info.clone()))
+            (
+                &Connection::default(),
+                Some(self.build_info.clone()),
+                Vec::new(),
+            )
         } else {
-            // Show connection details when connected
-            (&self.database_explorer.connection, None)
+            (
+                &self.database_explorer.connection,
+                None,
+                self.database_explorer.recent_table_hotkeys(),
+            )
         };
         frame.render_widget(
             TopBarView {
                 current_connection,
+                recent_hotkeys: recent_hotkeys.as_slice(),
                 hotkeys: &self.hotkeys,
                 app_name: APP_NAME,
                 build_info,

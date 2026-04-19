@@ -174,6 +174,7 @@ impl App<'_> {
                 schema_name.to_string(),
                 table_name.to_string(),
             );
+            explorer.record_recent_table_open(schema_name, table_name);
         } else {
             explorer.table_data_virtual = None;
             self.set_status("Failed to load table data");
