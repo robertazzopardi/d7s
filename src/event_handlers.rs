@@ -67,6 +67,9 @@ impl App<'_> {
         }
 
         // Handle application shortcuts (q, n, d, e, t, s, Esc, Enter)
+        if self.handle_table_data_hotkeys(key).await? {
+            return Ok(());
+        }
         if self.handle_hotkeys(key).await? {
             return Ok(());
         }
@@ -184,6 +187,12 @@ impl App<'_> {
                     .is_some()
                 {
                     self.reset_table_selection_state();
+                } else if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::TableData(_, _)
+                ) && self.discard_table_draft()
+                {
+                    self.set_status("Draft discarded.");
                 } else if self.state == AppState::DatabaseConnected {
                     let is_sql_executor = matches!(
                         self.database_explorer.state,
@@ -363,6 +372,14 @@ impl App<'_> {
                     self.modal_manager.cleanup_closed_modals();
                     return Ok(());
                 }
+                if self.pending_row_deletes.is_some()
+                    && self.modal_manager.was_sql_execution_confirmed().is_some()
+                    && matches!(key.code, KeyCode::Enter)
+                {
+                    self.execute_pending_row_deletes().await?;
+                    self.modal_manager.cleanup_closed_modals();
+                    return Ok(());
+                }
                 if let Some(statement) =
                     self.modal_manager.was_sql_execution_confirmed()
                     && matches!(key.code, KeyCode::Enter)
@@ -386,6 +403,7 @@ impl App<'_> {
                 if self.modal_manager.was_connection_modal_closed() {
                     self.refresh_connections();
                 }
+                self.pending_row_deletes = None;
             }
             ModalAction::None => {}
         }

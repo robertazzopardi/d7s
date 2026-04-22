@@ -193,6 +193,9 @@ impl App<'_> {
 
     /// Load the next page of rows for the current table data view.
     pub async fn fetch_next_table_page(&mut self) -> Result<()> {
+        if self.discard_table_draft() {
+            self.set_status("Draft discarded (page change).");
+        }
         let explorer = &mut self.database_explorer;
         let Some(meta) = explorer.table_data_virtual.as_ref() else {
             return Ok(());
@@ -244,6 +247,9 @@ impl App<'_> {
 
     /// Load the previous page of rows for the current table data view.
     pub async fn fetch_prev_table_page(&mut self) -> Result<()> {
+        if self.discard_table_draft() {
+            self.set_status("Draft discarded (page change).");
+        }
         let explorer = &mut self.database_explorer;
         let Some(meta) = explorer.table_data_virtual.as_ref() else {
             return Ok(());
@@ -404,15 +410,20 @@ impl App<'_> {
                     let schema = schema_name.clone();
                     let table = table_name.clone();
                     let db_row_id = self.get_selected_row_db_id();
+                    let is_draft = self.table_data_selected_is_draft();
                     let Some(database) =
                         self.database_explorer.database.as_ref()
                     else {
                         return Ok(());
                     };
-                    let pk_names = database
-                        .get_primary_key_columns(&schema, &table)
-                        .await
-                        .unwrap_or_default();
+                    let pk_names = if is_draft {
+                        Vec::new()
+                    } else {
+                        database
+                            .get_primary_key_columns(&schema, &table)
+                            .await
+                            .unwrap_or_default()
+                    };
                     let col_names: &[String] = self
                         .database_explorer
                         .table_data
@@ -521,6 +532,17 @@ impl App<'_> {
         &mut self,
         apply: CellValueApply,
     ) -> Result<()> {
+        let is_draft = self
+            .database_explorer
+            .table_data
+            .as_ref()
+            .and_then(|fd| fd.table.model.items.get(apply.row_index))
+            .is_some_and(|r| r.is_draft);
+        if is_draft {
+            self.apply_cell_value_edit_in_memory(&apply);
+            self.set_status("Draft cell updated — commit with s when ready.");
+            return Ok(());
+        }
         let Some(database) = self.database_explorer.database.as_ref() else {
             self.set_status("Not connected.");
             return Ok(());
@@ -544,6 +566,9 @@ impl App<'_> {
             Ok(_) => {
                 self.apply_cell_value_edit_in_memory(&apply);
                 self.set_status("Cell updated.");
+                if let Err(e) = self.reload_current_table_data().await {
+                    self.set_status(format!("Updated, but refresh failed: {e}"));
+                }
             }
             Err(e) => {
                 self.set_status(format!("Update failed: {e}"));

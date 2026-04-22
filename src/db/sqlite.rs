@@ -356,6 +356,93 @@ impl Database for Sqlite {
         )
     }
 
+    async fn insert_table_row(
+        &self,
+        _schema_name: &str,
+        table_name: &str,
+        values: &[String],
+    ) -> Result<u64, Box<dyn std::error::Error>> {
+        let columns = self.get_columns("sqlite_schema", table_name).await?;
+        if values.len() != columns.len() {
+            return Err("INSERT column count does not match table.".into());
+        }
+        let conn = SqliteConnection::open(&self.path)?;
+        let decls = sqlite_table_decltypes(&conn, table_name)?;
+        let tq = sqlite_quote_ident(table_name);
+        let mut col_list = String::new();
+        let mut val_parts: Vec<String> = Vec::with_capacity(columns.len());
+        let mut refs: Vec<rusqlite::types::Value> = Vec::new();
+        for (i, c) in columns.iter().enumerate() {
+            if i > 0 {
+                col_list.push_str(", ");
+            }
+            col_list.push_str(&sqlite_quote_ident(&c.name));
+        }
+        for (i, c) in columns.iter().enumerate() {
+            let raw = values.get(i).map(String::as_str).unwrap_or("");
+            let as_null = c.is_nullable
+                && (raw.is_empty() || raw.eq_ignore_ascii_case("null"));
+            if as_null {
+                val_parts.push("NULL".to_string());
+            } else {
+                let kw =
+                    sqlite_cast_keyword(sqlite_resolve_decl(&decls, &c.name));
+                val_parts.push(format!("CAST(? AS {kw})"));
+                refs.push(rusqlite::types::Value::Text(raw.to_string()));
+            }
+        }
+        let sql = format!(
+            "INSERT INTO {tq} ({col_list}) VALUES ({})",
+            val_parts.join(", ")
+        );
+        let mut pvec: Vec<&dyn rusqlite::ToSql> = Vec::new();
+        for v in &refs {
+            pvec.push(v);
+        }
+        let n = u64::try_from(conn.execute(&sql, pvec.as_slice())?).unwrap_or(0);
+        Ok(n)
+    }
+
+    async fn delete_table_row(
+        &self,
+        _schema_name: &str,
+        table_name: &str,
+        primary_key: &[(String, String)],
+        row_id_fallback: Option<DbRowId>,
+    ) -> Result<u64, Box<dyn std::error::Error>> {
+        let conn = SqliteConnection::open(&self.path)?;
+        let decls = sqlite_table_decltypes(&conn, table_name)?;
+        let tq = sqlite_quote_ident(table_name);
+        if !primary_key.is_empty() {
+            let mut sql = format!("DELETE FROM {tq} WHERE ");
+            for (i, (k, _)) in primary_key.iter().enumerate() {
+                if i > 0 {
+                    sql.push_str(" AND ");
+                }
+                let param_num = i + 1;
+                let pk_kw = sqlite_cast_keyword(sqlite_resolve_decl(&decls, k));
+                let _ = write!(
+                    sql,
+                    "{} = CAST(?{param_num} AS {pk_kw})",
+                    sqlite_quote_ident(k)
+                );
+            }
+            let mut refs: Vec<&dyn rusqlite::ToSql> = Vec::new();
+            for (_, v) in primary_key {
+                refs.push(v);
+            }
+            let n = u64::try_from(conn.execute(&sql, refs.as_slice())?)
+                .unwrap_or(0);
+            return Ok(n);
+        }
+        if let Some(DbRowId::Sqlite(rid)) = row_id_fallback {
+            let sql = format!("DELETE FROM {tq} WHERE rowid = ?1");
+            let n = u64::try_from(conn.execute(&sql, params![rid])?).unwrap_or(0);
+            return Ok(n);
+        }
+        Err("Cannot delete row: no primary key and no rowid".into())
+    }
+
     async fn get_table_row_count(
         &self,
         _schema_name: &str,

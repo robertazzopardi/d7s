@@ -13,6 +13,13 @@ pub enum DbRowId {
     PostgresCtid(String),
 }
 
+/// Row locators for batch delete after user confirmation.
+#[derive(Debug, Clone)]
+pub struct RowDeleteSpec {
+    pub primary_key: Vec<(String, String)>,
+    pub row_id_fallback: Option<DbRowId>,
+}
+
 /// One page of table rows for the explorer, including optional per-row DB locators.
 #[derive(Debug, Default)]
 pub struct TableDataPage {
@@ -30,6 +37,11 @@ pub trait TableData {
 
     fn col(&self, column: usize) -> String {
         self.ref_array().get(column).cloned().unwrap_or_default()
+    }
+
+    /// UI draft rows (e.g. pending `INSERT`) use this for styling.
+    fn is_draft_row(&self) -> bool {
+        false
     }
 }
 
@@ -80,6 +92,24 @@ pub trait Database: Send + Sync {
         table_name: &str,
         set_column: &str,
         new_value: &str,
+        primary_key: &[(String, String)],
+        row_id_fallback: Option<DbRowId>,
+    ) -> Result<u64, Box<dyn std::error::Error>>;
+
+    /// Insert one row. `values` align with [`Database::get_columns`] order for this table.
+    /// Empty string with a nullable column becomes SQL `NULL`. Same `WHERE` identity as update.
+    async fn insert_table_row(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+        values: &[String],
+    ) -> Result<u64, Box<dyn std::error::Error>>;
+
+    /// Delete one row; same `WHERE` construction as [`Database::update_table_cell`].
+    async fn delete_table_row(
+        &self,
+        schema_name: &str,
+        table_name: &str,
         primary_key: &[(String, String)],
         row_id_fallback: Option<DbRowId>,
     ) -> Result<u64, Box<dyn std::error::Error>>;

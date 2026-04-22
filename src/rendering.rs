@@ -12,8 +12,8 @@ use crate::{
     ui::{
         sql_executor::SqlExecutor,
         widgets::{
-            modal::ConnectionModalWidget, table::DataTable,
-            top_bar_view::TopBarView,
+            hotkey::Hotkey, modal::ConnectionModalWidget, table::DataTable,
+            top_bar_view::{TopBarView, TABLE_DATA_VIEW_HOTKEYS},
         },
     },
 };
@@ -60,11 +60,28 @@ impl App<'_> {
                 self.database_explorer.recent_table_hotkeys(),
             )
         };
+        let table_data_ext: Vec<Hotkey> = if matches!(
+            self.database_explorer.state,
+            DatabaseExplorerState::TableData(_, _)
+        ) {
+            self.hotkeys
+                .iter()
+                .chain(TABLE_DATA_VIEW_HOTKEYS.iter())
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let hotkey_bar: &[Hotkey] = if table_data_ext.is_empty() {
+            &self.hotkeys
+        } else {
+            &table_data_ext
+        };
         frame.render_widget(
             TopBarView {
                 current_connection,
                 recent_hotkeys: recent_hotkeys.as_slice(),
-                hotkeys: &self.hotkeys,
+                hotkeys: hotkey_bar,
                 app_name: APP_NAME,
                 build_info,
             },

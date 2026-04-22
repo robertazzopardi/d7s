@@ -1,3 +1,4 @@
+use crossterm::event::KeyCode;
 use ratatui::{
     prelude::{Buffer, Constraint, Layout, Rect, Widget},
     widgets::Paragraph,
@@ -20,6 +21,19 @@ pub const DATABASE_HOTKEYS: [Hotkey; 5] = [
     Hotkey::new('E', "Run SQL"),
     Hotkey::new('/', "Search"),
     Hotkey::new('y', "Copy value"),
+];
+
+/// Shown in addition to [`DATABASE_HOTKEYS`] while viewing table row data.
+pub const TABLE_DATA_VIEW_HOTKEYS: [Hotkey; 6] = [
+    Hotkey::new('r', "Refresh"),
+    Hotkey::new('a', "New row"),
+    Hotkey::new('c', "Copy row"),
+    Hotkey::new('s', "Commit row"),
+    Hotkey::new('d', "Delete row"),
+    Hotkey {
+        keycode: KeyCode::Char(' '),
+        description: super::hotkey::HotkeyDescription::Static("Multi"),
+    },
 ];
 
 /// Flex weights for the three middle segments (connection / MRU / primary hotkeys), matching the

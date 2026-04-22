@@ -24,6 +24,7 @@ impl<T: TableData + Clone> FilteredData<T> {
     /// Apply a filter to the data
     pub fn apply_filter(&mut self, query: &str) {
         self.table.model.items = self.table.filter(query);
+        self.table.multi_row_selection.clear();
         TableNavigationHandler::wrap_rows(
             &mut self.table.view.state,
             &self.table.model.items,
@@ -33,6 +34,7 @@ impl<T: TableData + Clone> FilteredData<T> {
     /// Clear the filter and restore original data
     pub fn clear_filter(&mut self) {
         self.table.model.items.clone_from(&self.original);
+        self.table.multi_row_selection.clear();
         TableNavigationHandler::wrap_rows(
             &mut self.table.view.state,
             &self.table.model.items,

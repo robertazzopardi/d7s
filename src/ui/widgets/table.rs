@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use ratatui::{
     layout::{Constraint, Rect},
@@ -20,6 +20,8 @@ pub struct RawTableRow {
     pub column_names: Arc<Vec<String>>,
     /// Set when rows are loaded from a concrete DB table (for `UPDATE`).
     pub db_row_id: Option<DbRowId>,
+    /// Pending row not yet `INSERT`ed; edited locally until commit (`s`).
+    pub is_draft: bool,
 }
 
 impl TableData for RawTableRow {
@@ -39,6 +41,10 @@ impl TableData for RawTableRow {
         // This is a limitation - we can't return dynamic column names from a static method
         // We'll handle this specially in DataTable's render method
         vec![]
+    }
+
+    fn is_draft_row(&self) -> bool {
+        self.is_draft
     }
 }
 
@@ -63,6 +69,8 @@ pub struct TableViewState {
 pub struct TableDataState<T: TableData + Clone> {
     pub model: TableModel<T>,
     pub view: TableViewState,
+    /// Row indices toggled with Space (batch operations, e.g. delete). Table data / `RawTableRow`.
+    pub multi_row_selection: BTreeSet<usize>,
 }
 
 /// Pure stateless table widget - all state is managed externally
@@ -90,6 +98,7 @@ impl<T: TableData + Clone> TableDataState<T> {
                 state: TableState::default().with_selected(0),
                 column_offset: 0,
             },
+            multi_row_selection: BTreeSet::new(),
         }
     }
 
@@ -140,6 +149,7 @@ impl TableDataState<RawTableRow> {
                     .and_then(|r| r.get(i))
                     .cloned()
                     .flatten(),
+                is_draft: false,
             })
             .collect();
         let longest_item_lens =
@@ -150,6 +160,7 @@ impl TableDataState<RawTableRow> {
         self.model.dynamic_column_names = Some(column_names_arc);
         self.view.state.select(Some(0));
         self.view.column_offset = 0;
+        self.multi_row_selection.clear();
     }
 
     /// Recompute column display widths after cell text changes.
@@ -352,8 +363,15 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
             },
         );
 
-        let rows = state.model.items.iter().map(|data| {
+        let rows = state.model.items.iter().enumerate().map(|(row_idx, data)| {
             let row_data = data.ref_array();
+            let mut row_style = Style::new();
+            if data.is_draft_row() {
+                row_style = row_style.fg(Color::LightGreen);
+            }
+            if state.multi_row_selection.contains(&row_idx) {
+                row_style = row_style.bg(Color::Blue);
+            }
             visible_cols
                 .iter()
                 .map(|&idx| {
@@ -361,7 +379,7 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
                     Cell::from(value)
                 })
                 .collect::<Row>()
-                .style(Style::new())
+                .style(row_style)
                 .height(1)
         });
 
