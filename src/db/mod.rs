@@ -6,6 +6,21 @@ use std::path::PathBuf;
 
 use color_eyre::{Result, eyre};
 
+/// Stable-enough row locator for `UPDATE` when the table has no primary key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DbRowId {
+    Sqlite(i64),
+    PostgresCtid(String),
+}
+
+/// One page of table rows for the explorer, including optional per-row DB locators.
+#[derive(Debug, Default)]
+pub struct TableDataPage {
+    pub rows: Vec<Vec<String>>,
+    pub column_names: Vec<String>,
+    pub row_ids: Vec<Option<DbRowId>>,
+}
+
 pub trait TableData {
     #[allow(dead_code)]
     fn title() -> &'static str;
@@ -41,14 +56,33 @@ pub trait Database: Send + Sync {
         table_name: &str,
     ) -> Result<Vec<Column>, Box<dyn std::error::Error>>;
 
-    /// Returns up to `limit` rows starting at `offset` (0-based), plus column names.
+    /// Returns up to `limit` rows starting at `offset` (0-based), plus column names and row locators.
     async fn get_table_data_page(
         &self,
         schema_name: &str,
         table_name: &str,
         offset: u64,
         limit: u32,
-    ) -> Result<(Vec<Vec<String>>, Vec<String>), Box<dyn std::error::Error>>;
+    ) -> Result<TableDataPage, Box<dyn std::error::Error>>;
+
+    /// Ordered primary-key column names (composite keys preserve order).
+    async fn get_primary_key_columns(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>>;
+
+    /// Update a single cell. Uses `primary_key` for the `WHERE` clause when non-empty; otherwise
+    /// `row_id_fallback` (`rowid` / `ctid`) when present.
+    async fn update_table_cell(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+        set_column: &str,
+        new_value: &str,
+        primary_key: &[(String, String)],
+        row_id_fallback: Option<DbRowId>,
+    ) -> Result<u64, Box<dyn std::error::Error>>;
 
     /// Total row count for the table (for paging UI). May be expensive on huge tables.
     async fn get_table_row_count(
