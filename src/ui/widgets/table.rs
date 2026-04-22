@@ -7,7 +7,10 @@ use ratatui::{
     widgets::{Cell, HighlightSpacing, Row, StatefulWidget, Table, TableState},
 };
 
-use crate::{db::TableData, ui::widgets::constraint_len_calculator};
+use crate::{
+    db::{DbRowId, TableData},
+    ui::widgets::constraint_len_calculator,
+};
 
 /// A wrapper type for raw table data with dynamic column names
 #[derive(Clone, Debug, Default)]
@@ -15,6 +18,8 @@ pub struct RawTableRow {
     pub values: Vec<String>,
     #[allow(dead_code)]
     pub column_names: Arc<Vec<String>>,
+    /// Set when rows are loaded from a concrete DB table (for `UPDATE`).
+    pub db_row_id: Option<DbRowId>,
 }
 
 impl TableData for RawTableRow {
@@ -116,13 +121,25 @@ impl<T: TableData + Clone> TableDataState<T> {
 
 impl TableDataState<RawTableRow> {
     /// Reset the table state with new raw data
-    pub fn reset(&mut self, items: Vec<Vec<String>>, column_names: &[String]) {
+    pub fn reset(
+        &mut self,
+        items: Vec<Vec<String>>,
+        column_names: &[String],
+        row_ids: Option<Vec<Option<DbRowId>>>,
+    ) {
         let column_names_arc = Arc::new(column_names.to_owned());
+        let row_ids = row_ids.filter(|r| r.len() == items.len());
         let raw_rows: Vec<RawTableRow> = items
             .into_iter()
-            .map(|values| RawTableRow {
+            .enumerate()
+            .map(|(i, values)| RawTableRow {
                 values,
                 column_names: Arc::clone(&column_names_arc),
+                db_row_id: row_ids
+                    .as_ref()
+                    .and_then(|r| r.get(i))
+                    .cloned()
+                    .flatten(),
             })
             .collect();
         let longest_item_lens =
@@ -133,6 +150,15 @@ impl TableDataState<RawTableRow> {
         self.model.dynamic_column_names = Some(column_names_arc);
         self.view.state.select(Some(0));
         self.view.column_offset = 0;
+    }
+
+    /// Recompute column display widths after cell text changes.
+    pub fn recompute_column_widths(&mut self) {
+        let Some(names) = self.model.dynamic_column_names.as_deref() else {
+            return;
+        };
+        self.model.longest_item_lens =
+            constraint_len_calculator_for_raw_data(&self.model.items, names);
     }
 }
 
