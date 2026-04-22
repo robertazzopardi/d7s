@@ -123,15 +123,25 @@ impl App<'_> {
                         self.database_explorer.table_data.as_ref().is_some_and(
                             super::filtered_data::FilteredData::is_filtered,
                         );
-                    let visible = self
+                    let (visible, local_draft_rows) = self
                         .database_explorer
                         .table_data
                         .as_ref()
-                        .map_or(0, |t| t.table.model.items.len());
+                        .map_or((0, 0), |t| {
+                            let vis = t.table.model.items.len();
+                            let dr = t
+                                .table
+                                .model
+                                .items
+                                .iter()
+                                .filter(|r| r.is_draft)
+                                .count();
+                            (vis, dr)
+                        });
                     format!(
                         "{}{}",
                         base.trim_end(),
-                        meta.title_suffix(filtered, visible)
+                        meta.title_suffix(filtered, visible, local_draft_rows)
                     )
                 } else {
                     base

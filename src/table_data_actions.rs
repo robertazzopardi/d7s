@@ -115,21 +115,44 @@ impl App<'_> {
         had
     }
 
-    fn push_draft_row(&mut self, mut row: RawTableRow) -> Result<()> {
+    /// Insert a draft at `insert_at` (0..=len) and move the cursor to it.
+    fn insert_draft_row_at(&mut self, insert_at: usize, mut row: RawTableRow) -> Result<()> {
         let Some(fd) = self.database_explorer.table_data.as_mut() else {
             return Ok(());
         };
+        let len = fd.table.model.items.len();
+        let insert_at = insert_at.min(len);
         row.is_draft = true;
-        fd.table.model.items.insert(0, row.clone());
-        fd.original.insert(0, row);
-        fd.table.multi_row_selection.clear();
-        fd.table.view.state.select(Some(0));
+        let shifted: BTreeSet<usize> = fd
+            .table
+            .multi_row_selection
+            .iter()
+            .map(|&j| if j >= insert_at { j + 1 } else { j })
+            .collect();
+        fd.table.model.items.insert(insert_at, row.clone());
+        fd.original.insert(insert_at, row);
+        fd.table.multi_row_selection = shifted;
+        fd.table.view.state.select(Some(insert_at));
         fd.table.recompute_column_widths();
         TableNavigationHandler::wrap_rows(
             &mut fd.table.view.state,
             &fd.table.model.items,
         );
         Ok(())
+    }
+
+    /// Insert a draft **below** the current selection after `discard_table_draft` (or with empty data).
+    fn insert_draft_row_below_cursor(&mut self, row: RawTableRow) -> Result<()> {
+        let Some(fd) = self.database_explorer.table_data.as_ref() else {
+            return Ok(());
+        };
+        let len = fd.table.model.items.len();
+        let insert_at = match fd.table.view.state.selected() {
+            None if len == 0 => 0,
+            None => len,
+            Some(i) => (i + 1).min(len),
+        };
+        self.insert_draft_row_at(insert_at, row)
     }
 
     pub(crate) async fn table_data_add_blank_draft(&mut self) -> Result<()> {
@@ -154,7 +177,7 @@ impl App<'_> {
             db_row_id: None,
             is_draft: true,
         };
-        self.push_draft_row(row)?;
+        self.insert_draft_row_below_cursor(row)?;
         self.set_status("Draft row — edit cells (Enter), commit with s");
         Ok(())
     }
@@ -203,6 +226,7 @@ impl App<'_> {
             .as_deref()
             .cloned()
             .unwrap_or_default();
+        let source_key = (base.db_row_id.clone(), base.values.clone());
         let mut values = base.values.clone();
         for pk in &pk_names {
             if let Some(ix) = col_names
@@ -214,14 +238,28 @@ impl App<'_> {
                 v.clear();
             }
         }
-        self.discard_table_draft();
         let row = RawTableRow {
             values,
             column_names: base.column_names,
             db_row_id: None,
             is_draft: true,
         };
-        self.push_draft_row(row)?;
+        self.discard_table_draft();
+        let insert_at: usize = {
+            let Some(fd2) = self.database_explorer.table_data.as_ref() else {
+                return Ok(());
+            };
+            let len = fd2.table.model.items.len();
+            fd2.table
+                .model
+                .items
+                .iter()
+                .position(|r| {
+                    (r.db_row_id == source_key.0) && (r.values == source_key.1)
+                })
+                .map_or(len, |p| (p + 1).min(len))
+        };
+        self.insert_draft_row_at(insert_at, row)?;
         self.set_status("Draft copy — edit cells (Enter), commit with s");
         Ok(())
     }

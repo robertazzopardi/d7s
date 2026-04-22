@@ -6,7 +6,7 @@ use rusqlite_migration::{M, Migrations};
 
 use crate::db::{
     Column, Database, DatabaseInfo, DbRowId, Schema, Table, TableData,
-    TableDataPage, TableRow,
+    TableDataPage, TableRow, should_omit_for_insert_default,
     connection::{Connection, ConnectionType, Environment},
     get_db_path,
 };
@@ -201,14 +201,15 @@ impl Database for Sqlite {
             conn.prepare(&format!("PRAGMA table_info('{table_name}')"))?;
         let columns = stmt
             .query_map([], |row| {
-                let name = row.get(1)?;
-                let data_type = row.get(2)?;
-                let is_nullable = row.get(3)?;
+                let name: String = row.get(1)?;
+                let data_type: String = row.get(2)?;
+                let notnull: i64 = row.get(3)?;
+                let default_value: Option<String> = row.get(4)?;
                 Ok(Column {
                     name,
                     data_type,
-                    is_nullable,
-                    default_value: None,
+                    is_nullable: notnull == 0,
+                    default_value,
                     description: None,
                 })
             })?
@@ -366,31 +367,48 @@ impl Database for Sqlite {
         if values.len() != columns.len() {
             return Err("INSERT column count does not match table.".into());
         }
+        let pk = self
+            .get_primary_key_columns("sqlite_schema", table_name)
+            .await
+            .unwrap_or_default();
         let conn = SqliteConnection::open(&self.path)?;
         let decls = sqlite_table_decltypes(&conn, table_name)?;
         let tq = sqlite_quote_ident(table_name);
-        let mut col_list = String::new();
-        let mut val_parts: Vec<String> = Vec::with_capacity(columns.len());
+        let mut col_list: Vec<String> = Vec::new();
+        let mut val_parts: Vec<String> = Vec::new();
         let mut refs: Vec<rusqlite::types::Value> = Vec::new();
         for (i, c) in columns.iter().enumerate() {
-            if i > 0 {
-                col_list.push_str(", ");
-            }
-            col_list.push_str(&sqlite_quote_ident(&c.name));
-        }
-        for (i, c) in columns.iter().enumerate() {
             let raw = values.get(i).map(String::as_str).unwrap_or("");
-            let as_null = c.is_nullable
-                && (raw.is_empty() || raw.eq_ignore_ascii_case("null"));
-            if as_null {
-                val_parts.push("NULL".to_string());
+            let sqlite_rowid_pk_omit = pk.len() == 1
+                && (c.name == pk[0] || c.name.eq_ignore_ascii_case(&pk[0]))
+                && c.data_type.to_lowercase().contains("int");
+            if should_omit_for_insert_default(c, raw, true, sqlite_rowid_pk_omit) {
+                continue;
+            }
+            if raw.trim().is_empty() || raw.eq_ignore_ascii_case("null") {
+                if c.is_nullable {
+                    col_list.push(sqlite_quote_ident(&c.name));
+                    val_parts.push("NULL".to_string());
+                } else {
+                    return Err(format!(
+                        "Column '{}' is NOT NULL and has no value or default in the form.",
+                        c.name
+                    )
+                    .into());
+                }
             } else {
+                col_list.push(sqlite_quote_ident(&c.name));
                 let kw =
                     sqlite_cast_keyword(sqlite_resolve_decl(&decls, &c.name));
                 val_parts.push(format!("CAST(? AS {kw})"));
                 refs.push(rusqlite::types::Value::Text(raw.to_string()));
             }
         }
+        if col_list.is_empty() {
+            let sql = format!("INSERT INTO {tq} DEFAULT VALUES");
+            return Ok(u64::try_from(conn.execute(&sql, [])?).unwrap_or(0));
+        }
+        let col_list = col_list.join(", ");
         let sql = format!(
             "INSERT INTO {tq} ({col_list}) VALUES ({})",
             val_parts.join(", ")

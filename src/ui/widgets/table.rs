@@ -336,6 +336,27 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
             highlight_spacing,
         ) = create_table_styles();
 
+        // `row_highlight_style` overrides each cell's row style, so a focused row that is also
+        // multi-selected would lose the blue background. Patch the default row highlight with blue
+        // so the cursor row still reads as "in the multi set" while keeping the same emphasis
+        // (reversed, bold) as the normal selection row.
+        let row_highlight_style = match state.view.state.selected() {
+            Some(i) if state.multi_row_selection.contains(&i) => {
+                let style = selected_row_style.patch(Style::new().bg(Color::Blue));
+                if state
+                    .model
+                    .items
+                    .get(i)
+                    .is_some_and(TableData::is_draft_row)
+                {
+                    style.patch(Style::new().fg(Color::LightGreen))
+                } else {
+                    style
+                }
+            }
+            _ => selected_row_style,
+        };
+
         // Use dynamic column names if available (for RawTableRow), otherwise use static cols()
         let header = state.model.dynamic_column_names.as_ref().map_or_else(
             || {
@@ -394,7 +415,7 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
 
         let t = Table::new(rows, constraints)
             .header(header)
-            .row_highlight_style(selected_row_style)
+            .row_highlight_style(row_highlight_style)
             .column_highlight_style(selected_col_style)
             .cell_highlight_style(selected_cell_style)
             .highlight_symbol(highlight_symbol)

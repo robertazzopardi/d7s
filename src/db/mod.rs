@@ -139,6 +139,46 @@ pub struct Schema {
     pub owner: String,
 }
 
+/// `true` when a cell is empty/NULL in the grid and the column should be **omitted** from
+/// `INSERT` so the server applies a default, identity, or `NULL` (nullable + no default).
+///
+/// `sqlite_rowid_pk_omit`: this column is the **sole** `INTEGER PRIMARY KEY` in SQLite (rowid).
+#[must_use]
+pub fn should_omit_for_insert_default(
+    col: &Column,
+    raw: &str,
+    engine_sqlite: bool,
+    sqlite_rowid_pk_omit: bool,
+) -> bool {
+    let empty = raw.trim().is_empty() || raw.eq_ignore_ascii_case("null");
+    if !empty {
+        return false;
+    }
+    if let Some(ref d) = col.default_value {
+        let t = d.trim();
+        if !t.is_empty() && t.to_uppercase() != "NULL" {
+            return true;
+        }
+    }
+    if engine_sqlite && sqlite_rowid_pk_omit {
+        return true;
+    }
+    if !engine_sqlite {
+        let u = col.data_type.to_lowercase();
+        if u.contains("serial") || u.contains("identity") {
+            return true;
+        }
+        if col
+            .default_value
+            .as_deref()
+            .is_some_and(|d| d.contains("nextval"))
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// Table information
 #[derive(Debug, Clone)]
 pub struct Table {
