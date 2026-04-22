@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet, hash_map::Entry},
+    fmt::Write,
     sync::{Mutex, OnceLock},
 };
 
@@ -183,16 +184,16 @@ fn pg_trim_array_token(s: &str) -> String {
     }
 }
 
-fn pg_parse_array_elements(raw: &str) -> Result<Vec<String>, ()> {
+fn pg_parse_array_elements(raw: &str) -> Vec<String> {
     let t = raw.trim();
     if t.is_empty() {
-        return Ok(vec![]);
+        return vec![];
     }
     if let Ok(json_vals) = serde_json::from_str::<Vec<Value>>(t) {
-        return Ok(json_vals
+        return json_vals
             .into_iter()
             .map(pg_json_scalar_to_string)
-            .collect());
+            .collect();
     }
     let inner = if let Some(s) =
         t.strip_prefix('[').and_then(|x| x.strip_suffix(']'))
@@ -203,9 +204,9 @@ fn pg_parse_array_elements(raw: &str) -> Result<Vec<String>, ()> {
     {
         s
     } else {
-        return Ok(vec![t.to_string()]);
+        return vec![t.to_string()];
     };
-    Ok(pg_split_array_list(inner))
+    pg_split_array_list(inner)
 }
 
 fn pg_array_elem_needs_quotes(s: &str) -> bool {
@@ -228,7 +229,7 @@ fn pg_user_text_to_pg_array_literal(
     raw: &str,
     elem_base: &str,
 ) -> Result<String, ()> {
-    let elems = pg_parse_array_elements(raw)?;
+    let elems = pg_parse_array_elements(raw);
     let numeric = pg_array_elem_base_is_numeric(elem_base);
     let boolean = elem_base.eq_ignore_ascii_case("boolean");
     let mut parts = Vec::with_capacity(elems.len());
@@ -614,11 +615,12 @@ impl Database for Postgres {
                 }
                 let param_num = i + 2;
                 let pk_ty = pg_resolve_format_type(&col_types, k);
-                sql.push_str(&format!(
+                let _ = write!(
+                    sql,
                     "{} = CAST(${}::text AS {pk_ty})",
                     pg_quote_ident(k),
                     param_num
-                ));
+                );
                 owned.push(pg_coerce_typed_text_input(v, &pk_ty).into_owned());
             }
             let mut params: Vec<&(dyn ToSql + Sync)> =

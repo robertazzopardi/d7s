@@ -6,7 +6,10 @@ use crate::{
     app_state::DatabaseExplorerState,
     db::{Database, DbRowId, TableDataPage, connection::ConnectionType},
     filtered_data::FilteredData,
-    ui::{handlers::TableNavigationHandler, widgets::table::TableDataState},
+    ui::{
+        handlers::TableNavigationHandler,
+        widgets::{modal::CellValueApply, table::TableDataState},
+    },
     virtual_table::{VIRTUAL_TABLE_PAGE_SIZE, VirtualTableMeta},
 };
 
@@ -435,7 +438,7 @@ impl App<'_> {
                         .collect();
                     self.modal_manager.open_cell_value_modal(
                         column_name,
-                        cell_value,
+                        &cell_value,
                         row_idx,
                         col_idx,
                         snap,
@@ -516,7 +519,7 @@ impl App<'_> {
     /// Persist a cell edit from the modal, then refresh the grid.
     pub async fn apply_cell_value_edit(
         &mut self,
-        apply: crate::ui::widgets::modal::CellValueApply,
+        apply: CellValueApply,
     ) -> Result<()> {
         let Some(database) = self.database_explorer.database.as_ref() else {
             self.set_status("Not connected.");
@@ -549,17 +552,14 @@ impl App<'_> {
         Ok(())
     }
 
-    fn apply_cell_value_edit_in_memory(
-        &mut self,
-        apply: &crate::ui::widgets::modal::CellValueApply,
-    ) {
+    fn apply_cell_value_edit_in_memory(&mut self, apply: &CellValueApply) {
         let Some(fd) = self.database_explorer.table_data.as_mut() else {
             return;
         };
         if let Some(row) = fd.table.model.items.get_mut(apply.row_index)
             && let Some(cell) = row.values.get_mut(apply.col_index)
         {
-            *cell = apply.new_value.clone();
+            cell.clone_from(&apply.new_value);
         }
         if let Some(ix) = fd
             .original
@@ -570,7 +570,7 @@ impl App<'_> {
                 .get_mut(ix)
                 .and_then(|r| r.values.get_mut(apply.col_index))
         {
-            *cell = apply.new_value.clone();
+            cell.clone_from(&apply.new_value);
         }
         fd.table.recompute_column_widths();
     }

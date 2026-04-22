@@ -1739,7 +1739,7 @@ impl CellValueModal {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         column_name: String,
-        cell_value: String,
+        cell_value: &str,
         row_index: usize,
         col_index: usize,
         row_snapshot: Vec<String>,
@@ -2181,7 +2181,7 @@ impl ModalManager {
     pub fn open_cell_value_modal(
         &mut self,
         column_name: String,
-        cell_value: String,
+        cell_value: &str,
         row_index: usize,
         col_index: usize,
         row_snapshot: Vec<String>,

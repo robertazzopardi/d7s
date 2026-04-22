@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Write};
 
 use color_eyre::Result;
 use rusqlite::{Connection as SqliteConnection, params};
@@ -325,10 +325,11 @@ impl Database for Sqlite {
                 }
                 let param_num = i + 2;
                 let pk_kw = sqlite_cast_keyword(sqlite_resolve_decl(&decls, k));
-                sql.push_str(&format!(
+                let _ = write!(
+                    sql,
                     "{} = CAST(?{param_num} AS {pk_kw})",
                     sqlite_quote_ident(k)
-                ));
+                );
             }
             let mut refs: Vec<&dyn rusqlite::ToSql> = Vec::new();
             refs.push(&new_value);
