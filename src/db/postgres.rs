@@ -672,7 +672,7 @@ impl Database for Postgres {
         let mut val_placeholders: Vec<String> = Vec::new();
         let mut owned: Vec<String> = Vec::new();
         for (i, c) in columns.iter().enumerate() {
-            let raw = values.get(i).map(String::as_str).unwrap_or("");
+            let raw = values.get(i).map_or("", String::as_str);
             if should_omit_for_insert_default(c, raw, false, false) {
                 continue;
             }
@@ -691,12 +691,9 @@ impl Database for Postgres {
                 col_list.push(pg_quote_ident(&c.name));
                 let ty = pg_resolve_format_type(&col_types, &c.name);
                 let param_num = owned.len() + 1;
-                val_placeholders.push(format!(
-                    "CAST(${param_num}::text AS {ty})"
-                ));
-                owned.push(
-                    pg_coerce_typed_text_input(raw, &ty).into_owned(),
-                );
+                val_placeholders
+                    .push(format!("CAST(${param_num}::text AS {ty})"));
+                owned.push(pg_coerce_typed_text_input(raw, &ty).into_owned());
             }
         }
         if col_list.is_empty() {
@@ -735,8 +732,7 @@ impl Database for Postgres {
 
         if !primary_key.is_empty() {
             let mut sql = format!("DELETE FROM {tgt} WHERE ");
-            let mut owned: Vec<String> =
-                Vec::with_capacity(primary_key.len());
+            let mut owned: Vec<String> = Vec::with_capacity(primary_key.len());
             for (i, (k, v)) in primary_key.iter().enumerate() {
                 if i > 0 {
                     sql.push_str(" AND ");

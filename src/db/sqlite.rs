@@ -6,9 +6,9 @@ use rusqlite_migration::{M, Migrations};
 
 use crate::db::{
     Column, Database, DatabaseInfo, DbRowId, Schema, Table, TableData,
-    TableDataPage, TableRow, should_omit_for_insert_default,
+    TableDataPage, TableRow,
     connection::{Connection, ConnectionType, Environment},
-    get_db_path,
+    get_db_path, should_omit_for_insert_default,
 };
 
 fn sqlite_quote_ident(ident: &str) -> String {
@@ -378,11 +378,16 @@ impl Database for Sqlite {
         let mut val_parts: Vec<String> = Vec::new();
         let mut refs: Vec<rusqlite::types::Value> = Vec::new();
         for (i, c) in columns.iter().enumerate() {
-            let raw = values.get(i).map(String::as_str).unwrap_or("");
+            let raw = values.get(i).map_or("", String::as_str);
             let sqlite_rowid_pk_omit = pk.len() == 1
                 && (c.name == pk[0] || c.name.eq_ignore_ascii_case(&pk[0]))
                 && c.data_type.to_lowercase().contains("int");
-            if should_omit_for_insert_default(c, raw, true, sqlite_rowid_pk_omit) {
+            if should_omit_for_insert_default(
+                c,
+                raw,
+                true,
+                sqlite_rowid_pk_omit,
+            ) {
                 continue;
             }
             if raw.trim().is_empty() || raw.eq_ignore_ascii_case("null") {
@@ -417,7 +422,8 @@ impl Database for Sqlite {
         for v in &refs {
             pvec.push(v);
         }
-        let n = u64::try_from(conn.execute(&sql, pvec.as_slice())?).unwrap_or(0);
+        let n =
+            u64::try_from(conn.execute(&sql, pvec.as_slice())?).unwrap_or(0);
         Ok(n)
     }
 
@@ -455,7 +461,8 @@ impl Database for Sqlite {
         }
         if let Some(DbRowId::Sqlite(rid)) = row_id_fallback {
             let sql = format!("DELETE FROM {tq} WHERE rowid = ?1");
-            let n = u64::try_from(conn.execute(&sql, params![rid])?).unwrap_or(0);
+            let n =
+                u64::try_from(conn.execute(&sql, params![rid])?).unwrap_or(0);
             return Ok(n);
         }
         Err("Cannot delete row: no primary key and no rowid".into())

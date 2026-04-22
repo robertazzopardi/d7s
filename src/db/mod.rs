@@ -142,7 +142,7 @@ pub struct Schema {
 /// `true` when a cell is empty/NULL in the grid and the column should be **omitted** from
 /// `INSERT` so the server applies a default, identity, or `NULL` (nullable + no default).
 ///
-/// `sqlite_rowid_pk_omit`: this column is the **sole** `INTEGER PRIMARY KEY` in SQLite (rowid).
+/// `sqlite_rowid_pk_omit`: this column is the **sole** `INTEGER PRIMARY KEY` in `SQLite` (rowid).
 #[must_use]
 pub fn should_omit_for_insert_default(
     col: &Column,

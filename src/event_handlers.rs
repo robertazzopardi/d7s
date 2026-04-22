@@ -373,7 +373,10 @@ impl App<'_> {
                     return Ok(());
                 }
                 if self.pending_row_deletes.is_some()
-                    && self.modal_manager.was_sql_execution_confirmed().is_some()
+                    && self
+                        .modal_manager
+                        .was_sql_execution_confirmed()
+                        .is_some()
                     && matches!(key.code, KeyCode::Enter)
                 {
                     self.execute_pending_row_deletes().await?;

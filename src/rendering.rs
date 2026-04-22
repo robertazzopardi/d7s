@@ -12,8 +12,10 @@ use crate::{
     ui::{
         sql_executor::SqlExecutor,
         widgets::{
-            hotkey::Hotkey, modal::ConnectionModalWidget, table::DataTable,
-            top_bar_view::{TopBarView, TABLE_DATA_VIEW_HOTKEYS},
+            hotkey::Hotkey,
+            modal::ConnectionModalWidget,
+            table::DataTable,
+            top_bar_view::{TABLE_DATA_VIEW_HOTKEYS, TopBarView},
         },
     },
 };

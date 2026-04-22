@@ -342,7 +342,8 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
         // (reversed, bold) as the normal selection row.
         let row_highlight_style = match state.view.state.selected() {
             Some(i) if state.multi_row_selection.contains(&i) => {
-                let style = selected_row_style.patch(Style::new().bg(Color::Blue));
+                let style =
+                    selected_row_style.patch(Style::new().bg(Color::Blue));
                 if state
                     .model
                     .items
@@ -384,25 +385,27 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
             },
         );
 
-        let rows = state.model.items.iter().enumerate().map(|(row_idx, data)| {
-            let row_data = data.ref_array();
-            let mut row_style = Style::new();
-            if data.is_draft_row() {
-                row_style = row_style.fg(Color::LightGreen);
-            }
-            if state.multi_row_selection.contains(&row_idx) {
-                row_style = row_style.bg(Color::Blue);
-            }
-            visible_cols
-                .iter()
-                .map(|&idx| {
-                    let value = row_data.get(idx).cloned().unwrap_or_default();
-                    Cell::from(value)
-                })
-                .collect::<Row>()
-                .style(row_style)
-                .height(1)
-        });
+        let rows =
+            state.model.items.iter().enumerate().map(|(row_idx, data)| {
+                let row_data = data.ref_array();
+                let mut row_style = Style::new();
+                if data.is_draft_row() {
+                    row_style = row_style.fg(Color::LightGreen);
+                }
+                if state.multi_row_selection.contains(&row_idx) {
+                    row_style = row_style.bg(Color::Blue);
+                }
+                visible_cols
+                    .iter()
+                    .map(|&idx| {
+                        let value =
+                            row_data.get(idx).cloned().unwrap_or_default();
+                        Cell::from(value)
+                    })
+                    .collect::<Row>()
+                    .style(row_style)
+                    .height(1)
+            });
 
         let constraints = visible_cols
             .iter()

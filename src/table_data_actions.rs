@@ -1,19 +1,16 @@
 //! Table data view: draft rows, multi-select, insert/delete, refresh.
 
+use std::collections::BTreeSet;
+
 use color_eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent};
-use std::collections::BTreeSet;
 
 use crate::{
     app::App,
     app_state::{AppState, DatabaseExplorerState},
-    db::connection::ConnectionType,
-    db::{DbRowId, RowDeleteSpec},
+    db::{DbRowId, RowDeleteSpec, connection::ConnectionType},
     filtered_data::FilteredData,
-    ui::{
-        handlers::TableNavigationHandler,
-        widgets::table::RawTableRow,
-    },
+    ui::{handlers::TableNavigationHandler, widgets::table::RawTableRow},
     virtual_table::{VIRTUAL_TABLE_PAGE_SIZE, VirtualTableMeta},
 };
 
@@ -25,11 +22,7 @@ impl App<'_> {
         let Some(sel) = fd.table.view.state.selected() else {
             return false;
         };
-        fd.table
-            .model
-            .items
-            .get(sel)
-            .is_some_and(|r| r.is_draft)
+        fd.table.model.items.get(sel).is_some_and(|r| r.is_draft)
     }
 
     fn strip_draft_rows_from_table_data(&mut self) {
@@ -57,14 +50,12 @@ impl App<'_> {
             .database_explorer
             .table_data_virtual
             .as_ref()
-            .map(|m| m.window_start)
-            .unwrap_or(0);
+            .map_or(0, |m| m.window_start);
         let page_size = self
             .database_explorer
             .table_data_virtual
             .as_ref()
-            .map(|m| m.page_size)
-            .unwrap_or(VIRTUAL_TABLE_PAGE_SIZE);
+            .map_or(VIRTUAL_TABLE_PAGE_SIZE, |m| m.page_size);
         let total_rows = self
             .database_explorer
             .table_data_virtual
@@ -87,7 +78,8 @@ impl App<'_> {
                 let meta = VirtualTableMeta::from_fetch(
                     offset, page_size, loaded, total_rows,
                 );
-                let mut table_state = crate::ui::widgets::table::TableDataState::default();
+                let mut table_state =
+                    crate::ui::widgets::table::TableDataState::default();
                 table_state.reset(data, &column_names, Some(row_ids));
                 self.database_explorer.table_data = Some(FilteredData {
                     original: table_state.model.items.clone(),
@@ -116,7 +108,11 @@ impl App<'_> {
     }
 
     /// Insert a draft at `insert_at` (0..=len) and move the cursor to it.
-    fn insert_draft_row_at(&mut self, insert_at: usize, mut row: RawTableRow) -> Result<()> {
+    fn insert_draft_row_at(
+        &mut self,
+        insert_at: usize,
+        mut row: RawTableRow,
+    ) -> Result<()> {
         let Some(fd) = self.database_explorer.table_data.as_mut() else {
             return Ok(());
         };
@@ -142,7 +138,10 @@ impl App<'_> {
     }
 
     /// Insert a draft **below** the current selection after `discard_table_draft` (or with empty data).
-    fn insert_draft_row_below_cursor(&mut self, row: RawTableRow) -> Result<()> {
+    fn insert_draft_row_below_cursor(
+        &mut self,
+        row: RawTableRow,
+    ) -> Result<()> {
         let Some(fd) = self.database_explorer.table_data.as_ref() else {
             return Ok(());
         };
@@ -229,10 +228,10 @@ impl App<'_> {
         let source_key = (base.db_row_id.clone(), base.values.clone());
         let mut values = base.values.clone();
         for pk in &pk_names {
-            if let Some(ix) = col_names
-                .iter()
-                .position(|c| c == pk)
-                .or_else(|| col_names.iter().position(|c| c.eq_ignore_ascii_case(pk)))
+            if let Some(ix) =
+                col_names.iter().position(|c| c == pk).or_else(|| {
+                    col_names.iter().position(|c| c.eq_ignore_ascii_case(pk))
+                })
                 && let Some(v) = values.get_mut(ix)
             {
                 v.clear();
@@ -277,12 +276,9 @@ impl App<'_> {
             self.set_status("Clear filter before committing.");
             return Ok(());
         }
-        let sel = fd
-            .table
-            .view
-            .state
-            .selected()
-            .filter(|&i| fd.table.model.items.get(i).is_some_and(|r| r.is_draft));
+        let sel = fd.table.view.state.selected().filter(|&i| {
+            fd.table.model.items.get(i).is_some_and(|r| r.is_draft)
+        });
         let Some(sel) = sel else {
             self.set_status("Select a draft row to commit (a / c).");
             return Ok(());
@@ -385,14 +381,13 @@ impl App<'_> {
             let primary_key: Vec<(String, String)> = pk_col_names
                 .iter()
                 .filter_map(|pk| {
-                    let idx = col_names
-                        .iter()
-                        .position(|c| c == pk)
-                        .or_else(|| {
+                    let idx = col_names.iter().position(|c| c == pk).or_else(
+                        || {
                             col_names
                                 .iter()
                                 .position(|c| c.eq_ignore_ascii_case(pk))
-                        })?;
+                        },
+                    )?;
                     let val = row.values.get(idx)?.clone();
                     Some((pk.clone(), val))
                 })
@@ -420,14 +415,12 @@ impl App<'_> {
             } else if let Some(rid) = row.db_row_id.clone() {
                 if preview.is_none() {
                     preview = match &rid {
-                        DbRowId::PostgresCtid(t) => {
-                            Some(format!(
-                                "DELETE FROM {schema}.{table} WHERE ctid = {t:?}"
-                            ))
-                        }
-                        DbRowId::Sqlite(rid) => {
-                            Some(format!("DELETE FROM {table} WHERE rowid = {rid}"))
-                        }
+                        DbRowId::PostgresCtid(t) => Some(format!(
+                            "DELETE FROM {schema}.{table} WHERE ctid = {t:?}"
+                        )),
+                        DbRowId::Sqlite(rid) => Some(format!(
+                            "DELETE FROM {table} WHERE rowid = {rid}"
+                        )),
                     };
                 }
                 db_specs.push(RowDeleteSpec {
@@ -505,7 +498,9 @@ impl App<'_> {
         }
         if any_ok {
             if errs > 0 {
-                self.set_status(format!("Some deletes failed ({errs}). Refetching."));
+                self.set_status(format!(
+                    "Some deletes failed ({errs}). Refetching."
+                ));
             } else {
                 self.set_status("Row(s) deleted.");
             }
