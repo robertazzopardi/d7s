@@ -9,9 +9,8 @@ use crate::{
     app::App,
     app_state::{AppState, DatabaseExplorerState},
     db::{DbRowId, RowDeleteSpec, connection::ConnectionType},
-    filtered_data::FilteredData,
     ui::{handlers::TableNavigationHandler, widgets::table::RawTableRow},
-    virtual_table::{VIRTUAL_TABLE_PAGE_SIZE, VirtualTableMeta},
+    virtual_table::VIRTUAL_TABLE_PAGE_SIZE,
 };
 
 impl App<'_> {
@@ -69,28 +68,12 @@ impl App<'_> {
             .await
         {
             Ok(page) => {
-                let crate::db::TableDataPage {
-                    rows: data,
-                    column_names,
-                    row_ids,
-                } = page;
-                let loaded = data.len();
-                let meta = VirtualTableMeta::from_fetch(
-                    offset, page_size, loaded, total_rows,
+                self.replace_explorer_table_page(
+                    page, offset, page_size, total_rows,
                 );
-                let mut table_state =
-                    crate::ui::widgets::table::TableDataState::default();
-                table_state.reset(data, &column_names, Some(row_ids));
-                self.database_explorer.table_data = Some(FilteredData {
-                    original: table_state.model.items.clone(),
-                    table: table_state,
-                });
-                self.database_explorer.table_data_virtual = Some(meta);
                 self.set_status("Refreshed.");
             }
-            Err(e) => {
-                self.set_status(format!("Refresh failed: {e}"));
-            }
+            Err(e) => self.status_action_failed("Refresh", e),
         }
         Ok(())
     }
@@ -293,7 +276,7 @@ impl App<'_> {
                     return Ok(());
                 }
                 Err(e) => {
-                    self.set_status(format!("Insert failed: {e}"));
+                    self.status_action_failed("Insert", e);
                     return Ok(());
                 }
             }

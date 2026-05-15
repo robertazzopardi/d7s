@@ -330,14 +330,14 @@ impl App<'_> {
                 if let Err(e) =
                     self.load_columns(&schema_name, &table_name).await
                 {
-                    self.set_status(format!("Failed to load columns: {e}"));
+                    self.status_load_failed("columns", e);
                 }
             }
             DatabaseExplorerState::Columns(schema_name, table_name) => {
                 if let Err(e) =
                     self.load_table_data(&schema_name, &table_name).await
                 {
-                    self.set_status(format!("Failed to load table data: {e}"));
+                    self.status_load_failed("table data", e);
                 }
             }
             DatabaseExplorerState::Connections => todo!(),

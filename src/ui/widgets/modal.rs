@@ -1067,13 +1067,7 @@ impl Modal {
 
         if self.step == ConnectionModalStep::ChooseType {
             self.render_step1(inner_layout[1], buf);
-            // TODO simplify
-            let hint = if self.step1_focus_on_url {
-                "Enter to continue"
-            } else {
-                "Enter to continue with selected type"
-            };
-            Paragraph::new(hint)
+            Paragraph::new("Enter to continue")
                 .style(Style::default().fg(Color::DarkGray))
                 .alignment(Alignment::Center)
                 .render(inner_layout[2], buf);

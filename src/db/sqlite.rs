@@ -79,6 +79,14 @@ pub struct Sqlite {
     pub path: String,
 }
 
+impl Sqlite {
+    fn open_conn(
+        &self,
+    ) -> Result<SqliteConnection, Box<dyn std::error::Error>> {
+        Ok(SqliteConnection::open(&self.path)?)
+    }
+}
+
 impl TableData for Sqlite {
     fn title() -> &'static str {
         "Sqlite"
@@ -100,7 +108,7 @@ impl TableData for Sqlite {
 #[async_trait::async_trait]
 impl Database for Sqlite {
     async fn test(&self) -> bool {
-        SqliteConnection::open(&self.path).is_ok()
+        self.open_conn().is_ok()
     }
 
     async fn execute_sql(
@@ -108,12 +116,10 @@ impl Database for Sqlite {
         sql: &str,
     ) -> Result<Vec<TableRow>, Box<dyn std::error::Error>> {
         // rusqlite is synchronous, so we just run it in the async context
-        let client = self.get_connection()?;
+        let client = self.open_conn()?;
 
-        // Try to prepare the statement
         let mut stmt = client.prepare(sql)?;
 
-        // Try to get column names
         let column_names: Vec<String> = stmt
             .column_names()
             .iter()
@@ -122,7 +128,6 @@ impl Database for Sqlite {
 
         let mut result = Vec::new();
 
-        // Try to query for rows
         let mut rows_iter = stmt.query([])?;
 
         let mut found_row = false;
@@ -164,7 +169,18 @@ impl Database for Sqlite {
         &self,
         schema_name: &str,
     ) -> Result<Vec<Table>, Box<dyn std::error::Error>> {
-        let conn = SqliteConnection::open(&self.path)?;
+        let conn = self.open_conn()?;
+
+        let mut sizes_by_name: HashMap<String, u64> = HashMap::new();
+        let mut stat_stmt = conn.prepare(
+            r#"SELECT name, SUM("pgsize") FROM "dbstat" GROUP BY name"#,
+        )?;
+        let mut stat_rows = stat_stmt.query([])?;
+        while let Some(row) = stat_rows.next()? {
+            let name: String = row.get(0)?;
+            let bytes: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
+            sizes_by_name.insert(name, bytes as u64);
+        }
 
         let mut stmt = conn.prepare(&format!(
             "SELECT name FROM {schema_name} WHERE type='table';"
@@ -172,13 +188,7 @@ impl Database for Sqlite {
         let tables = stmt
             .query_map([], |row| {
                 let name: String = row.get(0)?;
-
-                // TODO can probably query the whole db, store it in a hashmap and then key access it here
-                let mut size_stmt = conn.prepare(&format!(
-                    r#"SELECT SUM("pgsize") FROM "dbstat" WHERE name='{name}';"#
-                ))?;
-                let size: u32 = size_stmt.query_one([], |row| row.get(0))?;
-
+                let size = sizes_by_name.get(&name).copied().unwrap_or(0);
                 Ok(Table {
                     name,
                     schema: schema_name.to_string(),
@@ -195,7 +205,7 @@ impl Database for Sqlite {
         _schema_name: &str,
         table_name: &str,
     ) -> Result<Vec<Column>, Box<dyn std::error::Error>> {
-        let conn = SqliteConnection::open(&self.path)?;
+        let conn = self.open_conn()?;
 
         let mut stmt =
             conn.prepare(&format!("PRAGMA table_info('{table_name}')"))?;
@@ -232,7 +242,7 @@ impl Database for Sqlite {
             .map(|col| col.name)
             .collect();
 
-        let conn = SqliteConnection::open(&self.path)?;
+        let conn = self.open_conn()?;
 
         let column_count = columns.len();
         let limit_i = i64::from(limit);
@@ -286,7 +296,7 @@ impl Database for Sqlite {
         _schema_name: &str,
         table_name: &str,
     ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        let conn = SqliteConnection::open(&self.path)?;
+        let conn = self.open_conn()?;
         let mut stmt =
             conn.prepare(&format!("PRAGMA table_info('{table_name}')"))?;
         let mut pk_cols: Vec<(i64, String)> = stmt
@@ -310,7 +320,7 @@ impl Database for Sqlite {
         primary_key: &[(String, String)],
         row_id_fallback: Option<DbRowId>,
     ) -> Result<u64, Box<dyn std::error::Error>> {
-        let conn = SqliteConnection::open(&self.path)?;
+        let conn = self.open_conn()?;
         let decls = sqlite_table_decltypes(&conn, table_name)?;
         let set_kw =
             sqlite_cast_keyword(sqlite_resolve_decl(&decls, set_column));
@@ -371,7 +381,7 @@ impl Database for Sqlite {
             .get_primary_key_columns("sqlite_schema", table_name)
             .await
             .unwrap_or_default();
-        let conn = SqliteConnection::open(&self.path)?;
+        let conn = self.open_conn()?;
         let decls = sqlite_table_decltypes(&conn, table_name)?;
         let tq = sqlite_quote_ident(table_name);
         let mut col_list: Vec<String> = Vec::new();
@@ -435,7 +445,7 @@ impl Database for Sqlite {
         primary_key: &[(String, String)],
         row_id_fallback: Option<DbRowId>,
     ) -> Result<u64, Box<dyn std::error::Error>> {
-        let conn = SqliteConnection::open(&self.path)?;
+        let conn = self.open_conn()?;
         let decls = sqlite_table_decltypes(&conn, table_name)?;
         let tq = sqlite_quote_ident(table_name);
         if !primary_key.is_empty() {
@@ -474,7 +484,7 @@ impl Database for Sqlite {
         _schema_name: &str,
         table_name: &str,
     ) -> Result<u64, Box<dyn std::error::Error>> {
-        let conn = SqliteConnection::open(&self.path)?;
+        let conn = self.open_conn()?;
         let count: i64 = conn.query_row(
             &format!("SELECT COUNT(*) FROM {table_name}"),
             [],
@@ -491,15 +501,6 @@ impl Database for Sqlite {
         Ok(vec![DatabaseInfo {
             name: self.path.clone(),
         }])
-    }
-}
-
-impl Sqlite {
-    fn get_connection(
-        &self,
-    ) -> Result<SqliteConnection, Box<dyn std::error::Error>> {
-        // TODO move to field in Sqlite
-        Ok(SqliteConnection::open(&self.path)?)
     }
 }
 
@@ -645,8 +646,7 @@ pub fn get_connections() -> Result<Vec<Connection>> {
 ///
 /// # Errors
 ///
-/// This function will return an error if the urlUrlUrlurlurlot be opened or if the query fails.
-/// // TODO test that the path exists
+/// This function will return an error if the database cannot be opened or if the query fails.
 pub fn update_connection(
     old_name: &str,
     connection: &Connection,
