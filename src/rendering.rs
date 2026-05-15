@@ -29,6 +29,7 @@ impl App<'_> {
     ///
     /// - <https://docs.rs/ratatui/latest/ratatui/widgets/index.html>
     /// - <https://github.com/ratatui/ratatui/tree/main/ratatui-widgets/examples>
+    #[allow(clippy::too_many_lines)]
     pub fn render(&mut self, frame: &mut Frame) {
         // Split layout: top bar, main content, and status line
         // Status line gets fixed 1 row, main content takes the rest

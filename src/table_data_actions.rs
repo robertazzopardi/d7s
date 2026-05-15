@@ -108,13 +108,9 @@ impl App<'_> {
     }
 
     /// Insert a draft at `insert_at` (0..=len) and move the cursor to it.
-    fn insert_draft_row_at(
-        &mut self,
-        insert_at: usize,
-        row: RawTableRow,
-    ) -> Result<()> {
+    fn insert_draft_row_at(&mut self, insert_at: usize, row: RawTableRow) {
         let Some(fd) = self.database_explorer.table_data.as_mut() else {
-            return Ok(());
+            return;
         };
         let len = fd.table.model.items.len();
         let insert_at = insert_at.min(len);
@@ -133,16 +129,12 @@ impl App<'_> {
             &mut fd.table.view.state,
             &fd.table.model.items,
         );
-        Ok(())
     }
 
     /// Insert a draft **below** the current selection after `discard_table_draft` (or with empty data).
-    fn insert_draft_row_below_cursor(
-        &mut self,
-        row: RawTableRow,
-    ) -> Result<()> {
+    fn insert_draft_row_below_cursor(&mut self, row: RawTableRow) {
         let Some(fd) = self.database_explorer.table_data.as_ref() else {
-            return Ok(());
+            return;
         };
         let len = fd.table.model.items.len();
         let insert_at = match fd.table.view.state.selected() {
@@ -150,10 +142,10 @@ impl App<'_> {
             None => len,
             Some(i) => (i + 1).min(len),
         };
-        self.insert_draft_row_at(insert_at, row)
+        self.insert_draft_row_at(insert_at, row);
     }
 
-    pub(crate) async fn table_data_add_blank_draft(&mut self) -> Result<()> {
+    pub(crate) fn table_data_add_blank_draft(&mut self) -> Result<()> {
         let Some(fd) = self.database_explorer.table_data.as_ref() else {
             return Ok(());
         };
@@ -175,7 +167,7 @@ impl App<'_> {
             db_row_id: None,
             is_draft: true,
         };
-        self.insert_draft_row_below_cursor(row)?;
+        self.insert_draft_row_below_cursor(row);
         self.set_status("Draft row — edit cells (Enter), commit with s");
         Ok(())
     }
@@ -257,7 +249,7 @@ impl App<'_> {
                 })
                 .map_or(len, |p| (p + 1).min(len))
         };
-        self.insert_draft_row_at(insert_at, row)?;
+        self.insert_draft_row_at(insert_at, row);
         self.set_status("Draft copy — edit cells (Enter), commit with s");
         Ok(())
     }
@@ -292,18 +284,22 @@ impl App<'_> {
         let Some(db) = self.database_explorer.database.as_ref() else {
             return Ok(());
         };
-        match db.insert_table_row(&schema, &table, &values).await {
-            Ok(n) if n > 0 => {
-                self.set_status("Row inserted.");
-                self.reload_current_table_data().await?;
-            }
-            Ok(_) => {
-                self.set_status("Insert affected 0 rows.");
-            }
-            Err(e) => {
-                self.set_status(format!("Insert failed: {e}"));
+        {
+            let n = db.insert_table_row(&schema, &table, &values).await;
+            match n {
+                Ok(count) if count > 0 => {}
+                Ok(_) => {
+                    self.set_status("Insert affected 0 rows.");
+                    return Ok(());
+                }
+                Err(e) => {
+                    self.set_status(format!("Insert failed: {e}"));
+                    return Ok(());
+                }
             }
         }
+        self.set_status("Row inserted.");
+        self.reload_current_table_data().await?;
         Ok(())
     }
 
@@ -330,6 +326,7 @@ impl App<'_> {
     }
 
     /// Start delete: drafts removed locally; persisted rows get a confirmation modal.
+    #[allow(clippy::too_many_lines)]
     pub(crate) async fn table_data_request_delete(&mut self) -> Result<()> {
         let DatabaseExplorerState::TableData(ref schema, ref table) =
             self.database_explorer.state
@@ -533,7 +530,7 @@ impl App<'_> {
                 Ok(true)
             }
             KeyCode::Char('a' | 'A') => {
-                self.table_data_add_blank_draft().await?;
+                self.table_data_add_blank_draft()?;
                 Ok(true)
             }
             KeyCode::Char('c' | 'C') => {

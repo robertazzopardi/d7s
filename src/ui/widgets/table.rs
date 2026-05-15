@@ -305,6 +305,7 @@ fn calculate_visible_columns_for_table(
 impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
     type State = TableDataState<T>;
 
+    #[allow(clippy::too_many_lines)]
     fn render(
         self,
         area: Rect,

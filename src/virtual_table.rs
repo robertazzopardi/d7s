@@ -68,7 +68,10 @@ impl VirtualTableMeta {
             } else {
                 "drafts"
             };
-            s.push_str(&format!(" \u{00b7} {local_draft_rows} local {label}"));
+            let _ = std::fmt::Write::write_fmt(
+                &mut s,
+                format_args!(" \u{00b7} {local_draft_rows} local {label}"),
+            );
         }
         s
     }
