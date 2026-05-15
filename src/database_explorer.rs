@@ -566,11 +566,6 @@ impl App<'_> {
             Ok(_) => {
                 self.apply_cell_value_edit_in_memory(&apply);
                 self.set_status("Cell updated.");
-                if let Err(e) = self.reload_current_table_data().await {
-                    self.set_status(format!(
-                        "Updated, but refresh failed: {e}"
-                    ));
-                }
             }
             Err(e) => {
                 self.set_status(format!("Update failed: {e}"));

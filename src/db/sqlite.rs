@@ -379,9 +379,10 @@ impl Database for Sqlite {
         let mut refs: Vec<rusqlite::types::Value> = Vec::new();
         for (i, c) in columns.iter().enumerate() {
             let raw = values.get(i).map_or("", String::as_str);
-            let sqlite_rowid_pk_omit = pk.len() == 1
-                && (c.name == pk[0] || c.name.eq_ignore_ascii_case(&pk[0]))
-                && c.data_type.to_lowercase().contains("int");
+            let sqlite_rowid_pk_omit =
+                pk.first().is_some_and(|first_pk| {
+                    c.name == *first_pk || c.name.eq_ignore_ascii_case(first_pk)
+                }) && c.data_type.to_lowercase().contains("int");
             if should_omit_for_insert_default(
                 c,
                 raw,

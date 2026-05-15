@@ -111,14 +111,13 @@ impl App<'_> {
     fn insert_draft_row_at(
         &mut self,
         insert_at: usize,
-        mut row: RawTableRow,
+        row: RawTableRow,
     ) -> Result<()> {
         let Some(fd) = self.database_explorer.table_data.as_mut() else {
             return Ok(());
         };
         let len = fd.table.model.items.len();
         let insert_at = insert_at.min(len);
-        row.is_draft = true;
         let shifted: BTreeSet<usize> = fd
             .table
             .multi_row_selection

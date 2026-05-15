@@ -63,7 +63,12 @@ impl VirtualTableMeta {
             |t| format!(" ({start}-{end} of {t} · j/k across pages)"),
         );
         if local_draft_rows > 0 {
-            s.push_str(&format!(" \u{00b7} {local_draft_rows} local draft"));
+            let label = if local_draft_rows == 1 {
+                "draft"
+            } else {
+                "drafts"
+            };
+            s.push_str(&format!(" \u{00b7} {local_draft_rows} local {label}"));
         }
         s
     }

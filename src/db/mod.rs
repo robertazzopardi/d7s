@@ -150,8 +150,13 @@ pub fn should_omit_for_insert_default(
     engine_sqlite: bool,
     sqlite_rowid_pk_omit: bool,
 ) -> bool {
-    let empty = raw.trim().is_empty() || raw.eq_ignore_ascii_case("null");
-    if !empty {
+    let trimmed = raw.trim();
+    let empty = trimmed.is_empty();
+    let explicit_null = !empty && trimmed.eq_ignore_ascii_case("null");
+    if !empty && !explicit_null {
+        return false;
+    }
+    if explicit_null {
         return false;
     }
     if let Some(ref d) = col.default_value {
