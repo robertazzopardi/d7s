@@ -41,7 +41,12 @@ impl VirtualTableMeta {
 
     /// Title suffix for the table panel (row range and paging hint).
     #[must_use]
-    pub fn title_suffix(&self, filtered: bool, visible_rows: usize) -> String {
+    pub fn title_suffix(
+        &self,
+        filtered: bool,
+        visible_rows: usize,
+        local_draft_rows: usize,
+    ) -> String {
         if filtered {
             return format!(" ({visible_rows} matches · filter)");
         }
@@ -53,10 +58,22 @@ impl VirtualTableMeta {
         }
         let start = self.window_start + 1;
         let end = self.window_start + self.loaded_count as u64;
-        self.total_rows.map_or_else(
+        let mut s = self.total_rows.map_or_else(
             || format!(" ({start}-{end} · j/k across pages)"),
             |t| format!(" ({start}-{end} of {t} · j/k across pages)"),
-        )
+        );
+        if local_draft_rows > 0 {
+            let label = if local_draft_rows == 1 {
+                "draft"
+            } else {
+                "drafts"
+            };
+            let _ = std::fmt::Write::write_fmt(
+                &mut s,
+                format_args!(" \u{00b7} {local_draft_rows} local {label}"),
+            );
+        }
+        s
     }
 }
 

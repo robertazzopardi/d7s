@@ -14,7 +14,7 @@ use ratatui_textarea::TextArea;
 use crate::{
     app_state::{AppState, DatabaseExplorerState},
     database_explorer_state::DatabaseExplorer,
-    db::{TableData, sqlite::init_db},
+    db::{RowDeleteSpec, TableData, sqlite::init_db},
     filtered_data::FilteredData,
     services::{ConnectionService, PasswordService},
     sql::safety::{StatementSafety, classify_statement, split_statements},
@@ -56,6 +56,8 @@ pub struct App<'a> {
     pub(crate) build_info: String,
     /// Signal to the run loop to open the external editor
     pub(crate) open_editor_requested: bool,
+    /// Table data: after `d`, row locators awaiting delete confirmation.
+    pub(crate) pending_row_deletes: Option<Vec<RowDeleteSpec>>,
 }
 
 impl Default for App<'_> {
@@ -71,6 +73,7 @@ impl Default for App<'_> {
             password_service: PasswordService::new(),
             build_info: String::new(),
             open_editor_requested: false,
+            pending_row_deletes: None,
         }
     }
 }

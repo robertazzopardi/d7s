@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::db::{
     Column, Database, DatabaseInfo, DbRowId, Schema, Table, TableData,
-    TableDataPage, TableRow,
+    TableDataPage, TableRow, should_omit_for_insert_default,
 };
 
 /// Cache key: one physical Postgres database table (server + db + schema + table).
@@ -646,6 +646,124 @@ impl Database for Postgres {
 
         Err(
             "Cannot update row: table has no primary key and no row address was recorded"
+                .into(),
+        )
+    }
+
+    async fn insert_table_row(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+        values: &[String],
+    ) -> Result<u64, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+        let columns = self.get_columns(schema_name, table_name).await?;
+        if values.len() != columns.len() {
+            return Err("INSERT column count does not match table.".into());
+        }
+        let col_types =
+            pg_column_format_types(&client, schema_name, table_name).await?;
+        let tgt = format!(
+            "{}.{}",
+            pg_quote_ident(schema_name),
+            pg_quote_ident(table_name),
+        );
+        let mut col_list: Vec<String> = Vec::new();
+        let mut val_placeholders: Vec<String> = Vec::new();
+        let mut owned: Vec<String> = Vec::new();
+        for (i, c) in columns.iter().enumerate() {
+            let raw = values.get(i).map_or("", String::as_str);
+            if should_omit_for_insert_default(c, raw, false, false) {
+                continue;
+            }
+            if raw.trim().is_empty() || raw.eq_ignore_ascii_case("null") {
+                if c.is_nullable {
+                    col_list.push(pg_quote_ident(&c.name));
+                    val_placeholders.push("NULL".to_string());
+                } else {
+                    return Err(format!(
+                        "Column \"{}\" is NOT NULL and has no value or default in the form.",
+                        c.name
+                    )
+                    .into());
+                }
+            } else {
+                col_list.push(pg_quote_ident(&c.name));
+                let ty = pg_resolve_format_type(&col_types, &c.name);
+                let param_num = owned.len() + 1;
+                val_placeholders
+                    .push(format!("CAST(${param_num}::text AS {ty})"));
+                owned.push(pg_coerce_typed_text_input(raw, &ty).into_owned());
+            }
+        }
+        if col_list.is_empty() {
+            let sql = format!("INSERT INTO {tgt} DEFAULT VALUES");
+            return Ok(client.execute(&sql, &[]).await?);
+        }
+        let sql = format!(
+            "INSERT INTO {tgt} ({}) VALUES ({})",
+            col_list.join(", "),
+            val_placeholders.join(", ")
+        );
+        let mut params: Vec<&(dyn ToSql + Sync)> =
+            Vec::with_capacity(owned.len());
+        for s in &owned {
+            params.push(s);
+        }
+        let n = client.execute(&sql, &params[..]).await?;
+        Ok(n)
+    }
+
+    async fn delete_table_row(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+        primary_key: &[(String, String)],
+        row_id_fallback: Option<DbRowId>,
+    ) -> Result<u64, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+        let col_types =
+            pg_column_format_types(&client, schema_name, table_name).await?;
+        let tgt = format!(
+            "{}.{}",
+            pg_quote_ident(schema_name),
+            pg_quote_ident(table_name),
+        );
+
+        if !primary_key.is_empty() {
+            let mut sql = format!("DELETE FROM {tgt} WHERE ");
+            let mut owned: Vec<String> = Vec::with_capacity(primary_key.len());
+            for (i, (k, v)) in primary_key.iter().enumerate() {
+                if i > 0 {
+                    sql.push_str(" AND ");
+                }
+                let param_num = i + 1;
+                let pk_ty = pg_resolve_format_type(&col_types, k);
+                let _ = write!(
+                    sql,
+                    "{} = CAST(${param_num}::text AS {pk_ty})",
+                    pg_quote_ident(k)
+                );
+                owned.push(pg_coerce_typed_text_input(v, &pk_ty).into_owned());
+            }
+            let mut params: Vec<&(dyn ToSql + Sync)> =
+                Vec::with_capacity(owned.len());
+            for s in &owned {
+                params.push(s);
+            }
+            let n = client.execute(&sql, &params[..]).await?;
+            return Ok(n);
+        }
+
+        if let Some(DbRowId::PostgresCtid(ctid)) = row_id_fallback {
+            let sql = format!("DELETE FROM {tgt} WHERE ctid = $1::text::tid");
+            let p: &(dyn ToSql + Sync) = &ctid;
+            let n = client.execute(&sql, &[p]).await?;
+            return Ok(n);
+        }
+
+        Err(
+            "Cannot delete row: no primary key and no row address was recorded"
                 .into(),
         )
     }
