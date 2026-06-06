@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.3.0] - 2026-06-06
+
+### Added
+- Table CRUD operations (insert, update, delete rows).
+- Edit table cell values in place.
+- Recently opened tables section in the top bar.
+- Virtual table viewer for large row values.
+- Better parsing for user-defined PostgreSQL enum types.
+
+### Changed
+- Improved table navigation to show more columns at once.
+- SQL executor and editor improvements.
+- Simplified internal rendering and data-loading code.
+
 ## [0.2.0] - 2026-03-29
 
 ### Added

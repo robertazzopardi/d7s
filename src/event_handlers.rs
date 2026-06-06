@@ -340,11 +340,11 @@ impl App<'_> {
                     self.status_load_failed("table data", e);
                 }
             }
-            DatabaseExplorerState::Connections => todo!(),
-            DatabaseExplorerState::Databases => todo!(),
-            DatabaseExplorerState::Schemas => todo!(),
-            DatabaseExplorerState::Tables(_) => todo!(),
-            DatabaseExplorerState::SqlResults(_) => todo!(),
+            DatabaseExplorerState::Connections
+            | DatabaseExplorerState::Databases
+            | DatabaseExplorerState::Schemas
+            | DatabaseExplorerState::Tables(_)
+            | DatabaseExplorerState::SqlResults(_) => {}
         }
         Ok(())
     }
