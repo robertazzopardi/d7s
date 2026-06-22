@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
@@ -43,7 +43,7 @@ jobs:
       checks: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
@@ -87,7 +87,7 @@ jobs:
             profile: smoke
             test_command: cargo test --locked --workspace
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
