@@ -14,7 +14,14 @@ use crate::{
     db::connection::ConnectionType,
     services::{ConnectionService, PasswordService},
     sql::safety::split_statements,
-    ui::widgets::modal::{ModalAction, TestResult},
+    ui::{
+        handlers::TableNavigationHandler,
+        widgets::{
+            help_view::help_rows,
+            modal::{ModalAction, TestResult},
+            table::TableDataState,
+        },
+    },
 };
 
 impl App<'_> {
@@ -43,6 +50,26 @@ impl App<'_> {
 
     /// Handles the key events and updates the state of [`App`].
     pub async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
+        if self.show_help {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('?')) | (_, KeyCode::Esc) => {
+                    self.show_help = false;
+                }
+                (_, KeyCode::Char('q'))
+                | (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
+                    self.quit();
+                }
+                _ => {
+                    TableNavigationHandler::navigate_table(
+                        &self.help_table.model,
+                        &mut self.help_table.view,
+                        key.code,
+                    );
+                }
+            }
+            return Ok(());
+        }
+
         // Handle search filter input first
         if let Some(textarea) = &mut self.search_filter {
             if key.code == KeyCode::Esc {
@@ -103,6 +130,14 @@ impl App<'_> {
             }
             (_, KeyCode::Char('y')) => {
                 self.copy();
+                Ok(true)
+            }
+            (_, KeyCode::Char('?')) => {
+                self.help_table = TableDataState::new(help_rows(
+                    self.state.clone(),
+                    &self.database_explorer.state,
+                ));
+                self.show_help = true;
                 Ok(true)
             }
             (_, KeyCode::Char(c @ '1'..='5')) => {
@@ -178,6 +213,10 @@ impl App<'_> {
                 Ok(false)
             }
             (_, KeyCode::Esc) => {
+                if self.show_help {
+                    self.show_help = false;
+                    return Ok(true);
+                }
                 if self.modal_manager.is_any_modal_open() {
                     self.modal_manager.close_active_modal();
                 } else if self

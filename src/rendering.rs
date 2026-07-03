@@ -12,6 +12,7 @@ use crate::{
     ui::{
         sql_executor::SqlExecutor,
         widgets::{
+            help_view::HelpRow,
             hotkey::Hotkey,
             modal::ConnectionModalWidget,
             table::DataTable,
@@ -118,45 +119,63 @@ impl App<'_> {
         };
 
         // Use explorer state for title and content (Connections uses same path as other states)
-        let title = match &self.database_explorer.state {
-            DatabaseExplorerState::TableData(_, _) => {
-                let base = self.database_explorer.state.to_string();
-                if let Some(meta) = &self.database_explorer.table_data_virtual {
-                    let filtered =
-                        self.database_explorer.table_data.as_ref().is_some_and(
-                            super::filtered_data::FilteredData::is_filtered,
-                        );
-                    let (visible, local_draft_rows) = self
-                        .database_explorer
-                        .table_data
-                        .as_ref()
-                        .map_or((0, 0), |t| {
-                            let vis = t.table.model.items.len();
-                            let dr = t
-                                .table
-                                .model
-                                .items
-                                .iter()
-                                .filter(|r| r.is_draft)
-                                .count();
-                            (vis, dr)
-                        });
-                    format!(
-                        "{}{}",
-                        base.trim_end(),
-                        meta.title_suffix(filtered, visible, local_draft_rows)
-                    )
-                } else {
-                    base
+        let title = if self.show_help {
+            " Help ".to_string()
+        } else {
+            match &self.database_explorer.state {
+                DatabaseExplorerState::TableData(_, _) => {
+                    let base = self.database_explorer.state.to_string();
+                    if let Some(meta) =
+                        &self.database_explorer.table_data_virtual
+                    {
+                        let filtered = self
+                            .database_explorer
+                            .table_data
+                            .as_ref()
+                            .is_some_and(
+                                super::filtered_data::FilteredData::is_filtered,
+                            );
+                        let (visible, local_draft_rows) = self
+                            .database_explorer
+                            .table_data
+                            .as_ref()
+                            .map_or((0, 0), |t| {
+                                let vis = t.table.model.items.len();
+                                let dr = t
+                                    .table
+                                    .model
+                                    .items
+                                    .iter()
+                                    .filter(|r| r.is_draft)
+                                    .count();
+                                (vis, dr)
+                            });
+                        format!(
+                            "{}{}",
+                            base.trim_end(),
+                            meta.title_suffix(
+                                filtered,
+                                visible,
+                                local_draft_rows
+                            )
+                        )
+                    } else {
+                        base
+                    }
                 }
-            }
-            DatabaseExplorerState::Connections
-            | DatabaseExplorerState::Databases
-            | DatabaseExplorerState::Schemas
-            | DatabaseExplorerState::Tables(_)
-            | DatabaseExplorerState::Columns(_, _)
-            | DatabaseExplorerState::SqlResults(_) => {
-                self.database_explorer.state.to_string()
+                DatabaseExplorerState::Connections
+                | DatabaseExplorerState::Databases
+                | DatabaseExplorerState::Schemas
+                | DatabaseExplorerState::Tables(_)
+                | DatabaseExplorerState::Columns(_, _)
+                | DatabaseExplorerState::SqlResults(_) => {
+                    let base = self.database_explorer.state.to_string();
+                    if self.has_active_filter() {
+                        format!("{base}· filtered ")
+                    } else {
+                        base
+                    }
+                }
             }
         };
         let block = Block::new()
@@ -213,6 +232,15 @@ impl App<'_> {
 
     /// Render the appropriate database table based on explorer state
     pub fn render_database_table(&mut self, frame: &mut Frame, area: Rect) {
+        if self.show_help {
+            frame.render_stateful_widget(
+                DataTable::<HelpRow>::default(),
+                area,
+                &mut self.help_table,
+            );
+            return;
+        }
+
         let explorer = &self.database_explorer;
         match &explorer.state {
             DatabaseExplorerState::Connections => {

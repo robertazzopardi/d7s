@@ -11,7 +11,7 @@ pub const CONNECTION_HOTKEYS: [Hotkey; 5] = [
     Hotkey::new('e', "Edit Connection"),
     Hotkey::new('d', "Delete Connection"),
     Hotkey::new('o', "Open Connection"),
-    Hotkey::new('y', "Copy value"),
+    Hotkey::new('/', "Search"),
 ];
 
 pub const DATABASE_HOTKEYS: [Hotkey; 5] = [
@@ -26,7 +26,7 @@ pub const DATABASE_HOTKEYS: [Hotkey; 5] = [
 pub const TABLE_DATA_VIEW_HOTKEYS: [Hotkey; 5] = [
     Hotkey::new('r', "Refresh"),
     Hotkey::new('a', "New row"),
-    Hotkey::new('c', "Copy row"),
+    Hotkey::new('c', "Duplicate row"),
     Hotkey::new('s', "Commit row"),
     Hotkey::new('d', "Delete row"),
 ];

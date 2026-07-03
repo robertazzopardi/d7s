@@ -19,7 +19,8 @@ use crate::{
     services::{ConnectionService, PasswordService},
     sql::safety::{StatementSafety, classify_statement, split_statements},
     ui::widgets::{
-        hotkey::Hotkey, modal::ModalManager, status_line::StatusLine,
+        help_view::HelpRow, hotkey::Hotkey, modal::ModalManager,
+        status_line::StatusLine, table::TableDataState,
         top_bar_view::CONNECTION_HOTKEYS,
     },
 };
@@ -58,6 +59,9 @@ pub struct App<'a> {
     pub(crate) open_editor_requested: bool,
     /// Table data: after `d`, row locators awaiting delete confirmation.
     pub(crate) pending_row_deletes: Option<Vec<RowDeleteSpec>>,
+    /// k9s-style help panel in main content area (`?` toggles).
+    pub(crate) show_help: bool,
+    pub(crate) help_table: TableDataState<HelpRow>,
 }
 
 impl Default for App<'_> {
@@ -74,6 +78,8 @@ impl Default for App<'_> {
             build_info: String::new(),
             open_editor_requested: false,
             pending_row_deletes: None,
+            show_help: false,
+            help_table: TableDataState::new(Vec::new()),
         }
     }
 }
