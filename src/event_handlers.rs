@@ -12,7 +12,7 @@ use crate::{
     app::App,
     app_state::{AppState, DatabaseExplorerState},
     db::connection::ConnectionType,
-    services::{ConnectionService, PasswordService},
+    services::{ConnectionService, PasswordService, PreferencesService},
     sql::safety::split_statements,
     ui::{
         handlers::TableNavigationHandler,
@@ -57,6 +57,7 @@ impl App<'_> {
 
     /// Handles the key events and updates the state of [`App`].
     pub async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
+        // Help view: only toggle/close and quit
         if self.show_help {
             match (key.modifiers, key.code) {
                 (_, KeyCode::Char('?')) | (_, KeyCode::Esc) => {
@@ -91,6 +92,11 @@ impl App<'_> {
             }
 
             if textarea.input(key) {
+                let query = textarea
+                    .lines()
+                    .first()
+                    .map_or_else(String::new, Clone::clone);
+                self.apply_filter_with_query(&query);
                 return Ok(());
             }
         }
@@ -166,6 +172,28 @@ impl App<'_> {
                         self.database_explorer.recent_tables.get(idx).cloned()
                     {
                         self.load_table_data(&schema, &table).await?;
+                    }
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            (_, KeyCode::Char('o')) => {
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::Connections
+                ) {
+                    self.connect_to_database().await?;
+                }
+                Ok(true)
+            }
+            (_, KeyCode::Char('O')) => {
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::Connections
+                ) {
+                    if let Some(name) = PreferencesService::last_connection() {
+                        self.connect_to_named_connection(&name).await?;
                     }
                     Ok(true)
                 } else {
@@ -252,6 +280,17 @@ impl App<'_> {
                 ) =>
             {
                 self.export_sql_results_tsv();
+                Ok(true)
+            }
+            (_, KeyCode::Char(':' | '#'))
+                if self.state == AppState::DatabaseConnected
+                    && matches!(
+                        self.database_explorer.state,
+                        DatabaseExplorerState::TableData(_, _)
+                    )
+                    && !self.has_active_filter() =>
+            {
+                self.modal_manager.open_jump_to_row_modal();
                 Ok(true)
             }
             (_, KeyCode::Esc) => {
@@ -435,6 +474,13 @@ impl App<'_> {
                 if let Some(apply) = self.modal_manager.take_cell_value_apply()
                 {
                     self.apply_cell_value_edit(apply).await?;
+                    self.modal_manager.cleanup_closed_modals();
+                    return Ok(());
+                }
+                if let Some(row) = self.modal_manager.was_jump_to_row_confirmed()
+                    && matches!(key.code, KeyCode::Enter)
+                {
+                    self.jump_to_table_row(row).await?;
                     self.modal_manager.cleanup_closed_modals();
                     return Ok(());
                 }

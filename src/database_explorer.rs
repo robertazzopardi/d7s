@@ -10,7 +10,7 @@ use crate::{
         handlers::TableNavigationHandler,
         widgets::{modal::CellValueApply, table::TableDataState},
     },
-    virtual_table::{VIRTUAL_TABLE_PAGE_SIZE, VirtualTableMeta},
+    virtual_table::VirtualTableMeta,
 };
 
 const STATUS_DB_NOT_CONNECTED: &str = "Not connected to database.";
@@ -231,6 +231,62 @@ impl App<'_> {
             }
         }
 
+        Ok(())
+    }
+
+    /// Jump to a 1-based row in the current table (unfiltered view only).
+    pub async fn jump_to_table_row(&mut self, row_1based: u64) -> Result<()> {
+        if row_1based == 0 {
+            self.set_status("Row number must be >= 1");
+            return Ok(());
+        }
+        if self.has_active_filter() {
+            self.set_status("Clear filter before jumping to row");
+            return Ok(());
+        }
+        let DatabaseExplorerState::TableData(schema, table) =
+            self.database_explorer.state.clone()
+        else {
+            return Ok(());
+        };
+        let offset = row_1based - 1;
+        let page_size = self.page_size;
+        let window_start = offset - offset % u64::from(page_size);
+        let local_idx = usize::try_from(offset - window_start).unwrap_or(0);
+        let total_rows = self
+            .database_explorer
+            .table_data_virtual
+            .as_ref()
+            .and_then(|m| m.total_rows);
+        let Some(database) = self.database_explorer.database.as_ref() else {
+            self.set_status(STATUS_DB_NOT_CONNECTED);
+            return Ok(());
+        };
+        match database
+            .get_table_data_page(&schema, &table, window_start, page_size)
+            .await
+        {
+            Ok(page) => {
+                let loaded = page.rows.len();
+                self.replace_explorer_table_page(
+                    page,
+                    window_start,
+                    page_size,
+                    total_rows,
+                );
+                if local_idx < loaded {
+                    if let Some(fd) = self.database_explorer.table_data.as_mut() {
+                        fd.table.view.state.select(Some(local_idx));
+                    }
+                    self.set_status(format!("Jumped to row {row_1based}"));
+                } else {
+                    self.set_status(format!(
+                        "Row {row_1based} is beyond loaded page"
+                    ));
+                }
+            }
+            Err(e) => self.status_load_failed("jump to row", e),
+        }
         Ok(())
     }
 

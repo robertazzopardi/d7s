@@ -113,6 +113,10 @@ const CONNECTION_HELP: &[HelpEntry] = &[
         desc: "Open connection",
     },
     HelpEntry {
+        key: "O",
+        desc: "Reconnect last connection",
+    },
+    HelpEntry {
         key: "Enter",
         desc: "Connect",
     },
@@ -173,6 +177,10 @@ const TABLE_DATA_HELP: &[HelpEntry] = &[
     HelpEntry {
         key: "Y",
         desc: "Copy row (TSV)",
+    },
+    HelpEntry {
+        key: ": / #",
+        desc: "Jump to row number",
     },
 ];
 

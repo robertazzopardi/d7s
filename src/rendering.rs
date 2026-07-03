@@ -228,6 +228,10 @@ impl App<'_> {
         if let Some(modal) = self.modal_manager.get_password_modal() {
             frame.render_widget(modal.clone(), area);
         }
+
+        if let Some(modal) = self.modal_manager.get_jump_to_row_modal() {
+            frame.render_widget(modal.clone(), area);
+        }
     }
 
     /// Render the appropriate database table based on explorer state

@@ -71,6 +71,8 @@ cargo run --release
 ./target/release/d7s
 ```
 
+CLI flags: `-c`/`--connection NAME`, `-h`/`--help`, `-V`/`--version`.
+
 ## Hotkeys
 
 Global:
@@ -94,6 +96,7 @@ Connections:
 | `e` | Edit connection |
 | `d` | Delete connection |
 | `o` / Enter | Open connection |
+| `O` | Reconnect last connection |
 
 Connected:
 
@@ -116,6 +119,7 @@ Table data:
 | `d` | Delete row |
 | Space | Toggle multi-select |
 | Enter | Edit cell |
+| `:` / `#` | Jump to row number |
 
 SQL results:
 

@@ -81,7 +81,7 @@ impl App<'_> {
     }
 
     /// Apply filter with a specific query string
-    fn apply_filter_with_query(&mut self, query: &str) {
+    pub(crate) fn apply_filter_with_query(&mut self, query: &str) {
         let explorer = &mut self.database_explorer;
         match explorer.state {
             DatabaseExplorerState::Connections => {

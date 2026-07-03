@@ -50,6 +50,7 @@ pub enum ModalType {
     SqlQuerySelection,
     CellValue,
     Password,
+    JumpToRow,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -2108,6 +2109,123 @@ impl Widget for PasswordModal {
     }
 }
 
+/// Numeric row jump prompt (`:` / `#` in table data view).
+#[derive(Debug, Clone)]
+pub struct JumpToRowModal {
+    pub is_open: bool,
+    input: TextArea<'static>,
+    selected_button: usize,
+    submitted: bool,
+}
+
+impl JumpToRowModal {
+    fn make_input() -> TextArea<'static> {
+        let mut input = TextArea::default();
+        input.set_cursor_line_style(Style::default());
+        input.set_cursor_style(Style::default().bg(Color::Yellow).fg(Color::Black));
+        input.set_placeholder_text("Row number");
+        input.set_max_histories(0);
+        input
+    }
+
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            is_open: true,
+            input: Self::make_input(),
+            selected_button: 0,
+            submitted: false,
+        }
+    }
+
+    #[must_use]
+    pub fn row_number(&self) -> Option<u64> {
+        self.input
+            .lines()
+            .first()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .filter(|&n| n > 0)
+    }
+
+    pub const fn close(&mut self) {
+        self.is_open = false;
+    }
+
+    pub fn handle_key_events(&mut self, key: KeyEvent) -> ModalAction {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                self.close();
+                ModalAction::Cancel
+            }
+            (_, KeyCode::Tab | KeyCode::Down) => {
+                if self.selected_button == 0 {
+                    self.selected_button = 1;
+                }
+                ModalAction::None
+            }
+            (_, KeyCode::BackTab | KeyCode::Up) => {
+                if self.selected_button == 1 {
+                    self.selected_button = 0;
+                }
+                ModalAction::None
+            }
+            (_, KeyCode::Enter) => {
+                if self.selected_button == 0 && self.row_number().is_some() {
+                    self.submitted = true;
+                    self.close();
+                    ModalAction::Save
+                } else if self.selected_button == 1 {
+                    self.close();
+                    ModalAction::Cancel
+                } else {
+                    ModalAction::None
+                }
+            }
+            _ if self.selected_button == 0 => {
+                self.input.input(key);
+                ModalAction::None
+            }
+            _ => ModalAction::None,
+        }
+    }
+
+    pub fn handle_paste(&mut self, text: &str) {
+        if self.selected_button == 0 {
+            self.input.insert_str(text);
+        }
+    }
+}
+
+impl Widget for JumpToRowModal {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if !self.is_open {
+            return;
+        }
+        const WIDTH: u16 = 36;
+        const HEIGHT: u16 = 7;
+        let x = area.x + (area.width.saturating_sub(WIDTH)) / 2;
+        let y = area.y + (area.height.saturating_sub(HEIGHT)) / 2;
+        let modal_area = Rect::new(x, y, WIDTH, HEIGHT);
+        let block = Block::default()
+            .title(" Jump to row ")
+            .title_alignment(Alignment::Center)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow));
+        Clear.render(modal_area, buf);
+        let inner = block.inner(modal_area);
+        block.render(modal_area, buf);
+        let [input_area, button_area] =
+            Layout::vertical([Constraint::Length(3), Constraint::Length(1)])
+                .areas(inner);
+        Widget::render(&self.input, input_area, buf);
+        Buttons {
+            buttons: vec!["Go", "Cancel"],
+            selected: self.selected_button,
+        }
+        .render(button_area, buf);
+    }
+}
+
 /// Manager for handling multiple modals in the application
 #[derive(Default, Debug)]
 pub struct ModalManager {
@@ -2118,6 +2236,7 @@ pub struct ModalManager {
     cell_value_modal: Option<CellValueModal>,
     cell_value_apply: Option<CellValueApply>,
     password_modal: Option<PasswordModal>,
+    jump_to_row_modal: Option<JumpToRowModal>,
     active_modal_type: Option<ModalType>,
 }
 
@@ -2133,6 +2252,7 @@ impl ModalManager {
             cell_value_modal: None,
             cell_value_apply: None,
             password_modal: None,
+            jump_to_row_modal: None,
             active_modal_type: None,
         }
     }
@@ -2152,6 +2272,7 @@ impl ModalManager {
                 .is_some_and(|m| m.is_open)
             || self.cell_value_modal.as_ref().is_some_and(|m| m.is_open)
             || self.password_modal.as_ref().is_some_and(|m| m.is_open)
+            || self.jump_to_row_modal.as_ref().is_some_and(|m| m.is_open)
     }
 
     /// Open a new connection modal
@@ -2241,6 +2362,28 @@ impl ModalManager {
         self.active_modal_type = Some(ModalType::Password);
     }
 
+    pub fn open_jump_to_row_modal(&mut self) {
+        self.jump_to_row_modal = Some(JumpToRowModal::new());
+        self.active_modal_type = Some(ModalType::JumpToRow);
+    }
+
+    /// Row number if jump modal closed with Go.
+    #[must_use]
+    pub fn was_jump_to_row_confirmed(&self) -> Option<u64> {
+        if let Some(modal) = &self.jump_to_row_modal
+            && !modal.is_open
+            && modal.submitted
+        {
+            return modal.row_number();
+        }
+        None
+    }
+
+    #[must_use]
+    pub const fn get_jump_to_row_modal(&self) -> Option<&JumpToRowModal> {
+        self.jump_to_row_modal.as_ref()
+    }
+
     /// Close the currently active modal
     pub const fn close_active_modal(&mut self) {
         match self.active_modal_type {
@@ -2272,6 +2415,11 @@ impl ModalManager {
             }
             Some(ModalType::Password) => {
                 if let Some(modal) = &mut self.password_modal {
+                    modal.close();
+                }
+            }
+            Some(ModalType::JumpToRow) => {
+                if let Some(modal) = &mut self.jump_to_row_modal {
                     modal.close();
                 }
             }
@@ -2369,6 +2517,17 @@ impl ModalManager {
                     ModalAction::None
                 }
             }
+            Some(ModalType::JumpToRow) => {
+                if let Some(modal) = &mut self.jump_to_row_modal {
+                    let action = modal.handle_key_events(key);
+                    if !modal.is_open {
+                        self.active_modal_type = None;
+                    }
+                    action
+                } else {
+                    ModalAction::None
+                }
+            }
             None => ModalAction::None,
         }
     }
@@ -2446,6 +2605,12 @@ impl ModalManager {
             && !modal.is_open
         {
             self.password_modal = None;
+        }
+
+        if let Some(modal) = &self.jump_to_row_modal
+            && !modal.is_open
+        {
+            self.jump_to_row_modal = None;
         }
     }
 
@@ -2534,6 +2699,12 @@ impl ModalManager {
             }
             Some(ModalType::Password) => {
                 if let Some(modal) = &mut self.password_modal {
+                    modal.handle_paste(text);
+                }
+                true
+            }
+            Some(ModalType::JumpToRow) => {
+                if let Some(modal) = &mut self.jump_to_row_modal {
                     modal.handle_paste(text);
                 }
                 true
