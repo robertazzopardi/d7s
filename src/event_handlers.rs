@@ -37,11 +37,18 @@ impl App<'_> {
             }
             // Ignore non-press key events
             // Terminal resize is handled automatically by ratatui
+            Event::Paste(text) => {
+                self.clear_status();
+                if !self.modal_manager.handle_paste(&text)
+                    && let Some(textarea) = &mut self.search_filter
+                {
+                    textarea.insert_str(&text);
+                }
+            }
             Event::Key(_)
             | Event::FocusGained
             | Event::FocusLost
             | Event::Mouse(_)
-            | Event::Paste(_)
             | Event::Resize(_, _) => {}
         }
 
@@ -132,6 +139,18 @@ impl App<'_> {
                 self.copy();
                 Ok(true)
             }
+            (_, KeyCode::Char('Y')) => {
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::TableData(_, _)
+                        | DatabaseExplorerState::SqlResults(_)
+                ) {
+                    self.copy_row_tsv();
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
             (_, KeyCode::Char('?')) => {
                 self.help_table = TableDataState::new(help_rows(
                     self.state.clone(),
@@ -212,11 +231,25 @@ impl App<'_> {
                 }
                 Ok(false)
             }
+            (KeyModifiers::CONTROL, KeyCode::Char('s' | 'S'))
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::SqlResults(_)
+                ) =>
+            {
+                self.export_sql_results_tsv();
+                Ok(true)
+            }
+            (_, KeyCode::Char('x'))
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::SqlResults(_)
+                ) =>
+            {
+                self.export_sql_results_tsv();
+                Ok(true)
+            }
             (_, KeyCode::Esc) => {
-                if self.show_help {
-                    self.show_help = false;
-                    return Ok(true);
-                }
                 if self.modal_manager.is_any_modal_open() {
                     self.modal_manager.close_active_modal();
                 } else if self
@@ -316,21 +349,21 @@ impl App<'_> {
             (_, KeyCode::Char('G')) => {
                 self.handle_database_table_navigation(KeyCode::Char('G'));
             }
-            (_, KeyCode::Char('/')) => {
-                if !self.modal_manager.is_any_modal_open() {
-                    let mut search_bar = TextArea::default();
-                    search_bar.set_cursor_line_style(Style::default());
-                    search_bar.set_placeholder_text("/");
-                    search_bar.set_style(Style::default().fg(Color::White));
-                    search_bar.set_max_histories(0);
-                    search_bar.set_block(
-                        Block::default()
-                            .border_style(Color::White)
-                            .borders(Borders::ALL)
-                            .title(" Search Filter (ESC to cancel) "),
-                    );
-                    self.search_filter = Some(search_bar);
-                }
+            (_, KeyCode::Char('/'))
+                if !self.modal_manager.is_any_modal_open() =>
+            {
+                let mut search_bar = TextArea::default();
+                search_bar.set_cursor_line_style(Style::default());
+                search_bar.set_placeholder_text("/");
+                search_bar.set_style(Style::default().fg(Color::White));
+                search_bar.set_max_histories(0);
+                search_bar.set_block(
+                    Block::default()
+                        .border_style(Color::White)
+                        .borders(Borders::ALL)
+                        .title(" Search Filter (ESC to cancel) "),
+                );
+                self.search_filter = Some(search_bar);
             }
             _ => {}
         }

@@ -78,7 +78,9 @@ Global:
 | Key | Action |
 |-----|--------|
 | `q` / `Ctrl-c` | Quit |
+| `?` | Toggle help |
 | `y` | Copy selected value |
+| `Y` | Copy selected row (TSV) |
 | `j`/`k` or ↓/↑ | Move down / up |
 | `h`/`l` or ←/→ | Move left / right |
 | `g` / `G` | Top / bottom |
@@ -109,7 +111,16 @@ Table data:
 |-----|--------|
 | `r` | Refresh |
 | `a` | New row |
-| `c` | Copy row as draft |
+| `c` | Duplicate row as draft |
 | `s` | Commit draft row |
 | `d` | Delete row |
-| Space | Edit cell |
+| Space | Toggle multi-select |
+| Enter | Edit cell |
+
+SQL results:
+
+| Key | Action |
+|-----|--------|
+| `Ctrl-s` / `x` | Export results to temp TSV |
+
+Paste works in connection/cell/password modals and the search bar (bracketed paste).

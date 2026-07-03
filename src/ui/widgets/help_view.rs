@@ -170,6 +170,10 @@ const TABLE_DATA_HELP: &[HelpEntry] = &[
         key: "Enter",
         desc: "Edit cell",
     },
+    HelpEntry {
+        key: "Y",
+        desc: "Copy row (TSV)",
+    },
 ];
 
 const SQL_RESULTS_HELP: &[HelpEntry] = &[
@@ -180,6 +184,14 @@ const SQL_RESULTS_HELP: &[HelpEntry] = &[
     HelpEntry {
         key: "Esc",
         desc: "Return to SQL editor",
+    },
+    HelpEntry {
+        key: "Y",
+        desc: "Copy row (TSV)",
+    },
+    HelpEntry {
+        key: "Ctrl+s / x",
+        desc: "Export results to temp TSV",
     },
 ];
 

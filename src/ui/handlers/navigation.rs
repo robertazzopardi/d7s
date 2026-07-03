@@ -127,10 +127,8 @@ impl TableNavigationHandler {
                 Self::wrap_rows(&mut view.state, &model.items);
                 view.column_offset = 0;
             }
-            KeyCode::Char('G') => {
-                if !model.items.is_empty() {
-                    view.state.select(Some(model.items.len() - 1));
-                }
+            KeyCode::Char('G') if !model.items.is_empty() => {
+                view.state.select(Some(model.items.len() - 1));
             }
             _ => {}
         }

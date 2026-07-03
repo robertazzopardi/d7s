@@ -994,6 +994,25 @@ impl Modal {
             _ => ModalAction::None,
         }
     }
+
+    /// Insert pasted text into the focused text field (step-1 URL, form field, etc.).
+    pub fn handle_paste(&mut self, text: &str) {
+        if self.step == ConnectionModalStep::ChooseType {
+            if self.step1_focus_on_url {
+                self.step1_import_url.insert_str(text);
+            }
+            return;
+        }
+        if self.menu_state.is_some() {
+            return;
+        }
+        if self.current_field < self.visible_fields_count()
+            && let Some(field) = self.fields.get_mut(self.current_field)
+            && field.options.is_none()
+        {
+            field.input.insert_str(text);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1837,6 +1856,12 @@ impl CellValueModal {
         }
     }
 
+    pub fn handle_paste(&mut self, text: &str) {
+        if self.focus_editor {
+            self.input.insert_str(text);
+        }
+    }
+
     /// Snapshot for persisting the edit after OK ([`ModalAction::Save`]).
     #[must_use]
     pub fn build_apply(&self) -> CellValueApply {
@@ -2019,6 +2044,12 @@ impl PasswordModal {
                 ModalAction::None
             }
             _ => ModalAction::None,
+        }
+    }
+
+    pub fn handle_paste(&mut self, text: &str) {
+        if self.selected_button == 0 {
+            self.input.insert_str(text);
         }
     }
 }
@@ -2481,5 +2512,33 @@ impl ModalManager {
         &self,
     ) -> Option<&SqlQuerySelectionModal> {
         self.sql_query_selection_modal.as_ref()
+    }
+
+    /// Route bracketed paste to the active modal's focused input.
+    pub fn handle_paste(&mut self, text: &str) -> bool {
+        if !self.is_any_modal_open() {
+            return false;
+        }
+        match self.active_modal_type {
+            Some(ModalType::Connection) => {
+                if let Some(modal) = &mut self.connection_modal {
+                    modal.handle_paste(text);
+                }
+                true
+            }
+            Some(ModalType::CellValue) => {
+                if let Some(modal) = &mut self.cell_value_modal {
+                    modal.handle_paste(text);
+                }
+                true
+            }
+            Some(ModalType::Password) => {
+                if let Some(modal) = &mut self.password_modal {
+                    modal.handle_paste(text);
+                }
+                true
+            }
+            _ => false,
+        }
     }
 }

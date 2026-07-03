@@ -2,7 +2,9 @@ use std::{path::Path, process::Command};
 
 use color_eyre::Result;
 use crossterm::{
-    ExecutableCommand, clipboard, execute,
+    ExecutableCommand, clipboard,
+    event::{DisableBracketedPaste, EnableBracketedPaste},
+    execute,
     terminal::{
         EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
         enable_raw_mode,
@@ -257,6 +259,82 @@ impl App<'_> {
         }
     }
 
+    /// Copy the full selected row as tab-separated values.
+    pub(crate) fn copy_row_tsv(&mut self) {
+        let explorer = &self.database_explorer;
+        let values: Option<Vec<String>> = (|| -> Option<Vec<String>> {
+            match &explorer.state {
+                DatabaseExplorerState::TableData(_, _) => {
+                    let table_data = explorer.table_data.as_ref()?;
+                    let selected_row =
+                        table_data.table.view.state.selected()?;
+                    Some(
+                        table_data
+                            .table
+                            .model
+                            .items
+                            .get(selected_row)?
+                            .values
+                            .clone(),
+                    )
+                }
+                DatabaseExplorerState::SqlResults(_) => {
+                    let table = &explorer.sql_executor.table_state;
+                    let selected_row = table.view.state.selected()?;
+                    Some(table.model.items.get(selected_row)?.values.clone())
+                }
+                DatabaseExplorerState::Connections
+                | DatabaseExplorerState::Databases
+                | DatabaseExplorerState::Schemas
+                | DatabaseExplorerState::Tables(_)
+                | DatabaseExplorerState::Columns(_, _) => None,
+            }
+        })();
+        if let Some(values) = values {
+            let tsv = values.join("\t");
+            if execute!(
+                std::io::stdout(),
+                clipboard::CopyToClipboard {
+                    content: tsv,
+                    destination: clipboard::ClipboardSelection(vec![
+                        clipboard::ClipboardType::Clipboard,
+                    ]),
+                }
+            )
+            .is_ok()
+            {
+                self.set_status("Copied row (TSV)".to_string());
+            }
+        }
+    }
+
+    /// Write SQL result rows to a temp TSV file.
+    pub(crate) fn export_sql_results_tsv(&mut self) {
+        if !matches!(
+            self.database_explorer.state,
+            DatabaseExplorerState::SqlResults(_)
+        ) {
+            return;
+        }
+        let executor = &self.database_explorer.sql_executor;
+        if executor.table_state.model.items.is_empty() {
+            self.set_status("No results to export".to_string());
+            return;
+        }
+        let mut out = executor.column_names.join("\t");
+        out.push('\n');
+        for row in &executor.table_state.model.items {
+            out.push_str(&row.values.join("\t"));
+            out.push('\n');
+        }
+        let path = std::env::temp_dir()
+            .join(format!("d7s_results_{}.tsv", std::process::id()));
+        match std::fs::write(&path, out) {
+            Ok(()) => self.set_status(format!("Wrote {}", path.display())),
+            Err(e) => self.set_status(format!("Export failed: {e}")),
+        }
+    }
+
     /// Set running to false to quit the application.
     pub(crate) const fn quit(&mut self) {
         self.running = false;
@@ -278,6 +356,7 @@ impl App<'_> {
             .unwrap_or_else(|_| "vim".to_string());
         let (program, args) = Self::parse_editor_command(&editor);
 
+        execute!(std::io::stdout(), DisableBracketedPaste)?;
         std::io::stdout().execute(LeaveAlternateScreen)?;
         disable_raw_mode()?;
         let mut cmd = Command::new(&program);
@@ -285,6 +364,7 @@ impl App<'_> {
         cmd.arg(path).status()?;
         std::io::stdout().execute(EnterAlternateScreen)?;
         enable_raw_mode()?;
+        execute!(std::io::stdout(), EnableBracketedPaste)?;
         terminal.clear()?;
         Ok(())
     }
