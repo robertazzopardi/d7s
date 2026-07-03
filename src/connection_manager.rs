@@ -5,6 +5,7 @@ use crate::{
     app_state::{AppState, DatabaseExplorerState},
     database_explorer_state::DatabaseExplorer,
     db::connection::{Connection, ConnectionType},
+    services::PreferencesService,
     ui::widgets::top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS},
 };
 
@@ -67,10 +68,12 @@ impl App<'_> {
             return Ok(());
         }
 
+        let connection_name = connection.name.clone();
         self.database_explorer =
             DatabaseExplorer::new(connection, Some(sqlite));
         self.state = AppState::DatabaseConnected;
         self.hotkeys = DATABASE_HOTKEYS.to_vec();
+        let _ = PreferencesService::set_last_connection(&connection_name);
 
         // SQLite doesn't need the Databases/Schemas navigation steps
         // Load tables directly from the default sqlite_schema
@@ -105,6 +108,8 @@ impl App<'_> {
 
             // Update hotkeys for database mode
             self.hotkeys = DATABASE_HOTKEYS.to_vec();
+            let _ =
+                PreferencesService::set_last_connection(&connection.name);
 
             // Load databases after successful connection
             self.load_databases().await?;
@@ -143,7 +148,6 @@ impl App<'_> {
     /// Disconnect from the current database
     pub fn disconnect_from_database(&mut self) {
         self.database_explorer.state = DatabaseExplorerState::Connections;
-        self.database_explorer.recent_tables.clear();
         self.state = AppState::ConnectionList;
 
         // Update hotkeys for connection mode

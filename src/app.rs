@@ -18,8 +18,9 @@ use crate::{
     database_explorer_state::DatabaseExplorer,
     db::{RowDeleteSpec, TableData, sqlite::init_db},
     filtered_data::FilteredData,
-    services::{ConnectionService, PasswordService},
+    services::{ConnectionService, PasswordService, PreferencesService},
     sql::safety::{StatementSafety, classify_statement, split_statements},
+    virtual_table::VIRTUAL_TABLE_PAGE_SIZE,
     ui::widgets::{
         help_view::HelpRow, hotkey::Hotkey, modal::ModalManager,
         status_line::StatusLine, table::TableDataState,
@@ -64,6 +65,8 @@ pub struct App<'a> {
     /// k9s-style help panel in main content area (`?` toggles).
     pub(crate) show_help: bool,
     pub(crate) help_table: TableDataState<HelpRow>,
+    /// Rows per virtual table page (from prefs / `D7S_PAGE_SIZE`).
+    pub(crate) page_size: u32,
 }
 
 impl Default for App<'_> {
@@ -82,6 +85,7 @@ impl Default for App<'_> {
             pending_row_deletes: None,
             show_help: false,
             help_table: TableDataState::new(Vec::new()),
+            page_size: VIRTUAL_TABLE_PAGE_SIZE,
         }
     }
 }
@@ -93,6 +97,8 @@ impl App<'_> {
 
         let items = ConnectionService::get_all().unwrap_or_default();
         self.database_explorer.connections = FilteredData::new(items);
+        self.database_explorer.recent_tables = PreferencesService::load_recent_tables();
+        self.page_size = PreferencesService::effective_page_size();
 
         self.build_info = build_info()?;
 
@@ -108,7 +114,24 @@ impl App<'_> {
 
             self.handle_external_terminal(&mut terminal).await?;
         }
+        self.save_session_preferences();
         Ok(())
+    }
+
+    fn save_session_preferences(&self) {
+        let _ = PreferencesService::save_recent_tables(
+            &self.database_explorer.recent_tables,
+        );
+        let sql = self.database_explorer.sql_executor.sql_input();
+        if !sql.trim().is_empty() {
+            let _ = PreferencesService::push_sql_history(&sql);
+        }
+        if self.state == AppState::DatabaseConnected {
+            let _ = PreferencesService::set_last_connection(
+                &self.database_explorer.connection.name,
+            );
+        }
+        let _ = PreferencesService::set_page_size(self.page_size);
     }
 
     async fn handle_external_terminal(

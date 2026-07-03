@@ -208,7 +208,7 @@ impl App<'_> {
             .get_table_row_count(schema_name, table_name)
             .await
             .ok();
-        let page_size = VIRTUAL_TABLE_PAGE_SIZE;
+        let page_size = self.page_size;
 
         match database
             .get_table_data_page(schema_name, table_name, 0, page_size)
@@ -592,6 +592,7 @@ impl App<'_> {
                 let cols = first.column_names.clone();
                 let data = results.into_iter().map(|r| r.values).collect();
                 self.database_explorer.sql_executor.set_results(data, &cols);
+                let _ = crate::services::PreferencesService::push_sql_history(&sql);
             }
             Err(e) => self.set_status(format!("SQL error: {e}")),
         }

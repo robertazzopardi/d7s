@@ -198,6 +198,11 @@ impl App<'_> {
                 ) {
                     self.handle_edit_connection();
                 } else if self.state == AppState::DatabaseConnected {
+                    if self.database_explorer.sql_executor.sql_input().trim().is_empty()
+                        && let Some(sql) = crate::services::PreferencesService::last_sql()
+                    {
+                        self.database_explorer.sql_executor.set_sql(&sql);
+                    }
                     self.open_editor_requested = true;
                 }
                 Ok(true)

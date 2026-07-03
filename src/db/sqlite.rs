@@ -528,6 +528,13 @@ pub fn init_db() -> Result<()> {
             );",
         )
         .down("DROP TABLE connections"),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS preferences (
+                key TEXT PRIMARY KEY NOT NULL,
+                value TEXT NOT NULL
+            );",
+        )
+        .down("DROP TABLE preferences"),
     ]);
 
     migrations.to_latest(&mut conn)?;

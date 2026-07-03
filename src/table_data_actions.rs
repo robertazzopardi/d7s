@@ -10,7 +10,6 @@ use crate::{
     app_state::{AppState, DatabaseExplorerState},
     db::{DbRowId, RowDeleteSpec, connection::ConnectionType},
     ui::{handlers::TableNavigationHandler, widgets::table::RawTableRow},
-    virtual_table::VIRTUAL_TABLE_PAGE_SIZE,
 };
 
 impl App<'_> {
@@ -54,7 +53,7 @@ impl App<'_> {
             .database_explorer
             .table_data_virtual
             .as_ref()
-            .map_or(VIRTUAL_TABLE_PAGE_SIZE, |m| m.page_size);
+            .map_or(self.page_size, |m| m.page_size);
         let total_rows = self
             .database_explorer
             .table_data_virtual

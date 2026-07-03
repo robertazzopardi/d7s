@@ -7,6 +7,7 @@ use crate::{
         Column, Database, DatabaseInfo, Schema, Table, connection::Connection,
     },
     filtered_data::FilteredData,
+    services::PreferencesService,
     ui::{
         sql_executor::SqlExecutorState,
         widgets::{
@@ -77,6 +78,7 @@ impl DatabaseExplorer {
         self.recent_tables.retain(|p| p != &pair);
         self.recent_tables.insert(0, pair);
         self.recent_tables.truncate(5);
+        let _ = PreferencesService::save_recent_tables(&self.recent_tables);
     }
 
     /// Hotkey strip for the MRU column (`1`–`5` → reopen table data).
