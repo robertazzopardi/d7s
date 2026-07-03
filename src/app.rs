@@ -123,12 +123,15 @@ impl App<'_> {
                     .and_then(|path| std::fs::read_to_string(path).ok())
                     .unwrap_or_default()
             } else {
-                let temp_path = std::path::Path::new("/tmp/d7s_sql_editor.sql");
+                let temp_path = std::env::temp_dir().join(format!(
+                    "d7s_sql_{}.sql",
+                    std::process::id()
+                ));
                 let current_sql =
                     self.database_explorer.sql_executor.sql_input();
-                std::fs::write(temp_path, &current_sql)?;
-                Self::run_editor(terminal, temp_path)?;
-                std::fs::read_to_string(temp_path).unwrap_or_default()
+                std::fs::write(&temp_path, &current_sql)?;
+                Self::run_editor(terminal, &temp_path)?;
+                std::fs::read_to_string(&temp_path).unwrap_or_default()
             };
             self.apply_editor_sql(new_sql).await;
         }

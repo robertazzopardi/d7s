@@ -117,6 +117,29 @@ impl App<'_> {
         Ok(())
     }
 
+    /// Connect to a named connection from the connection list (CLI `-c`).
+    pub async fn connect_to_named_connection(&mut self, name: &str) -> Result<()> {
+        let idx = self
+            .database_explorer
+            .connections
+            .table
+            .model
+            .items
+            .iter()
+            .position(|c| c.name == name);
+        let Some(idx) = idx else {
+            self.set_status(format!("Connection not found: {name}"));
+            return Ok(());
+        };
+        self.database_explorer
+            .connections
+            .table
+            .view
+            .state
+            .select(Some(idx));
+        self.connect_to_database().await
+    }
+
     /// Disconnect from the current database
     pub fn disconnect_from_database(&mut self) {
         self.database_explorer.state = DatabaseExplorerState::Connections;

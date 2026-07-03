@@ -17,15 +17,63 @@ mod virtual_table;
 
 use std::io::stdout;
 
-use app::App;
+use app::{App, PKG_NAME, PKG_VERSION};
 use crossterm::{
     event::{DisableBracketedPaste, EnableBracketedPaste},
     execute,
 };
 
+fn print_usage() {
+    eprintln!(
+        "\
+{d7s} — TUI database client
+
+Usage:
+  {d7s} [OPTIONS]
+
+Options:
+  -c, --connection NAME  Open named connection on launch
+  -h, --help             Show this help
+  -V, --version          Print version and exit
+",
+        d7s = PKG_NAME
+    );
+}
+
+/// `None` = run TUI; `Some(name)` = connect on launch; exits process on --help/--version.
+fn parse_launch_args() -> color_eyre::Result<Option<String>> {
+    let mut args = std::env::args().skip(1);
+    let mut connection: Option<String> = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-h" | "--help" => {
+                print_usage();
+                std::process::exit(0);
+            }
+            "-V" | "--version" => {
+                println!("{PKG_NAME} {PKG_VERSION}");
+                std::process::exit(0);
+            }
+            "-c" | "--connection" => {
+                let name = args.next().ok_or_else(|| {
+                    color_eyre::eyre::eyre!("--connection requires a name")
+                })?;
+                connection = Some(name);
+            }
+            other => {
+                eprintln!("Unknown argument: {other}\n");
+                print_usage();
+                std::process::exit(1);
+            }
+        }
+    }
+    Ok(connection)
+}
+
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
+    let launch_connection = parse_launch_args()?;
     let terminal = ratatui::init();
     execute!(stdout(), EnableBracketedPaste)?;
     let prev_hook = std::panic::take_hook();
@@ -33,7 +81,11 @@ async fn main() -> color_eyre::Result<()> {
         let _ = execute!(stdout(), DisableBracketedPaste);
         prev_hook(info);
     }));
-    let result = App::default().init()?.run(terminal).await;
+    let mut app = App::default().init()?;
+    if let Some(name) = launch_connection {
+        app.connect_to_named_connection(&name).await?;
+    }
+    let result = app.run(terminal).await;
     let _ = execute!(stdout(), DisableBracketedPaste);
     ratatui::restore();
     result
