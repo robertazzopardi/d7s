@@ -76,6 +76,12 @@ directories = "6.0.0"
 ratatui-textarea = "0.8.0"
 sqlparser = "0.61.0"
 
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
 [lints.clippy]
 indexing_slicing = "deny"
 fallible_impl_from = "deny"

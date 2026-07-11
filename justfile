@@ -10,7 +10,7 @@ build:
 
 # Build release
 build-release:
-    cargo build --release
+    cargo build --release --locked
 
 # Run the application
 run:
@@ -69,6 +69,23 @@ cov-lcov:
 # Full check: format, clippy, test
 check: fmt-check clippy test
     @echo "All checks passed"
+
+# Demo: isolated HOME + sample DBs for vhs (does not touch real connections)
+demo-prep:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf .demo-home .demo-data
+    mkdir -p ".demo-home/Library/Application Support/d7s" .demo-data
+    sqlite3 .demo-data/sample.db < demo/sample.sql
+    sqlite3 ".demo-home/Library/Application Support/d7s/d7s.db" < demo/connections.sql
+    docker compose up -d --wait
+    test "$(sqlite3 ".demo-home/Library/Application Support/d7s/d7s.db" 'SELECT count(*) FROM connections;')" = "2"
+    sqlite3 .demo-data/sample.db "SELECT count(*) FROM users;" | grep -qx 4
+    docker exec d7s-test-db psql -U d7s_user -d d7s_test -tAc "SELECT count(*) FROM users;" | grep -qx 10
+
+# Demo: prep, build release binary, record demo.gif
+demo: demo-prep build-release
+    vhs demo.tape
 
 # Docker: start database services
 docker-up:

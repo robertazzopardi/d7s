@@ -109,40 +109,47 @@ impl App<'_> {
     ) -> Result<(), color_eyre::eyre::Error> {
         if self.open_editor_requested {
             self.open_editor_requested = false;
-            let temp_path = std::path::Path::new("/tmp/d7s_sql_editor.sql");
-            let current_sql =
-                self.database_explorer.sql_executor.sql_input().clone();
-            std::fs::write(temp_path, &current_sql)?;
-            Self::run_editor(terminal, temp_path)?;
-            let new_sql =
-                std::fs::read_to_string(temp_path).unwrap_or_default();
-            let new_sql = new_sql.trim_end_matches('\n');
-            if !new_sql.is_empty() {
-                self.database_explorer.sql_executor.set_sql(new_sql);
-                let statements = split_statements(new_sql);
-                if statements.is_empty() {
-                    self.set_status("No SQL statements found in editor file.");
-                    return Ok(());
-                }
-
-                if statements.len() == 1 {
-                    if let Some(statement) = statements.first() {
-                        self.prepare_sql_statement_execution(
-                            statement.text.clone(),
-                        )
-                        .await;
-                    }
-                } else {
-                    let options = statements
-                        .into_iter()
-                        .map(|s| s.text)
-                        .collect::<Vec<_>>();
-                    self.modal_manager.open_sql_query_selection_modal(options);
-                }
-            }
+            let new_sql = if std::env::var("D7S_DEMO").is_ok() {
+                std::env::var("D7S_DEMO_SQL")
+                    .ok()
+                    .and_then(|path| std::fs::read_to_string(path).ok())
+                    .unwrap_or_default()
+            } else {
+                let temp_path = std::path::Path::new("/tmp/d7s_sql_editor.sql");
+                let current_sql =
+                    self.database_explorer.sql_executor.sql_input();
+                std::fs::write(temp_path, &current_sql)?;
+                Self::run_editor(terminal, temp_path)?;
+                std::fs::read_to_string(temp_path).unwrap_or_default()
+            };
+            self.apply_editor_sql(new_sql).await;
         }
 
         Ok(())
+    }
+
+    async fn apply_editor_sql(&mut self, new_sql: String) {
+        let new_sql = new_sql.trim_end_matches('\n');
+        if new_sql.is_empty() {
+            return;
+        }
+        self.database_explorer.sql_executor.set_sql(new_sql);
+        let statements = split_statements(new_sql);
+        if statements.is_empty() {
+            self.set_status("No SQL statements found in editor file.");
+            return;
+        }
+
+        if statements.len() == 1 {
+            if let Some(statement) = statements.first() {
+                self.prepare_sql_statement_execution(statement.text.clone())
+                    .await;
+            }
+        } else {
+            let options =
+                statements.into_iter().map(|s| s.text).collect::<Vec<_>>();
+            self.modal_manager.open_sql_query_selection_modal(options);
+        }
     }
 
     /// Refresh the table data from the database
@@ -323,11 +330,14 @@ impl App<'_> {
 
 /// Info related to the program
 fn build_info() -> Result<String> {
-    let path_buf = std::env::current_dir()?;
-    let cwd = path_buf.as_path().to_str().unwrap_or(".");
-    Ok(format!(
-        " NAME: {}\n VERSION: {}\n PATH: {cwd}",
-        crate::app::PKG_NAME,
-        crate::app::PKG_VERSION,
-    ))
+    let mut lines = vec![
+        format!(" NAME: {}", crate::app::PKG_NAME),
+        format!(" VERSION: {}", crate::app::PKG_VERSION),
+    ];
+    if std::env::var("D7S_DEMO").is_err() {
+        let path_buf = std::env::current_dir()?;
+        let cwd = path_buf.as_path().to_str().unwrap_or(".");
+        lines.push(format!(" PATH: {cwd}"));
+    }
+    Ok(lines.join("\n"))
 }

@@ -1,3 +1,6 @@
 /target
 rustc-ice-*
 .DS_Store
+*.mp4
+.demo-home/
+.demo-data/

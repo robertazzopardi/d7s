@@ -215,7 +215,9 @@ impl App<'_> {
             .await
         {
             Ok(page) => {
-                self.replace_explorer_table_page(page, 0, page_size, total_rows);
+                self.replace_explorer_table_page(
+                    page, 0, page_size, total_rows,
+                );
                 let explorer = &mut self.database_explorer;
                 explorer.state = DatabaseExplorerState::TableData(
                     schema_name.to_string(),
@@ -236,7 +238,8 @@ impl App<'_> {
         if self.discard_table_draft() {
             self.set_status("Draft discarded (page change).");
         }
-        let Some(meta) = self.database_explorer.table_data_virtual.as_ref() else {
+        let Some(meta) = self.database_explorer.table_data_virtual.as_ref()
+        else {
             return Ok(());
         };
         if next {
@@ -588,9 +591,7 @@ impl App<'_> {
                 };
                 let cols = first.column_names.clone();
                 let data = results.into_iter().map(|r| r.values).collect();
-                self.database_explorer
-                    .sql_executor
-                    .set_results(data, &cols);
+                self.database_explorer.sql_executor.set_results(data, &cols);
             }
             Err(e) => self.set_status(format!("SQL error: {e}")),
         }
@@ -619,6 +620,7 @@ impl App<'_> {
                 // Postgres: Go back to schemas
                 if is_sqlite {
                     self.disconnect_from_database();
+                    self.refresh_connections();
                 } else if explorer.schemas.is_some() {
                     explorer.state = DatabaseExplorerState::Schemas;
                     explorer.connection.schema = None;

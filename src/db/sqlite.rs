@@ -179,7 +179,7 @@ impl Database for Sqlite {
         while let Some(row) = stat_rows.next()? {
             let name: String = row.get(0)?;
             let bytes: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
-            sizes_by_name.insert(name, bytes as u64);
+            sizes_by_name.insert(name, bytes.cast_unsigned());
         }
 
         let mut stmt = conn.prepare(&format!(
