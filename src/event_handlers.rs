@@ -60,7 +60,7 @@ impl App<'_> {
         // Help view: only toggle/close and quit
         if self.show_help {
             match (key.modifiers, key.code) {
-                (_, KeyCode::Char('?')) | (_, KeyCode::Esc) => {
+                (_, KeyCode::Char('?') | KeyCode::Esc) => {
                     self.show_help = false;
                 }
                 (_, KeyCode::Char('q'))
@@ -226,8 +226,14 @@ impl App<'_> {
                 ) {
                     self.handle_edit_connection();
                 } else if self.state == AppState::DatabaseConnected {
-                    if self.database_explorer.sql_executor.sql_input().trim().is_empty()
-                        && let Some(sql) = crate::services::PreferencesService::last_sql()
+                    if self
+                        .database_explorer
+                        .sql_executor
+                        .sql_input()
+                        .trim()
+                        .is_empty()
+                        && let Some(sql) =
+                            crate::services::PreferencesService::last_sql()
                     {
                         self.database_explorer.sql_executor.set_sql(&sql);
                     }
@@ -265,15 +271,7 @@ impl App<'_> {
                 Ok(false)
             }
             (KeyModifiers::CONTROL, KeyCode::Char('s' | 'S'))
-                if matches!(
-                    self.database_explorer.state,
-                    DatabaseExplorerState::SqlResults(_)
-                ) =>
-            {
-                self.export_sql_results_tsv();
-                Ok(true)
-            }
-            (_, KeyCode::Char('x'))
+            | (_, KeyCode::Char('x'))
                 if matches!(
                     self.database_explorer.state,
                     DatabaseExplorerState::SqlResults(_)
@@ -477,7 +475,8 @@ impl App<'_> {
                     self.modal_manager.cleanup_closed_modals();
                     return Ok(());
                 }
-                if let Some(row) = self.modal_manager.was_jump_to_row_confirmed()
+                if let Some(row) =
+                    self.modal_manager.was_jump_to_row_confirmed()
                     && matches!(key.code, KeyCode::Enter)
                 {
                     self.jump_to_table_row(row).await?;

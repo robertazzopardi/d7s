@@ -275,7 +275,8 @@ impl App<'_> {
                     total_rows,
                 );
                 if local_idx < loaded {
-                    if let Some(fd) = self.database_explorer.table_data.as_mut() {
+                    if let Some(fd) = self.database_explorer.table_data.as_mut()
+                    {
                         fd.table.view.state.select(Some(local_idx));
                     }
                     self.set_status(format!("Jumped to row {row_1based}"));
@@ -648,7 +649,8 @@ impl App<'_> {
                 let cols = first.column_names.clone();
                 let data = results.into_iter().map(|r| r.values).collect();
                 self.database_explorer.sql_executor.set_results(data, &cols);
-                let _ = crate::services::PreferencesService::push_sql_history(&sql);
+                let _ =
+                    crate::services::PreferencesService::push_sql_history(&sql);
             }
             Err(e) => self.set_status(format!("SQL error: {e}")),
         }

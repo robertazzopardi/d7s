@@ -2122,7 +2122,9 @@ impl JumpToRowModal {
     fn make_input() -> TextArea<'static> {
         let mut input = TextArea::default();
         input.set_cursor_line_style(Style::default());
-        input.set_cursor_style(Style::default().bg(Color::Yellow).fg(Color::Black));
+        input.set_cursor_style(
+            Style::default().bg(Color::Yellow).fg(Color::Black),
+        );
         input.set_placeholder_text("Row number");
         input.set_max_histories(0);
         input
@@ -2196,16 +2198,20 @@ impl JumpToRowModal {
     }
 }
 
+const JUMP_TO_ROW_MODAL_WIDTH: u16 = 36;
+const JUMP_TO_ROW_MODAL_HEIGHT: u16 = 7;
+
 impl Widget for JumpToRowModal {
     fn render(self, area: Rect, buf: &mut Buffer) {
         if !self.is_open {
             return;
         }
-        const WIDTH: u16 = 36;
-        const HEIGHT: u16 = 7;
-        let x = area.x + (area.width.saturating_sub(WIDTH)) / 2;
-        let y = area.y + (area.height.saturating_sub(HEIGHT)) / 2;
-        let modal_area = Rect::new(x, y, WIDTH, HEIGHT);
+        let x =
+            area.x + (area.width.saturating_sub(JUMP_TO_ROW_MODAL_WIDTH)) / 2;
+        let y =
+            area.y + (area.height.saturating_sub(JUMP_TO_ROW_MODAL_HEIGHT)) / 2;
+        let modal_area =
+            Rect::new(x, y, JUMP_TO_ROW_MODAL_WIDTH, JUMP_TO_ROW_MODAL_HEIGHT);
         let block = Block::default()
             .title(" Jump to row ")
             .title_alignment(Alignment::Center)

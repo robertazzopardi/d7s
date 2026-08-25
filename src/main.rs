@@ -26,17 +26,16 @@ use crossterm::{
 fn print_usage() {
     eprintln!(
         "\
-{d7s} — TUI database client
+{PKG_NAME} — TUI database client
 
 Usage:
-  {d7s} [OPTIONS]
+  {PKG_NAME} [OPTIONS]
 
 Options:
   -c, --connection NAME  Open named connection on launch
   -h, --help             Show this help
   -V, --version          Print version and exit
-",
-        d7s = PKG_NAME
+"
     );
 }
 

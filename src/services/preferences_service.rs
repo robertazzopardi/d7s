@@ -2,10 +2,7 @@ use color_eyre::Result;
 use rusqlite::{Connection as SqliteConnection, params};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    db::get_db_path,
-    virtual_table::VIRTUAL_TABLE_PAGE_SIZE,
-};
+use crate::{db::get_db_path, virtual_table::VIRTUAL_TABLE_PAGE_SIZE};
 
 const KEY_RECENT_TABLES: &str = "recent_tables";
 const KEY_SQL_HISTORY: &str = "sql_history";
@@ -19,13 +16,14 @@ struct RecentTableEntry {
     table: String,
 }
 
-/// Thin key/value store over the same SQLite file as connections.
+/// Thin key/value store over the same `SQLite` file as connections.
 pub struct PreferencesService;
 
 impl PreferencesService {
     pub fn get(key: &str) -> Result<Option<String>> {
         let conn = SqliteConnection::open(get_db_path()?)?;
-        let mut stmt = conn.prepare("SELECT value FROM preferences WHERE key = ?1")?;
+        let mut stmt =
+            conn.prepare("SELECT value FROM preferences WHERE key = ?1")?;
         let mut rows = stmt.query(params![key])?;
         if let Some(row) = rows.next()? {
             return Ok(row.get(0)?);
@@ -47,12 +45,11 @@ impl PreferencesService {
         Self::get(KEY_RECENT_TABLES)
             .ok()
             .flatten()
-            .and_then(|json| serde_json::from_str::<Vec<RecentTableEntry>>(&json).ok())
+            .and_then(|json| {
+                serde_json::from_str::<Vec<RecentTableEntry>>(&json).ok()
+            })
             .map(|entries| {
-                entries
-                    .into_iter()
-                    .map(|e| (e.schema, e.table))
-                    .collect()
+                entries.into_iter().map(|e| (e.schema, e.table)).collect()
             })
             .unwrap_or_default()
     }
@@ -128,7 +125,7 @@ mod tests {
 
     #[test]
     fn recent_tables_json_round_trip() {
-        let tables = vec![
+        let tables = [
             ("public".to_string(), "users".to_string()),
             ("sqlite_schema".to_string(), "items".to_string()),
         ];
@@ -142,7 +139,7 @@ mod tests {
         let json = serde_json::to_string(&entries).unwrap();
         let back: Vec<RecentTableEntry> = serde_json::from_str(&json).unwrap();
         assert_eq!(back.len(), 2);
-        assert_eq!(back[0].schema, "public");
-        assert_eq!(back[1].table, "items");
+        assert_eq!(back.first().expect("entry").schema, "public");
+        assert_eq!(back.get(1).expect("entry").table, "items");
     }
 }

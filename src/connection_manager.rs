@@ -108,8 +108,7 @@ impl App<'_> {
 
             // Update hotkeys for database mode
             self.hotkeys = DATABASE_HOTKEYS.to_vec();
-            let _ =
-                PreferencesService::set_last_connection(&connection.name);
+            let _ = PreferencesService::set_last_connection(&connection.name);
 
             // Load databases after successful connection
             self.load_databases().await?;
@@ -123,7 +122,10 @@ impl App<'_> {
     }
 
     /// Connect to a named connection from the connection list (CLI `-c`).
-    pub async fn connect_to_named_connection(&mut self, name: &str) -> Result<()> {
+    pub async fn connect_to_named_connection(
+        &mut self,
+        name: &str,
+    ) -> Result<()> {
         let idx = self
             .database_explorer
             .connections

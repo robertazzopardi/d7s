@@ -15,15 +15,15 @@ After discovering k9s, I thought it had the perfect format for a database client
 - **SQL executor** — execute SQL from the editor, choose a statement when multiple are present, with read-only-by-default safety and confirmation for mutating statements.
 - **Environment tagging** — label each connection as dev, staging, or prod.
 
-## Screenshot
+## Demo
 
-![d7s](demo.gif)
+![d7s — connect, browse tables, filter, help, SQL](demo.gif)
 
 ```sh
 just demo
 ```
 
-Requires [vhs](https://github.com/charmbracelet/vhs), `sqlite3`, and Docker. Uses an isolated HOME with fake connections only — assets and launcher in `demo/` (`D7S_DEMO` hides local paths in the recording).
+Requires [vhs](https://github.com/charmbracelet/vhs) and `sqlite3`. Uses an isolated HOME with fake connections only — assets and launcher in `demo/` (`D7S_DEMO` hides local paths in the recording).
 
 ## Install
 

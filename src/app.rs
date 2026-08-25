@@ -20,12 +20,12 @@ use crate::{
     filtered_data::FilteredData,
     services::{ConnectionService, PasswordService, PreferencesService},
     sql::safety::{StatementSafety, classify_statement, split_statements},
-    virtual_table::VIRTUAL_TABLE_PAGE_SIZE,
     ui::widgets::{
         help_view::HelpRow, hotkey::Hotkey, modal::ModalManager,
         status_line::StatusLine, table::TableDataState,
         top_bar_view::CONNECTION_HOTKEYS,
     },
+    virtual_table::VIRTUAL_TABLE_PAGE_SIZE,
 };
 
 pub const APP_NAME: &str = r"_________________
@@ -97,7 +97,8 @@ impl App<'_> {
 
         let items = ConnectionService::get_all().unwrap_or_default();
         self.database_explorer.connections = FilteredData::new(items);
-        self.database_explorer.recent_tables = PreferencesService::load_recent_tables();
+        self.database_explorer.recent_tables =
+            PreferencesService::load_recent_tables();
         self.page_size = PreferencesService::effective_page_size();
 
         self.build_info = build_info()?;
@@ -146,10 +147,8 @@ impl App<'_> {
                     .and_then(|path| std::fs::read_to_string(path).ok())
                     .unwrap_or_default()
             } else {
-                let temp_path = std::env::temp_dir().join(format!(
-                    "d7s_sql_{}.sql",
-                    std::process::id()
-                ));
+                let temp_path = std::env::temp_dir()
+                    .join(format!("d7s_sql_{}.sql", std::process::id()));
                 let current_sql =
                     self.database_explorer.sql_executor.sql_input();
                 std::fs::write(&temp_path, &current_sql)?;
