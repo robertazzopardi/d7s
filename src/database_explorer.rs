@@ -427,6 +427,7 @@ impl App<'_> {
             DatabaseExplorerState::Databases => {
                 if let Some(database_name) = self.get_selected_database_name() {
                     self.select_database(&database_name).await?;
+                    self.set_status(format!("Opened database {database_name}"));
                 }
             }
             DatabaseExplorerState::Schemas => {
@@ -434,6 +435,7 @@ impl App<'_> {
                     self.database_explorer.connection.schema =
                         Some(schema_name.clone());
                     self.load_tables(&schema_name).await?;
+                    self.set_status(format!("Opened schema {schema_name}"));
                 }
             }
             DatabaseExplorerState::Tables(schema_name) => {
@@ -441,10 +443,14 @@ impl App<'_> {
                     self.database_explorer.connection.table =
                         Some(table_name.clone());
                     self.load_table_data(&schema_name, &table_name).await?;
+                    self.set_status(format!(
+                        "Opened {schema_name}.{table_name}"
+                    ));
                 }
             }
             DatabaseExplorerState::Columns(ref schema_name, ref table_name) => {
                 self.load_table_data(schema_name, table_name).await?;
+                self.set_status(format!("Opened {schema_name}.{table_name}"));
             }
             DatabaseExplorerState::TableData(schema_name, table_name) => {
                 if let Some((column_name, cell_value, row_idx, col_idx, snap)) =

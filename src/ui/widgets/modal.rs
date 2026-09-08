@@ -23,7 +23,7 @@ use crate::{
             parse_connection_string, parse_postgres_url,
         },
     },
-    ui::widgets::buttons::Buttons,
+    ui::{theme, widgets::buttons::Buttons},
 };
 
 // Modal dimension constants
@@ -107,21 +107,15 @@ impl ModalField {
         self.input.move_cursor(ratatui_textarea::CursorMove::End);
         // Restore cursor style based on current focus state
         if self.is_focused {
-            self.input.set_cursor_style(
-                Style::default().bg(Color::Yellow).fg(Color::Black),
-            );
+            self.input.set_cursor_style(theme::focus_cursor());
         }
     }
 
     pub fn set_focus(&mut self, focused: bool) {
         self.is_focused = focused;
         if focused {
-            self.input.set_style(
-                Style::default().fg(Color::Yellow).bg(Color::DarkGray),
-            );
-            self.input.set_cursor_style(
-                Style::default().bg(Color::Yellow).fg(Color::Black),
-            );
+            self.input.set_style(theme::focus_field());
+            self.input.set_cursor_style(theme::focus_cursor());
         } else {
             self.input.set_style(Style::default().fg(Color::White));
             self.input.set_cursor_style(Style::default());
@@ -356,12 +350,9 @@ impl Modal {
     fn set_url_focus(&mut self, focused: bool) {
         self.step1_focus_on_url = focused;
         if focused {
-            self.step1_import_url.set_style(
-                Style::default().fg(Color::Yellow).bg(Color::DarkGray),
-            );
-            self.step1_import_url.set_cursor_style(
-                Style::default().bg(Color::Yellow).fg(Color::Black),
-            );
+            self.step1_import_url.set_style(theme::focus_field());
+            self.step1_import_url
+                .set_cursor_style(theme::focus_cursor());
         } else {
             self.step1_import_url
                 .set_style(Style::default().fg(Color::White));
@@ -1069,7 +1060,7 @@ impl Modal {
             .title(title)
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Blue))
+            .border_style(theme::modal_connection_border())
             .style(Style::default().bg(Color::Black));
         Clear.render(modal_area, buf);
         block.render(modal_area, buf);
@@ -1360,7 +1351,7 @@ impl Modal {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
+            .border_style(theme::modal_default_border())
             .style(Style::default().bg(Color::Black));
         let inner = block.inner(overlay_rect);
         block.render(overlay_rect, buf);
@@ -1402,7 +1393,7 @@ impl Modal {
                 ("Testing connection...", Style::default().fg(Color::Yellow))
             }
             TestResult::Success => {
-                ("✓ Connection successful", Style::default().fg(Color::Green))
+                ("✓ Connection successful", theme::success())
             }
             TestResult::Failed(msg) => {
                 (msg.as_str(), Style::default().fg(Color::Red))
@@ -1597,7 +1588,7 @@ impl Widget for ConfirmationModal {
             .title("Confirm Delete")
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Red))
+            .border_style(theme::modal_danger_border())
             .style(Style::default().bg(Color::Black));
         Clear.render(modal_area, buf);
         block.render(modal_area, buf);
@@ -1650,7 +1641,7 @@ impl Widget for SqlExecutionConfirmationModal {
             .title("Confirm SQL Execution")
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow))
+            .border_style(theme::modal_confirm_border())
             .style(Style::default().bg(Color::Black));
         Clear.render(modal_area, buf);
         block.render(modal_area, buf);
@@ -1692,7 +1683,7 @@ impl Widget for SqlQuerySelectionModal {
             .title("Select SQL Statement")
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
+            .border_style(theme::modal_default_border())
             .style(Style::default().bg(Color::Black));
         Clear.render(modal_area, buf);
         let inner = block.inner(modal_area);
@@ -1793,9 +1784,7 @@ impl CellValueModal {
         self.focus_editor = focused;
         if focused {
             self.input.set_style(Style::default().fg(Color::White));
-            self.input.set_cursor_style(
-                Style::default().bg(Color::Yellow).fg(Color::Black),
-            );
+            self.input.set_cursor_style(theme::focus_cursor());
         } else {
             self.input.set_style(Style::default().fg(Color::DarkGray));
             self.input.set_cursor_style(Style::default());
@@ -1918,7 +1907,7 @@ impl Widget for CellValueModal {
             .title(self.column_name.clone())
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
+            .border_style(theme::modal_default_border())
             .style(Style::default().bg(Color::Black));
         Clear.render(modal_area, buf);
         block.render(modal_area, buf);
@@ -1953,9 +1942,7 @@ impl PasswordModal {
         let mut input = TextArea::default();
         input.set_cursor_line_style(Style::default());
         // Show visible cursor in the password field
-        input.set_cursor_style(
-            Style::default().bg(Color::Yellow).fg(Color::Black),
-        );
+        input.set_cursor_style(theme::focus_cursor());
         // Mask characters so the password is never visible
         input.set_mask_char('•');
         // No undo/redo for password fields
@@ -2072,7 +2059,7 @@ impl Widget for PasswordModal {
             .title("Enter Password")
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow))
+            .border_style(theme::modal_confirm_border())
             .style(Style::default().bg(Color::Black));
         Clear.render(modal_area, buf);
         block.render(modal_area, buf);
@@ -2122,9 +2109,7 @@ impl JumpToRowModal {
     fn make_input() -> TextArea<'static> {
         let mut input = TextArea::default();
         input.set_cursor_line_style(Style::default());
-        input.set_cursor_style(
-            Style::default().bg(Color::Yellow).fg(Color::Black),
-        );
+        input.set_cursor_style(theme::focus_cursor());
         input.set_placeholder_text("Row number");
         input.set_max_histories(0);
         input
@@ -2216,7 +2201,7 @@ impl Widget for JumpToRowModal {
             .title(" Jump to row ")
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow));
+            .border_style(theme::modal_confirm_border());
         Clear.render(modal_area, buf);
         let inner = block.inner(modal_area);
         block.render(modal_area, buf);

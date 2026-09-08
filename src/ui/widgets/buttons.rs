@@ -4,6 +4,8 @@ use ratatui::{
     text::{Line, Span},
 };
 
+use crate::ui::theme;
+
 pub struct Buttons<'a> {
     pub buttons: Vec<&'a str>,
     pub selected: usize,
@@ -16,7 +18,7 @@ impl Widget for Buttons<'_> {
             if i == self.selected {
                 button_spans.push(Span::styled(
                     format!(" {button} "),
-                    Style::default().fg(Color::White).bg(Color::Blue),
+                    theme::accent().bg(theme::multi_select_bg()),
                 ));
             } else {
                 button_spans.push(Span::styled(

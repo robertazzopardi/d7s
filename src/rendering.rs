@@ -1,7 +1,8 @@
 use ratatui::{
     Frame,
     prelude::*,
-    widgets::{Block, Borders},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph, Wrap},
 };
 
 use crate::{
@@ -11,59 +12,63 @@ use crate::{
     filtered_data::FilteredData,
     ui::{
         sql_executor::SqlExecutor,
+        theme,
         widgets::{
             help_view::HelpRow,
             hotkey::Hotkey,
+            hotkey_view::global_hotkeys,
             modal::ConnectionModalWidget,
+            status_line::default_idle_hint,
             table::DataTable,
             top_bar_view::{TABLE_DATA_VIEW_HOTKEYS, TopBarView},
         },
     },
 };
 
-const TOPBAR_HEIGHT: u16 = 6;
+const TOPBAR_HEIGHT: u16 = 7;
+const FOOTER_HEIGHT: u16 = 1;
+const FILTER_BAR_HEIGHT: u16 = 3;
 
 impl App<'_> {
-    /// Renders the user interface.
-    ///
-    /// This is where you add new widgets. See the following resources for more information:
-    ///
-    /// - <https://docs.rs/ratatui/latest/ratatui/widgets/index.html>
-    /// - <https://github.com/ratatui/ratatui/tree/main/ratatui-widgets/examples>
     #[allow(clippy::too_many_lines)]
     pub fn render(&mut self, frame: &mut Frame) {
-        // Split layout: top bar, main content, and status line
-        // Status line gets fixed 1 row, main content takes the rest
-        let mut main_layout =
-            vec![Constraint::Length(TOPBAR_HEIGHT), Constraint::Min(0)];
-
-        if !self.status_line.message().is_empty() {
-            main_layout.push(Constraint::Length(1));
-        }
+        self.status_line
+            .set_idle_hint(default_idle_hint(self.state));
 
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(main_layout)
+            .constraints([
+                Constraint::Length(TOPBAR_HEIGHT),
+                Constraint::Min(0),
+                Constraint::Length(FOOTER_HEIGHT),
+            ])
             .split(frame.area());
-        let first_layout =
-            layout.first().copied().unwrap_or_else(Rect::default);
 
-        let (current_connection, build_info, recent_hotkeys) = if matches!(
+        let top_area = layout.first().copied().unwrap_or_else(Rect::default);
+        let content_area = layout.get(1).copied().unwrap_or_else(Rect::default);
+        let footer_area = layout.get(2).copied().unwrap_or_else(Rect::default);
+
+        let on_connection_list = matches!(
             self.database_explorer.state,
             DatabaseExplorerState::Connections
-        ) {
-            (
-                &Connection::default(),
-                Some(self.build_info.clone()),
-                Vec::new(),
-            )
-        } else {
-            (
-                &self.database_explorer.connection,
-                None,
-                self.database_explorer.recent_table_hotkeys(),
-            )
-        };
+        );
+        let global = global_hotkeys(on_connection_list);
+
+        let (current_connection, build_info, recent_hotkeys) =
+            if on_connection_list {
+                (
+                    &Connection::default(),
+                    Some(self.build_info.clone()),
+                    Vec::new(),
+                )
+            } else {
+                (
+                    &self.database_explorer.connection,
+                    None,
+                    self.database_explorer.recent_table_hotkeys(),
+                )
+            };
+
         let table_data_ext: Vec<Hotkey> = if matches!(
             self.database_explorer.state,
             DatabaseExplorerState::TableData(_, _)
@@ -81,60 +86,100 @@ impl App<'_> {
         } else {
             &table_data_ext
         };
+
         frame.render_widget(
             TopBarView {
                 current_connection,
                 recent_hotkeys: recent_hotkeys.as_slice(),
                 hotkeys: hotkey_bar,
+                global_hotkeys: global.as_slice(),
                 app_name: APP_NAME,
                 build_info,
             },
-            first_layout,
+            top_area,
         );
 
-        // Create the main content area (layout[1] is the middle section)
-        let layout_rect =
-            layout.get(1).copied().unwrap_or_else(|| frame.area());
         let main_area = if self.search_filter.is_some() {
-            // If search filter is active, create a layout with search filter at top
             let search_layout = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(3), // Search filter height
-                    Constraint::Min(0),    // Remaining space for table
+                    Constraint::Length(FILTER_BAR_HEIGHT),
+                    Constraint::Min(0),
                 ])
-                .split(layout_rect);
+                .split(content_area);
 
             let search_layout_rect =
                 search_layout.first().copied().unwrap_or_else(Rect::default);
 
-            // Render search filter
             if let Some(textarea) = &self.search_filter {
-                frame.render_widget(textarea, search_layout_rect);
+                let filter_block = Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(theme::border())
+                    .title(" Filter (current view) ")
+                    .title_style(theme::title());
+                let inner = filter_block.inner(search_layout_rect);
+                frame.render_widget(filter_block, search_layout_rect);
+                frame.render_widget(textarea, inner);
             }
 
             search_layout.get(1).copied().unwrap_or_else(Rect::default)
         } else {
-            layout_rect
+            content_area
         };
 
-        // Use explorer state for title and content (Connections uses same path as other states)
-        let title = if self.show_help {
-            " Help ".to_string()
-        } else {
-            match &self.database_explorer.state {
-                DatabaseExplorerState::TableData(_, _) => {
-                    let base = self.database_explorer.state.to_string();
-                    if let Some(meta) =
-                        &self.database_explorer.table_data_virtual
-                    {
+        let block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(theme::border())
+            .title(self.panel_title_line())
+            .title_alignment(Alignment::Center);
+
+        let inner_area = block.inner(main_area);
+        frame.render_widget(block, main_area);
+        self.render_database_table(frame, inner_area);
+
+        if let Some(hint) = self.empty_state_hint() {
+            Paragraph::new(hint)
+                .style(theme::muted())
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: true })
+                .render(inner_area, frame.buffer_mut());
+        }
+
+        frame.render_widget(self.status_line.clone(), footer_area);
+
+        self.render_modals(frame);
+    }
+
+    #[allow(clippy::option_if_let_else)] // clearer than nested map_or_else
+    fn panel_title_line(&self) -> Line<'static> {
+        if self.show_help {
+            return Line::from(Span::styled(" Help ", theme::title()));
+        }
+
+        if matches!(
+            self.database_explorer.state,
+            DatabaseExplorerState::Connections
+        ) {
+            let n = self.database_explorer.connections.table.model.items.len();
+            return Line::from(vec![
+                Span::styled(" Connections ", theme::title()),
+                Span::styled(format!("[{n}] "), theme::accent()),
+            ]);
+        }
+
+        let conn = &self.database_explorer.connection;
+        let env_tag = format!("[{}]", conn.environment);
+
+        let body = match &self.database_explorer.state {
+            DatabaseExplorerState::TableData(_, _) => {
+                let base = self.database_explorer.state.to_string();
+                match &self.database_explorer.table_data_virtual {
+                    Some(meta) => {
                         let filtered = self
                             .database_explorer
                             .table_data
                             .as_ref()
-                            .is_some_and(
-                                super::filtered_data::FilteredData::is_filtered,
-                            );
+                            .is_some_and(FilteredData::is_filtered);
                         let (visible, local_draft_rows) = self
                             .database_explorer
                             .table_data
@@ -152,54 +197,112 @@ impl App<'_> {
                             });
                         format!(
                             "{}{}",
-                            base.trim_end(),
+                            base.trim(),
                             meta.title_suffix(
                                 filtered,
                                 visible,
                                 local_draft_rows
                             )
                         )
-                    } else {
-                        base
                     }
+                    None => base.trim().to_string(),
                 }
-                DatabaseExplorerState::Connections
-                | DatabaseExplorerState::Databases
-                | DatabaseExplorerState::Schemas
-                | DatabaseExplorerState::Tables(_)
-                | DatabaseExplorerState::Columns(_, _)
-                | DatabaseExplorerState::SqlResults(_) => {
-                    let base = self.database_explorer.state.to_string();
-                    if self.has_active_filter() {
-                        format!("{base}· filtered ")
-                    } else {
-                        base
-                    }
+            }
+            DatabaseExplorerState::Connections
+            | DatabaseExplorerState::Databases
+            | DatabaseExplorerState::Schemas
+            | DatabaseExplorerState::Tables(_)
+            | DatabaseExplorerState::Columns(_, _)
+            | DatabaseExplorerState::SqlResults(_) => {
+                let base = self.database_explorer.state.to_string();
+                if self.has_active_filter() {
+                    format!("{} · filtered", base.trim())
+                } else {
+                    base.trim().to_string()
                 }
             }
         };
-        let block = Block::new()
-            .borders(Borders::ALL)
-            .title(title)
-            .title_alignment(Alignment::Center);
 
-        let inner_area = block.inner(main_area);
-        frame.render_widget(block, main_area);
-        self.render_database_table(frame, inner_area);
+        let prefix = {
+            let db = conn
+                .selected_database
+                .as_deref()
+                .unwrap_or(conn.name.as_str());
+            format!("{db} · ")
+        };
 
-        // Render status line at the bottom
-        if !self.status_line.message().is_empty()
-            && let Some(status_layout) = layout.get(2)
-        {
-            frame.render_widget(self.status_line.clone(), *status_layout);
-        }
-
-        // Render modals using the modal manager
-        self.render_modals(frame);
+        Line::from(vec![
+            Span::styled(env_tag, theme::env_style(conn.environment)),
+            Span::styled(format!(" {prefix}{body}"), theme::title()),
+        ])
     }
 
-    /// Render all active modals
+    fn empty_state_hint(&self) -> Option<&'static str> {
+        if self.show_help {
+            return None;
+        }
+
+        if self.has_active_filter() && self.active_table_is_empty() {
+            return Some("No matches — Esc to clear filter");
+        }
+
+        match &self.database_explorer.state {
+            DatabaseExplorerState::Connections
+                if self
+                    .database_explorer
+                    .connections
+                    .table
+                    .model
+                    .items
+                    .is_empty() =>
+            {
+                Some("Press n to add your first connection")
+            }
+            DatabaseExplorerState::Connections
+            | DatabaseExplorerState::Databases
+            | DatabaseExplorerState::Schemas
+            | DatabaseExplorerState::Tables(_)
+            | DatabaseExplorerState::Columns(_, _)
+            | DatabaseExplorerState::TableData(_, _)
+            | DatabaseExplorerState::SqlResults(_) => None,
+        }
+    }
+
+    fn active_table_is_empty(&self) -> bool {
+        let explorer = &self.database_explorer;
+        match &explorer.state {
+            DatabaseExplorerState::Connections => {
+                explorer.connections.table.model.items.is_empty()
+            }
+            DatabaseExplorerState::Databases => explorer
+                .databases
+                .as_ref()
+                .is_some_and(|d| d.table.model.items.is_empty()),
+            DatabaseExplorerState::Schemas => explorer
+                .schemas
+                .as_ref()
+                .is_some_and(|d| d.table.model.items.is_empty()),
+            DatabaseExplorerState::Tables(_) => explorer
+                .tables
+                .as_ref()
+                .is_some_and(|d| d.table.model.items.is_empty()),
+            DatabaseExplorerState::Columns(_, _) => explorer
+                .columns
+                .as_ref()
+                .is_some_and(|d| d.table.model.items.is_empty()),
+            DatabaseExplorerState::TableData(_, _) => explorer
+                .table_data
+                .as_ref()
+                .is_some_and(|d| d.table.model.items.is_empty()),
+            DatabaseExplorerState::SqlResults(_) => false,
+        }
+    }
+
     pub fn render_modals(&mut self, frame: &mut Frame) {
+        if !self.modal_manager.is_any_modal_open() {
+            return;
+        }
+
         let area = frame.area();
 
         if let Some(modal) = self.modal_manager.get_connection_modal_mut() {
@@ -234,7 +337,6 @@ impl App<'_> {
         }
     }
 
-    /// Render the appropriate database table based on explorer state
     pub fn render_database_table(&mut self, frame: &mut Frame, area: Rect) {
         if self.show_help {
             frame.render_stateful_widget(

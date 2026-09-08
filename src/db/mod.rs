@@ -1,3 +1,5 @@
+use ratatui::style::Style;
+
 pub mod connection;
 pub mod postgres;
 pub mod sqlite;
@@ -41,6 +43,16 @@ pub trait TableData {
 
     /// UI draft rows (e.g. pending `INSERT`) use this for styling.
     fn is_draft_row(&self) -> bool {
+        false
+    }
+
+    /// Optional per-cell styling (e.g. environment badge, help keys).
+    fn cell_style(&self, _column: usize) -> Option<Style> {
+        None
+    }
+
+    /// Section header row in help-like tables.
+    fn is_section_header(&self) -> bool {
         false
     }
 }

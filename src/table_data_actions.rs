@@ -78,15 +78,19 @@ impl App<'_> {
     }
 
     pub(crate) fn discard_table_draft(&mut self) -> bool {
-        let had = self
-            .database_explorer
-            .table_data
-            .as_ref()
-            .is_some_and(|fd| fd.table.model.items.iter().any(|r| r.is_draft));
+        let had = self.has_table_draft_rows();
         if had {
             self.strip_draft_rows_from_table_data();
+            self.draft_discard_pending = false;
         }
         had
+    }
+
+    pub(crate) fn has_table_draft_rows(&self) -> bool {
+        self.database_explorer
+            .table_data
+            .as_ref()
+            .is_some_and(|fd| fd.table.model.items.iter().any(|r| r.is_draft))
     }
 
     /// Insert a draft at `insert_at` (0..=len) and move the cursor to it.

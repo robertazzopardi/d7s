@@ -33,7 +33,7 @@ pub struct Hotkey {
 
 impl Display for Hotkey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.keycode)
+        write!(f, "{}", self.key_label())
     }
 }
 
@@ -47,10 +47,39 @@ impl Hotkey {
     }
 
     #[must_use]
+    pub const fn code(keycode: KeyCode, description: &'static str) -> Self {
+        Self {
+            keycode,
+            description: HotkeyDescription::Static(description),
+        }
+    }
+
+    #[must_use]
+    #[allow(clippy::wildcard_enum_match_arm)] // KeyCode is crossterm's; only label keys we show
+    pub fn key_label(&self) -> String {
+        match self.keycode {
+            KeyCode::Char(c) => c.to_string(),
+            KeyCode::Esc => "Esc".to_string(),
+            KeyCode::Enter => "Enter".to_string(),
+            KeyCode::Backspace => "Backspace".to_string(),
+            KeyCode::Tab => "Tab".to_string(),
+            KeyCode::Delete => "Del".to_string(),
+            KeyCode::Up => "↑".to_string(),
+            KeyCode::Down => "↓".to_string(),
+            KeyCode::Left => "←".to_string(),
+            KeyCode::Right => "→".to_string(),
+            KeyCode::Home => "Home".to_string(),
+            KeyCode::End => "End".to_string(),
+            KeyCode::PageUp => "PgUp".to_string(),
+            KeyCode::PageDown => "PgDn".to_string(),
+            other => format!("{other:?}"),
+        }
+    }
+
+    #[must_use]
     #[allow(dead_code)]
     pub fn length(&self) -> u16 {
-        let key_len =
-            u16::try_from(self.keycode.to_string().len()).unwrap_or(1);
+        let key_len = u16::try_from(self.key_label().len()).unwrap_or(1);
         let desc_len = u16::try_from(UnicodeWidthStr::width(
             self.description.display_suffix().as_ref(),
         ))

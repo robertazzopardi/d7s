@@ -41,6 +41,7 @@ pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 pub const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The main application which holds the state and logic of the application.
+#[allow(clippy::struct_excessive_bools)] // session flags; not worth a state machine
 pub struct App<'a> {
     /// Is the application running?
     pub(crate) running: bool,
@@ -67,6 +68,10 @@ pub struct App<'a> {
     pub(crate) help_table: TableDataState<HelpRow>,
     /// Rows per virtual table page (from prefs / `D7S_PAGE_SIZE`).
     pub(crate) page_size: u32,
+    /// First Esc warns before dropping draft rows; second Esc discards.
+    pub(crate) draft_discard_pending: bool,
+    /// One-shot hint after first connect in a session.
+    pub(crate) showed_help_hint: bool,
 }
 
 impl Default for App<'_> {
@@ -86,6 +91,8 @@ impl Default for App<'_> {
             show_help: false,
             help_table: TableDataState::new(Vec::new()),
             page_size: VIRTUAL_TABLE_PAGE_SIZE,
+            draft_discard_pending: false,
+            showed_help_hint: false,
         }
     }
 }
@@ -375,6 +382,19 @@ impl App<'_> {
         self.status_line.clear();
     }
 
+    pub(crate) fn connect_status_message(
+        &mut self,
+        name: &str,
+        env: crate::db::connection::Environment,
+    ) -> String {
+        if self.showed_help_hint {
+            format!("Connected to {name} ({env})")
+        } else {
+            self.showed_help_hint = true;
+            format!("Connected to {name} ({env}) — press ? for help")
+        }
+    }
+
     fn run_editor(terminal: &mut DefaultTerminal, path: &Path) -> Result<()> {
         let editor = std::env::var("VISUAL")
             .or_else(|_| std::env::var("EDITOR"))
@@ -442,13 +462,16 @@ impl App<'_> {
 /// Info related to the program
 fn build_info() -> Result<String> {
     let mut lines = vec![
-        format!(" NAME: {}", crate::app::PKG_NAME),
-        format!(" VERSION: {}", crate::app::PKG_VERSION),
+        format!("Name: {}", crate::app::PKG_NAME),
+        format!("Version: {}", crate::app::PKG_VERSION),
     ];
     if std::env::var("D7S_DEMO").is_err() {
         let path_buf = std::env::current_dir()?;
         let cwd = path_buf.as_path().to_str().unwrap_or(".");
-        lines.push(format!(" PATH: {cwd}"));
+        lines.push(format!(
+            "Path: {}",
+            crate::db::connection::shorten_home_path(cwd)
+        ));
     }
     Ok(lines.join("\n"))
 }

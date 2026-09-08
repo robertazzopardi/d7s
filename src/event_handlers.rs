@@ -16,6 +16,7 @@ use crate::{
     sql::safety::split_statements,
     ui::{
         handlers::TableNavigationHandler,
+        theme,
         widgets::{
             help_view::help_rows,
             modal::{ModalAction, TestResult},
@@ -23,6 +24,23 @@ use crate::{
         },
     },
 };
+
+const fn is_navigation_key(code: KeyCode) -> bool {
+    matches!(
+        code,
+        KeyCode::Char(
+            'j' | 'k' | 'h' | 'l' | 'g' | 'G' | '0' | '$' | 'b' | 'w'
+        ) | KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::Left
+            | KeyCode::Right
+    )
+}
+
+const fn should_clear_status_on_key(key: KeyEvent) -> bool {
+    !is_navigation_key(key.code)
+        && !matches!(key.code, KeyCode::Char('y' | 'Y'))
+}
 
 impl App<'_> {
     /// Reads the crossterm events and updates the state of [`App`].
@@ -32,7 +50,19 @@ impl App<'_> {
     pub async fn handle_crossterm_events(&mut self) -> Result<()> {
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
-                self.clear_status();
+                if should_clear_status_on_key(key) {
+                    self.clear_status();
+                }
+                // Nav keys leave the "Esc again to discard" status on screen
+                // (excluded from should_clear_status_on_key above), so they
+                // must not silently clear the pending flag it describes.
+                // Esc is excluded here because its own handler below reads
+                // this flag to decide first-press vs. second-press.
+                if should_clear_status_on_key(key)
+                    && !matches!(key.code, KeyCode::Esc)
+                {
+                    self.draft_discard_pending = false;
+                }
                 self.on_key_event(key).await?;
             }
             // Ignore non-press key events
@@ -159,7 +189,7 @@ impl App<'_> {
             }
             (_, KeyCode::Char('?')) => {
                 self.help_table = TableDataState::new(help_rows(
-                    self.state.clone(),
+                    self.state,
                     &self.database_explorer.state,
                 ));
                 self.show_help = true;
@@ -193,7 +223,13 @@ impl App<'_> {
                     DatabaseExplorerState::Connections
                 ) {
                     if let Some(name) = PreferencesService::last_connection() {
+                        let before = self.state;
                         self.connect_to_named_connection(&name).await?;
+                        if self.state == AppState::DatabaseConnected
+                            && before != AppState::DatabaseConnected
+                        {
+                            self.set_status(format!("Reconnected to {name}"));
+                        }
                     }
                     Ok(true)
                 } else {
@@ -304,9 +340,18 @@ impl App<'_> {
                 } else if matches!(
                     self.database_explorer.state,
                     DatabaseExplorerState::TableData(_, _)
-                ) && self.discard_table_draft()
+                ) && self.has_table_draft_rows()
                 {
-                    self.set_status("Draft discarded.");
+                    if self.draft_discard_pending {
+                        if self.discard_table_draft() {
+                            self.set_status("Draft discarded.");
+                        }
+                    } else {
+                        self.draft_discard_pending = true;
+                        self.set_status(
+                            "Draft row pending — Esc again to discard, s to commit",
+                        );
+                    }
                 } else if self.state == AppState::DatabaseConnected {
                     let is_sql_executor = matches!(
                         self.database_explorer.state,
@@ -401,9 +446,9 @@ impl App<'_> {
                 search_bar.set_max_histories(0);
                 search_bar.set_block(
                     Block::default()
-                        .border_style(Color::White)
+                        .border_style(theme::border())
                         .borders(Borders::ALL)
-                        .title(" Search Filter (ESC to cancel) "),
+                        .title(" Filter (current view) "),
                 );
                 self.search_filter = Some(search_bar);
             }
@@ -578,7 +623,7 @@ impl App<'_> {
         };
 
         // Store the state before attempting connection to check if it changed
-        let state_before = self.state.clone();
+        let state_before = self.state;
 
         // Try to connect with the password (don't store in session yet)
         let password_clone = password.clone();
@@ -590,7 +635,6 @@ impl App<'_> {
         if self.state == AppState::DatabaseConnected
             && state_before != AppState::DatabaseConnected
         {
-            // Connection succeeded, store password in session and close the modal
             self.password_service
                 .store_session_password(&connection, password);
             if let Some(password_modal) =
@@ -598,6 +642,11 @@ impl App<'_> {
             {
                 password_modal.close();
             }
+            let msg = self.connect_status_message(
+                &connection.name,
+                connection.environment,
+            );
+            self.set_status(msg);
         } else {
             // Connection failed, keep modal open so user can retry
             // Remove any password from session that might have been stored

@@ -2,14 +2,14 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use ratatui::{
     layout::{Constraint, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::Text,
     widgets::{Cell, HighlightSpacing, Row, StatefulWidget, Table, TableState},
 };
 
 use crate::{
     db::{DbRowId, TableData},
-    ui::widgets::constraint_len_calculator,
+    ui::{theme, widgets::constraint_len_calculator},
 };
 
 /// A wrapper type for raw table data with dynamic column names
@@ -343,15 +343,15 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
         // (reversed, bold) as the normal selection row.
         let row_highlight_style = match state.view.state.selected() {
             Some(i) if state.multi_row_selection.contains(&i) => {
-                let style =
-                    selected_row_style.patch(Style::new().bg(Color::Blue));
+                let style = selected_row_style
+                    .patch(Style::new().bg(theme::multi_select_bg()));
                 if state
                     .model
                     .items
                     .get(i)
                     .is_some_and(TableData::is_draft_row)
                 {
-                    style.patch(Style::new().fg(Color::LightGreen))
+                    style.patch(theme::draft_row())
                 } else {
                     style
                 }
@@ -372,6 +372,7 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
                     })
                     .collect::<Row>()
                     .height(1)
+                    .style(theme::header_row())
             },
             |dyn_cols| {
                 visible_cols
@@ -383,6 +384,7 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
                     })
                     .collect::<Row>()
                     .height(1)
+                    .style(theme::header_row())
             },
         );
 
@@ -390,18 +392,30 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
             state.model.items.iter().enumerate().map(|(row_idx, data)| {
                 let row_data = data.ref_array();
                 let mut row_style = Style::new();
-                if data.is_draft_row() {
-                    row_style = row_style.fg(Color::LightGreen);
+                if data.is_section_header() {
+                    row_style = theme::accent().add_modifier(Modifier::BOLD);
+                } else if data.is_draft_row() {
+                    row_style = theme::draft_row();
                 }
                 if state.multi_row_selection.contains(&row_idx) {
-                    row_style = row_style.bg(Color::Blue);
+                    row_style = row_style.bg(theme::multi_select_bg());
                 }
                 visible_cols
                     .iter()
-                    .map(|&idx| {
+                    .enumerate()
+                    .map(|(vis_idx, &idx)| {
                         let value =
                             row_data.get(idx).cloned().unwrap_or_default();
-                        Cell::from(value)
+                        let (mut text, cell_style) =
+                            format_display_cell(data, idx, value);
+                        if data.is_draft_row() && vis_idx == 0 {
+                            text = format!("~{text}");
+                        }
+                        let mut cell = Cell::from(text);
+                        if let Some(style) = cell_style {
+                            cell = cell.style(style);
+                        }
+                        cell
                     })
                     .collect::<Row>()
                     .style(row_style)
@@ -466,22 +480,32 @@ fn constraint_len_calculator_for_raw_data(
 // Helper function to create table styles
 fn create_table_styles()
 -> (Style, Style, Style, Text<'static>, HighlightSpacing) {
-    let selected_row_style = Style::default()
-        .add_modifier(Modifier::REVERSED | Modifier::BOLD)
-        .fg(Color::Black)
-        .bg(Color::Yellow);
-    let selected_col_style = Style::default().fg(Color::Cyan);
-    let selected_cell_style = Style::default()
-        .add_modifier(Modifier::REVERSED)
-        .fg(Color::Magenta);
-    let bar: &'static str = " █ ";
-    let highlight_symbol =
-        Text::from(vec!["".into(), bar.into(), bar.into(), "".into()]);
+    let selected_row_style = theme::selection_row();
+    let selected_col_style = theme::selection_col();
+    let selected_cell_style = theme::selection_cell();
+    // k9s highlights the cursor row as a plain full-width bar — no marker glyph.
+    let highlight_symbol = Text::from("");
     (
         selected_row_style,
         selected_col_style,
         selected_cell_style,
         highlight_symbol,
-        HighlightSpacing::Always,
+        HighlightSpacing::Never,
     )
+}
+
+fn format_display_cell<T: TableData>(
+    data: &T,
+    column: usize,
+    value: String,
+) -> (String, Option<Style>) {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        // Blank optional fields (e.g. Auth) — don't paint a null placeholder.
+        return (String::new(), None);
+    }
+    if trimmed.eq_ignore_ascii_case("null") {
+        return ("·".to_string(), Some(theme::null_cell()));
+    }
+    (value, data.cell_style(column))
 }

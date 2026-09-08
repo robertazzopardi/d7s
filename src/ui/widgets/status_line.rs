@@ -1,13 +1,15 @@
 use ratatui::{
     prelude::*,
-    style::Style,
     widgets::{Paragraph, Widget},
 };
 
-/// A simple status line widget that displays a message at the bottom of the screen
+use crate::{app_state::AppState, ui::theme};
+
+/// Footer status line (ratatui `Paragraph`).
 #[derive(Clone, Debug, Default)]
 pub struct StatusLine {
     message: String,
+    idle_hint: String,
 }
 
 impl StatusLine {
@@ -15,21 +17,18 @@ impl StatusLine {
     pub const fn new() -> Self {
         Self {
             message: String::new(),
+            idle_hint: String::new(),
         }
     }
 
-    /// Set the status message
     pub fn set_message(&mut self, message: impl Into<String>) {
         self.message = message.into();
     }
 
-    /// Get the current status message
-    #[must_use]
-    pub fn message(&self) -> &str {
-        &self.message
+    pub fn set_idle_hint(&mut self, hint: impl Into<String>) {
+        self.idle_hint = hint.into();
     }
 
-    /// Clear the status message
     pub fn clear(&mut self) {
         self.message.clear();
     }
@@ -41,17 +40,23 @@ impl Widget for StatusLine {
             return;
         }
 
-        // Always render the message, even if empty (will show blank line)
-        let text = if self.message.is_empty() {
-            " ".to_string()
+        let (text, style) = if self.message.is_empty() {
+            (self.idle_hint.as_str(), theme::status_idle())
         } else {
-            self.message
+            (self.message.as_str(), theme::status_message())
         };
 
-        let paragraph = Paragraph::new(text.as_str())
-            .style(Style::default())
-            .wrap(ratatui::widgets::Wrap { trim: true });
+        Paragraph::new(text)
+            .style(style)
+            .wrap(ratatui::widgets::Wrap { trim: true })
+            .render(area, buf);
+    }
+}
 
-        paragraph.render(area, buf);
+#[must_use]
+pub fn default_idle_hint(app_state: AppState) -> String {
+    match app_state {
+        AppState::ConnectionList => "? help · n new · q quit".to_string(),
+        AppState::DatabaseConnected => "? help · Esc back · q quit".to_string(),
     }
 }

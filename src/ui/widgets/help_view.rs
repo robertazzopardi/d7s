@@ -1,6 +1,9 @@
+use ratatui::style::Style;
+
 use crate::{
     app_state::{AppState, DatabaseExplorerState},
     db::TableData,
+    ui::theme,
 };
 
 /// One row in the help table: key label and description.
@@ -8,6 +11,7 @@ use crate::{
 pub struct HelpRow {
     key: &'static str,
     desc: &'static str,
+    section_header: bool,
 }
 
 impl TableData for HelpRow {
@@ -25,6 +29,23 @@ impl TableData for HelpRow {
 
     fn cols() -> Vec<&'static str> {
         vec!["Key", "Description"]
+    }
+
+    fn is_section_header(&self) -> bool {
+        self.section_header
+    }
+
+    fn cell_style(&self, column: usize) -> Option<Style> {
+        if self.section_header {
+            return Some(
+                theme::accent().add_modifier(ratatui::style::Modifier::BOLD),
+            );
+        }
+        if column == 0 {
+            Some(theme::accent())
+        } else {
+            Some(theme::muted())
+        }
     }
 }
 
@@ -184,6 +205,34 @@ const TABLE_DATA_HELP: &[HelpEntry] = &[
     },
 ];
 
+/// Keys for table data not shown in the top hotkey bar.
+const TABLE_DATA_HIDDEN_BAR: &[HelpEntry] = &[
+    HelpEntry {
+        key: "Space",
+        desc: "Toggle multi-select",
+    },
+    HelpEntry {
+        key: "Enter",
+        desc: "Edit cell",
+    },
+    HelpEntry {
+        key: "Y",
+        desc: "Copy row (TSV)",
+    },
+    HelpEntry {
+        key: ": / #",
+        desc: "Jump to row number",
+    },
+    HelpEntry {
+        key: "g / G",
+        desc: "Jump to top / bottom",
+    },
+    HelpEntry {
+        key: "0 / $",
+        desc: "First / last column",
+    },
+];
+
 const SQL_RESULTS_HELP: &[HelpEntry] = &[
     HelpEntry {
         key: "E",
@@ -200,6 +249,21 @@ const SQL_RESULTS_HELP: &[HelpEntry] = &[
     HelpEntry {
         key: "Ctrl+s / x",
         desc: "Export results to temp TSV",
+    },
+];
+
+const SQL_RESULTS_HIDDEN_BAR: &[HelpEntry] = &[
+    HelpEntry {
+        key: "Y",
+        desc: "Copy row (TSV)",
+    },
+    HelpEntry {
+        key: "Ctrl+s / x",
+        desc: "Export results to temp TSV",
+    },
+    HelpEntry {
+        key: "Esc",
+        desc: "Return to explorer",
     },
 ];
 
@@ -226,11 +290,13 @@ fn help_sections(
         ) => {
             sections.push(("Database", DATABASE_HELP));
             sections.push(("Table data", TABLE_DATA_HELP));
+            sections.push(("Not in top bar", TABLE_DATA_HIDDEN_BAR));
             sections.push(("Filter", FILTER_NOTE));
         }
         (AppState::DatabaseConnected, DatabaseExplorerState::SqlResults(_)) => {
             sections.push(("Database", DATABASE_HELP));
             sections.push(("SQL results", SQL_RESULTS_HELP));
+            sections.push(("Not in top bar", SQL_RESULTS_HIDDEN_BAR));
         }
         (AppState::DatabaseConnected, _) => {
             sections.push(("Database", DATABASE_HELP));
@@ -255,11 +321,13 @@ pub fn help_rows(
         rows.push(HelpRow {
             key: title,
             desc: group_desc,
+            section_header: true,
         });
         for entry in entries {
             rows.push(HelpRow {
                 key: entry.key,
                 desc: entry.desc,
+                section_header: false,
             });
         }
     }

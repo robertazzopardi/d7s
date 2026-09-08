@@ -69,11 +69,14 @@ impl App<'_> {
         }
 
         let connection_name = connection.name.clone();
+        let connection_env = connection.environment;
         self.database_explorer =
             DatabaseExplorer::new(connection, Some(sqlite));
         self.state = AppState::DatabaseConnected;
         self.hotkeys = DATABASE_HOTKEYS.to_vec();
         let _ = PreferencesService::set_last_connection(&connection_name);
+        let msg = self.connect_status_message(&connection_name, connection_env);
+        self.set_status(msg);
 
         // SQLite doesn't need the Databases/Schemas navigation steps
         // Load tables directly from the default sqlite_schema
@@ -102,13 +105,18 @@ impl App<'_> {
         if postgres.test().await {
             // Connection successful; keep selected_database so explorer is on "postgres"
             connection_with_password.selected_database = Some(default_db);
+            let connection_name = connection.name.clone();
+            let connection_env = connection.environment;
             self.database_explorer =
                 DatabaseExplorer::new(connection_with_password, Some(postgres));
             self.state = AppState::DatabaseConnected;
 
             // Update hotkeys for database mode
             self.hotkeys = DATABASE_HOTKEYS.to_vec();
-            let _ = PreferencesService::set_last_connection(&connection.name);
+            let _ = PreferencesService::set_last_connection(&connection_name);
+            let msg =
+                self.connect_status_message(&connection_name, connection_env);
+            self.set_status(msg);
 
             // Load databases after successful connection
             self.load_databases().await?;

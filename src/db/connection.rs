@@ -3,9 +3,13 @@ use std::{
     str::FromStr,
 };
 
+use ratatui::text::{Line, Span};
 use serde::{Deserialize, Serialize};
 
-use crate::db::{Database, TableData, postgres::Postgres, sqlite::Sqlite};
+use crate::{
+    db::{Database, TableData, postgres::Postgres, sqlite::Sqlite},
+    ui::theme,
+};
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
@@ -142,9 +146,12 @@ impl TableData for Connection {
         vec![
             self.name.clone(),
             self.r#type.to_string(),
-            redact_password_in_url(self.url.as_str()),
+            truncate_display_url(
+                &redact_password_in_url(self.url.as_str()),
+                40,
+            ),
             self.environment.to_string(),
-            self.metadata.to_string(),
+            self.auth_badge().to_string(),
         ]
     }
 
@@ -153,7 +160,15 @@ impl TableData for Connection {
     }
 
     fn cols() -> Vec<&'static str> {
-        vec!["Name", "Type", "Url", "Environment", "Metadata", "Password"]
+        vec!["Name", "Type", "Url", "Env", "Auth"]
+    }
+
+    fn cell_style(&self, column: usize) -> Option<ratatui::style::Style> {
+        if column == Self::ENV_COLUMN {
+            Some(theme::env_style(self.environment))
+        } else {
+            None
+        }
     }
 }
 
@@ -173,6 +188,60 @@ fn redact_password_in_url(url: &str) -> String {
             }
         },
     )
+}
+
+pub fn shorten_home_path(path: &str) -> String {
+    if let Ok(home) = std::env::var("HOME")
+        && let Some(rest) = path.strip_prefix(home.as_str())
+    {
+        return format!("~{rest}");
+    }
+    path.to_string()
+}
+
+fn ellipsize_tail(s: &str, max_chars: usize) -> String {
+    let count = s.chars().count();
+    if max_chars == 0 {
+        return String::new();
+    }
+    if count <= max_chars {
+        return s.to_string();
+    }
+    let keep = max_chars.saturating_sub(1);
+    let skip = count.saturating_sub(keep);
+    format!("…{}", s.chars().skip(skip).collect::<String>())
+}
+
+fn ellipsize_head(s: &str, max_chars: usize) -> String {
+    let count = s.chars().count();
+    if max_chars == 0 {
+        return String::new();
+    }
+    if count <= max_chars {
+        return s.to_string();
+    }
+    let keep = max_chars.saturating_sub(1);
+    let mut out: String = s.chars().take(keep).collect();
+    out.push('…');
+    out
+}
+
+fn truncate_display_url(url: &str, max_chars: usize) -> String {
+    ellipsize_tail(&shorten_home_path(url), max_chars)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_display_url;
+
+    #[test]
+    fn truncate_keeps_url_tail() {
+        let long = "/var/tmp/very/long/path/to/database/file/d7s.db";
+        let out = truncate_display_url(long, 20);
+        assert!(out.starts_with('…'));
+        assert!(out.ends_with("d7s.db"));
+        assert!(out.chars().count() <= 20);
+    }
 }
 
 impl Connection {
@@ -219,6 +288,20 @@ impl Connection {
             .is_some_and(|s| s.eq_ignore_ascii_case("keyring"))
     }
 
+    /// Short auth label for the connections table (not raw metadata JSON).
+    #[must_use]
+    pub fn auth_badge(&self) -> &'static str {
+        if self.r#type == ConnectionType::Sqlite {
+            ""
+        } else if self.should_ask_every_time() {
+            "ask"
+        } else if self.uses_keyring() {
+            "keyring"
+        } else {
+            ""
+        }
+    }
+
     /// User part of the connection (for prompts). Parsed from URL for postgres.
     #[must_use]
     pub fn user_display(&self) -> String {
@@ -229,6 +312,53 @@ impl Connection {
         }
         self.name.clone()
     }
+
+    /// One-line connection summary for the top bar.
+    #[must_use]
+    pub fn summary_line(&self, max_width: u16) -> Line<'static> {
+        let env_tag = format!("[{}]", self.environment);
+        let body = match self.r#type {
+            ConnectionType::Postgres => {
+                let (host, _, user, database_from_url) =
+                    parse_postgres_url(&self.url);
+                let database = self
+                    .selected_database
+                    .as_deref()
+                    .unwrap_or(&database_from_url);
+                let mut out =
+                    format!("{} · {user}@{host} · {database}", self.name);
+                if let Some(schema) =
+                    self.schema.as_deref().filter(|s| !s.is_empty())
+                {
+                    out = format!("{out} · {schema}");
+                }
+                if let Some(table) =
+                    self.table.as_deref().filter(|t| !t.is_empty())
+                {
+                    out = format!("{out} · {table}");
+                }
+                out
+            }
+            ConnectionType::Sqlite => {
+                let path = shorten_home_path(&self.url);
+                self.table.as_deref().filter(|t| !t.is_empty()).map_or_else(
+                    || format!("{} · {path}", self.name),
+                    |table| format!("{} · {path} · {table}", self.name),
+                )
+            }
+        };
+
+        let budget = (max_width as usize).saturating_sub(env_tag.len() + 1);
+        let body = ellipsize_head(&body, budget);
+
+        Line::from(vec![
+            Span::styled(env_tag, theme::env_style(self.environment)),
+            Span::raw(format!(" {body}")),
+        ])
+    }
+
+    /// Environment column index in the connections table.
+    pub const ENV_COLUMN: usize = 3;
 }
 
 /// Result of parsing a connection string. Used to prefill the connection form.

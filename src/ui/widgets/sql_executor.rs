@@ -1,10 +1,14 @@
 use ratatui::{
     prelude::*,
+    text::{Line, Span},
     widgets::{Paragraph, StatefulWidget, Wrap},
 };
 use ratatui_textarea::TextArea;
 
-use crate::ui::widgets::table::{DataTable, RawTableRow, TableDataState};
+use crate::ui::{
+    theme,
+    widgets::table::{DataTable, RawTableRow, TableDataState},
+};
 
 /// State for the SQL executor widget
 #[derive(Debug, Clone)]
@@ -23,7 +27,6 @@ impl Default for SqlExecutorState {
         let mut input = TextArea::default();
         input.set_cursor_line_style(Style::default());
         input.set_cursor_style(Style::default());
-        // SQL is loaded from an external editor, so undo/redo within the widget isn't useful
         input.set_max_histories(0);
         Self {
             input,
@@ -71,7 +74,6 @@ impl SqlExecutorState {
         self.table_state.reset(vec![], &[], None);
     }
 
-    /// Replace the SQL input text entirely after loading from external editor
     pub fn set_sql(&mut self, sql: &str) {
         let lines: Vec<String> = sql.lines().map(String::from).collect();
         self.input = TextArea::new(if lines.is_empty() {
@@ -87,7 +89,6 @@ impl SqlExecutorState {
         self.selected_statement = None;
     }
 
-    /// Get the SQL input text
     #[must_use]
     pub fn sql_input(&self) -> String {
         self.input.lines().join("\n")
@@ -103,6 +104,16 @@ impl SqlExecutorState {
     }
 }
 
+fn idle_hint_lines() -> Line<'static> {
+    Line::from(vec![
+        Span::raw("Press "),
+        Span::styled("e", theme::accent()),
+        Span::raw(" to open SQL editor  ·  Press "),
+        Span::styled("E", theme::accent()),
+        Span::raw(" to run"),
+    ])
+}
+
 /// SQL executor widget, which is stateless, only handles rendering
 pub struct SqlExecutor;
 
@@ -112,13 +123,13 @@ impl StatefulWidget for SqlExecutor {
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         if let Some(error) = &state.error_message {
             Paragraph::new(error.clone())
-                .style(Style::default().fg(Color::Red))
+                .style(theme::error())
                 .wrap(Wrap { trim: true })
                 .render(area, buf);
         } else if let Some(results) = &state.results {
             if results.is_empty() {
                 Paragraph::new("No results")
-                    .style(Style::default().fg(Color::Gray))
+                    .style(theme::muted())
                     .render(area, buf);
             } else {
                 DataTable::<RawTableRow>::default().render(
@@ -128,9 +139,7 @@ impl StatefulWidget for SqlExecutor {
                 );
             }
         } else {
-            Paragraph::new("Press 'e' to open editor")
-                .style(Style::default().fg(Color::DarkGray))
-                .render(area, buf);
+            idle_hint_lines().centered().render(area, buf);
         }
     }
 }
