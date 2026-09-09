@@ -1,4 +1,5 @@
 pub mod buttons;
+pub mod help_view;
 pub mod hotkey;
 pub mod hotkey_view;
 pub mod status_line;
