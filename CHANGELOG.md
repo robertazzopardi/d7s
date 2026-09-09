@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.4.0] - 2026-09-09
+
+### Added
+- k9s-style help view in main panel.
+- Bracketed paste handling and row TSV copy.
+- Persist MRU tables, SQL history, and page size.
+- Live filter, jump-to-row, and quick reconnect.
+- `--connection` and `--version` CLI flags.
+
+### Changed
+- k9s-style UI theme pass.
+- k9s-style stacked connection info in top bar.
+- Demo improvements and clippy lint fixes.
+
 ## [0.3.0] - 2026-06-06
 
 ### Added
