@@ -5,6 +5,7 @@ pub mod hotkey_view;
 pub mod status_line;
 pub mod table;
 pub mod text_input;
+pub mod top_bar;
 
 use unicode_width::UnicodeWidthStr;
 

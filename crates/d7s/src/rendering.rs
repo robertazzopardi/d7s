@@ -4,6 +4,7 @@ use k9tui::{
     widgets::{
         hotkey::Hotkey,
         table::{DataTable, TableData},
+        top_bar::TopBarView,
     },
 };
 use ratatui::{
@@ -25,7 +26,7 @@ use crate::{
             help_view::HelpRow,
             modal::ConnectionModalWidget,
             status_line::default_idle_hint,
-            top_bar_view::{TABLE_DATA_VIEW_HOTKEYS, TopBarView},
+            top_bar_view::TABLE_DATA_VIEW_HOTKEYS,
         },
     },
 };
@@ -59,7 +60,7 @@ impl App<'_> {
         );
         let global = global_hotkeys(on_connection_list);
 
-        let (current_connection, build_info, recent_hotkeys) =
+        let (connection, build_info, recent_hotkeys) =
             if on_connection_list {
                 (
                     &Connection::default(),
@@ -73,6 +74,8 @@ impl App<'_> {
                     self.database_explorer.recent_table_hotkeys(),
                 )
             };
+
+        let summary = connection.summary_stack();
 
         let table_data_ext: Vec<Hotkey> = if matches!(
             self.database_explorer.state,
@@ -94,7 +97,7 @@ impl App<'_> {
 
         frame.render_widget(
             TopBarView {
-                current_connection,
+                summary: &summary,
                 recent_hotkeys: recent_hotkeys.as_slice(),
                 hotkeys: hotkey_bar,
                 global_hotkeys: global.as_slice(),
