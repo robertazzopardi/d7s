@@ -87,9 +87,11 @@ impl Widget for TopBarView<'_> {
         if let Some(build_info) = &self.build_info {
             render_info_stack(build_info, app_info_cell, buf);
         } else {
-            let summary =
-                self.current_connection.summary_line(app_info_cell.width);
-            summary.render(app_info_cell, buf);
+            render_info_stack(
+                &self.current_connection.summary_stack(),
+                app_info_cell,
+                buf,
+            );
         }
 
         HotkeyView::new(self.recent_hotkeys).render(recent_cell, buf);

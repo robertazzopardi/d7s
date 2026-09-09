@@ -3,7 +3,6 @@ use std::{
     str::FromStr,
 };
 
-use ratatui::text::{Line, Span};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -212,20 +211,6 @@ fn ellipsize_tail(s: &str, max_chars: usize) -> String {
     format!("…{}", s.chars().skip(skip).collect::<String>())
 }
 
-fn ellipsize_head(s: &str, max_chars: usize) -> String {
-    let count = s.chars().count();
-    if max_chars == 0 {
-        return String::new();
-    }
-    if count <= max_chars {
-        return s.to_string();
-    }
-    let keep = max_chars.saturating_sub(1);
-    let mut out: String = s.chars().take(keep).collect();
-    out.push('…');
-    out
-}
-
 fn truncate_display_url(url: &str, max_chars: usize) -> String {
     ellipsize_tail(&shorten_home_path(url), max_chars)
 }
@@ -313,11 +298,11 @@ impl Connection {
         self.name.clone()
     }
 
-    /// One-line connection summary for the top bar.
+    /// k9s-style stacked "Label: value" lines for the top bar.
     #[must_use]
-    pub fn summary_line(&self, max_width: u16) -> Line<'static> {
-        let env_tag = format!("[{}]", self.environment);
-        let body = match self.r#type {
+    pub fn summary_stack(&self) -> String {
+        let mut lines = vec![format!("Connection: {}", self.name)];
+        match self.r#type {
             ConnectionType::Postgres => {
                 let (host, _, user, database_from_url) =
                     parse_postgres_url(&self.url);
@@ -325,36 +310,24 @@ impl Connection {
                     .selected_database
                     .as_deref()
                     .unwrap_or(&database_from_url);
-                let mut out =
-                    format!("{} · {user}@{host} · {database}", self.name);
+                lines.push(format!("Host: {host}"));
+                lines.push(format!("User: {user}"));
+                lines.push(format!("Database: {database}"));
                 if let Some(schema) =
                     self.schema.as_deref().filter(|s| !s.is_empty())
                 {
-                    out = format!("{out} · {schema}");
+                    lines.push(format!("Schema: {schema}"));
                 }
-                if let Some(table) =
-                    self.table.as_deref().filter(|t| !t.is_empty())
-                {
-                    out = format!("{out} · {table}");
-                }
-                out
             }
             ConnectionType::Sqlite => {
-                let path = shorten_home_path(&self.url);
-                self.table.as_deref().filter(|t| !t.is_empty()).map_or_else(
-                    || format!("{} · {path}", self.name),
-                    |table| format!("{} · {path} · {table}", self.name),
-                )
+                lines.push(format!("Path: {}", shorten_home_path(&self.url)));
             }
-        };
-
-        let budget = (max_width as usize).saturating_sub(env_tag.len() + 1);
-        let body = ellipsize_head(&body, budget);
-
-        Line::from(vec![
-            Span::styled(env_tag, theme::env_style(self.environment)),
-            Span::raw(format!(" {body}")),
-        ])
+        }
+        if let Some(table) = self.table.as_deref().filter(|t| !t.is_empty()) {
+            lines.push(format!("Table: {table}"));
+        }
+        lines.push(format!("Env: {}", self.environment));
+        lines.join("\n")
     }
 
     /// Environment column index in the connections table.
