@@ -4,3 +4,4 @@ rustc-ice-*
 *.mp4
 .demo-home/
 .demo-data/
+docker/sqlite/*.sqlite
