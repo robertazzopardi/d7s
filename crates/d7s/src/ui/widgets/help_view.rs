@@ -1,9 +1,9 @@
+use k9tui::theme;
 use ratatui::style::Style;
 
 use crate::{
     app_state::{AppState, DatabaseExplorerState},
     db::TableData,
-    ui::theme,
 };
 
 /// One row in the help table: key label and description.

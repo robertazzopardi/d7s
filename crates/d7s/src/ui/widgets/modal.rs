@@ -3,6 +3,7 @@
 use std::{fmt::Display, str::FromStr};
 
 use crossterm::event::{KeyCode, KeyEvent};
+use k9tui::theme;
 use ratatui::{
     prelude::{
         Alignment, Buffer, Constraint, Direction, Layout, Line, Rect, Widget,
@@ -23,7 +24,7 @@ use crate::{
             parse_connection_string, parse_postgres_url,
         },
     },
-    ui::{theme, widgets::buttons::Buttons},
+    ui::widgets::buttons::Buttons,
 };
 
 // Modal dimension constants

@@ -1,3 +1,4 @@
+use k9tui::theme;
 use ratatui::{
     prelude::{Buffer, Constraint, Layout, Rect, Widget},
     text::{Line, Span},
@@ -5,7 +6,7 @@ use ratatui::{
 };
 
 use super::{hotkey::Hotkey, hotkey_view::HotkeyView};
-use crate::{db::connection::Connection, ui::theme};
+use crate::db::connection::Connection;
 
 pub const CONNECTION_HOTKEYS: [Hotkey; 5] = [
     Hotkey::new('n', "New Connection"),

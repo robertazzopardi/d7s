@@ -2,6 +2,7 @@ use color_eyre::Result;
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
+use k9tui::theme;
 use ratatui::{
     style::{Color, Style},
     widgets::{Block, Borders, TableState},
@@ -16,7 +17,6 @@ use crate::{
     sql::safety::split_statements,
     ui::{
         handlers::TableNavigationHandler,
-        theme,
         widgets::{
             help_view::help_rows,
             modal::{ModalAction, TestResult},

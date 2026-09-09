@@ -1,3 +1,4 @@
+use k9tui::theme;
 use ratatui::{
     Frame,
     prelude::*,
@@ -12,7 +13,7 @@ use crate::{
     filtered_data::FilteredData,
     ui::{
         sql_executor::SqlExecutor,
-        theme,
+        theme as d7s_theme,
         widgets::{
             help_view::HelpRow,
             hotkey::Hotkey,
@@ -232,7 +233,7 @@ impl App<'_> {
         };
 
         Line::from(vec![
-            Span::styled(env_tag, theme::env_style(conn.environment)),
+            Span::styled(env_tag, d7s_theme::env_style(conn.environment)),
             Span::styled(format!(" {prefix}{body}"), theme::title()),
         ])
     }

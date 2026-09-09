@@ -1,9 +1,10 @@
+use k9tui::theme;
 use ratatui::{
     prelude::*,
     widgets::{Paragraph, Widget},
 };
 
-use crate::{app_state::AppState, ui::theme};
+use crate::app_state::AppState;
 
 /// Footer status line (ratatui `Paragraph`).
 #[derive(Clone, Debug, Default)]

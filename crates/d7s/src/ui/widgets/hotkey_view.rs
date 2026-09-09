@@ -1,11 +1,11 @@
 use crossterm::event::KeyCode;
+use k9tui::theme;
 use ratatui::{
     prelude::{Buffer, Rect, Widget},
     text::{Line, Span},
 };
 
 use super::hotkey::Hotkey;
-use crate::ui::theme;
 
 pub struct HotkeyView<'a> {
     pub hotkeys: &'a [Hotkey],

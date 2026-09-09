@@ -1,5 +1,6 @@
 use std::{collections::BTreeSet, sync::Arc};
 
+use k9tui::theme;
 use ratatui::{
     layout::{Constraint, Rect},
     style::{Modifier, Style},
@@ -9,7 +10,7 @@ use ratatui::{
 
 use crate::{
     db::{DbRowId, TableData},
-    ui::{theme, widgets::constraint_len_calculator},
+    ui::widgets::constraint_len_calculator,
 };
 
 /// A wrapper type for raw table data with dynamic column names
