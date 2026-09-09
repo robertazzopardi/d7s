@@ -1,10 +1,7 @@
-use k9tui::theme;
+use k9tui::{theme, widgets::table::TableData};
 use ratatui::style::Style;
 
-use crate::{
-    app_state::{AppState, DatabaseExplorerState},
-    db::TableData,
-};
+use crate::app_state::{AppState, DatabaseExplorerState};
 
 /// One row in the help table: key label and description.
 #[derive(Clone, Debug)]

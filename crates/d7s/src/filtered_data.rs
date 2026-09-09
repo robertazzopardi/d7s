@@ -1,7 +1,6 @@
-use crate::{
-    db::TableData,
-    ui::{handlers::TableNavigationHandler, widgets::table::TableDataState},
-};
+use k9tui::widgets::table::{TableData, TableDataState};
+
+use crate::ui::handlers::TableNavigationHandler;
 
 /// A wrapper for managing filtered data with original data preservation
 #[derive(Clone, Default)]

@@ -10,19 +10,23 @@ use crossterm::{
         enable_raw_mode,
     },
 };
-use k9tui::widgets::{hotkey::Hotkey, status_line::StatusLine};
+use k9tui::widgets::{
+    hotkey::Hotkey,
+    status_line::StatusLine,
+    table::{TableData, TableDataState},
+};
 use ratatui::DefaultTerminal;
 use ratatui_textarea::TextArea;
 
 use crate::{
     app_state::{AppState, DatabaseExplorerState},
     database_explorer_state::DatabaseExplorer,
-    db::{RowDeleteSpec, TableData, sqlite::init_db},
+    db::{RowDeleteSpec, sqlite::init_db},
     filtered_data::FilteredData,
     services::{ConnectionService, PasswordService, PreferencesService},
     sql::safety::{StatementSafety, classify_statement, split_statements},
     ui::widgets::{
-        help_view::HelpRow, modal::ModalManager, table::TableDataState,
+        help_view::HelpRow, modal::ModalManager,
         top_bar_view::CONNECTION_HOTKEYS,
     },
     virtual_table::VIRTUAL_TABLE_PAGE_SIZE,

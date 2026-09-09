@@ -1,6 +1,10 @@
 use k9tui::{
     theme,
-    widgets::{hotkey::Hotkey, hotkey_view::global_hotkeys},
+    widgets::{
+        hotkey::Hotkey,
+        hotkey_view::global_hotkeys,
+        table::{DataTable, TableData},
+    },
 };
 use ratatui::{
     Frame,
@@ -12,7 +16,7 @@ use ratatui::{
 use crate::{
     app::{APP_NAME, App},
     app_state::DatabaseExplorerState,
-    db::{TableData, connection::Connection},
+    db::connection::Connection,
     filtered_data::FilteredData,
     ui::{
         sql_executor::SqlExecutor,
@@ -21,7 +25,6 @@ use crate::{
             help_view::HelpRow,
             modal::ConnectionModalWidget,
             status_line::default_idle_hint,
-            table::DataTable,
             top_bar_view::{TABLE_DATA_VIEW_HOTKEYS, TopBarView},
         },
     },

@@ -9,7 +9,10 @@ use crate::{
     app::App,
     app_state::{AppState, DatabaseExplorerState},
     db::{DbRowId, RowDeleteSpec, connection::ConnectionType},
-    ui::{handlers::TableNavigationHandler, widgets::table::RawTableRow},
+    ui::{
+        handlers::TableNavigationHandler,
+        widgets::table::{RawTableRow, RawTableStateExt},
+    },
 };
 
 impl App<'_> {

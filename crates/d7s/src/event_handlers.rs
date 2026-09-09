@@ -2,7 +2,7 @@ use color_eyre::Result;
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
-use k9tui::theme;
+use k9tui::{theme, widgets::table::TableDataState};
 use ratatui::{
     style::{Color, Style},
     widgets::{Block, Borders, TableState},
@@ -20,7 +20,6 @@ use crate::{
         widgets::{
             help_view::help_rows,
             modal::{ModalAction, TestResult},
-            table::TableDataState,
         },
     },
 };

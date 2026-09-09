@@ -1,13 +1,6 @@
 use crossterm::event::KeyCode;
+use k9tui::widgets::table::{TableData, TableDataState, TableModel, TableViewState};
 use ratatui::widgets::TableState;
-
-use crate::{
-    db::TableData,
-    ui::{
-        table::{TableModel, TableViewState},
-        widgets::table::TableDataState,
-    },
-};
 
 /// Helper for table navigation operations
 pub struct TableNavigationHandler;

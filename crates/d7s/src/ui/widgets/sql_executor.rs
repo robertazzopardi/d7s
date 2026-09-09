@@ -1,4 +1,7 @@
-use k9tui::theme;
+use k9tui::{
+    theme,
+    widgets::table::{DataTable, TableDataState},
+};
 use ratatui::{
     prelude::*,
     text::{Line, Span},
@@ -6,7 +9,7 @@ use ratatui::{
 };
 use ratatui_textarea::TextArea;
 
-use crate::ui::widgets::table::{DataTable, RawTableRow, TableDataState};
+use crate::ui::widgets::table::{RawTableRow, RawTableStateExt};
 
 /// State for the SQL executor widget
 #[derive(Debug, Clone)]

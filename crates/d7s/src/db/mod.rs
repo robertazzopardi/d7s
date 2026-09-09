@@ -1,4 +1,4 @@
-use ratatui::style::Style;
+use k9tui::widgets::table::TableData;
 
 pub mod connection;
 pub mod postgres;
@@ -28,33 +28,6 @@ pub struct TableDataPage {
     pub rows: Vec<Vec<String>>,
     pub column_names: Vec<String>,
     pub row_ids: Vec<Option<DbRowId>>,
-}
-
-pub trait TableData {
-    #[allow(dead_code)]
-    fn title() -> &'static str;
-    fn ref_array(&self) -> Vec<String>;
-    fn num_columns(&self) -> usize;
-    fn cols() -> Vec<&'static str>;
-
-    fn col(&self, column: usize) -> String {
-        self.ref_array().get(column).cloned().unwrap_or_default()
-    }
-
-    /// UI draft rows (e.g. pending `INSERT`) use this for styling.
-    fn is_draft_row(&self) -> bool {
-        false
-    }
-
-    /// Optional per-cell styling (e.g. environment badge, help keys).
-    fn cell_style(&self, _column: usize) -> Option<Style> {
-        None
-    }
-
-    /// Section header row in help-like tables.
-    fn is_section_header(&self) -> bool {
-        false
-    }
 }
 
 #[async_trait::async_trait]

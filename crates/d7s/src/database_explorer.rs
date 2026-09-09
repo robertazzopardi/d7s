@@ -1,6 +1,8 @@
 use color_eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 
+use k9tui::widgets::table::TableDataState;
+
 use crate::{
     app::App,
     app_state::DatabaseExplorerState,
@@ -8,7 +10,7 @@ use crate::{
     filtered_data::FilteredData,
     ui::{
         handlers::TableNavigationHandler,
-        widgets::{modal::CellValueApply, table::TableDataState},
+        widgets::{modal::CellValueApply, table::RawTableStateExt},
     },
     virtual_table::VirtualTableMeta,
 };
