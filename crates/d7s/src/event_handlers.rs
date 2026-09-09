@@ -607,6 +607,11 @@ impl App<'_> {
     async fn handle_password_modal_save(&mut self) -> Result<bool> {
         // Extract data from modal before attempting connection
         // This releases the mutable borrow so we can call connect_with_password
+        let Some(connection) = self.modal_manager.password_connection().cloned()
+        else {
+            return Ok(false);
+        };
+
         let (connection, password) = {
             let Some(password_modal) =
                 self.modal_manager.get_password_modal_mut()
@@ -614,11 +619,7 @@ impl App<'_> {
                 return Ok(false);
             };
 
-            let Some(connection) = password_modal.connection.clone() else {
-                return Ok(false);
-            };
-
-            (connection, password_modal.password())
+            (connection, password_modal.input_value())
         };
 
         // Store the state before attempting connection to check if it changed
@@ -655,7 +656,7 @@ impl App<'_> {
             if let Some(password_modal) =
                 self.modal_manager.get_password_modal_mut()
             {
-                password_modal.clear_password();
+                password_modal.clear_input();
             }
         }
         Ok(true)

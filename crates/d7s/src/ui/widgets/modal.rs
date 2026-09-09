@@ -3,7 +3,16 @@
 use std::{fmt::Display, str::FromStr};
 
 use crossterm::event::{KeyCode, KeyEvent};
-use k9tui::{theme, widgets::{buttons::Buttons, modal::ModalField}};
+use k9tui::{
+    theme,
+    widgets::{
+        buttons::Buttons,
+        modal::{
+            ConfirmDialog, DialogAction, ModalField, PromptValidation,
+            TextPromptModal,
+        },
+    },
+};
 use ratatui::{
     prelude::{
         Alignment, Buffer, Constraint, Direction, Layout, Line, Rect, Widget,
@@ -29,10 +38,6 @@ use crate::{
 // Modal dimension constants
 const CONNECTION_MODAL_WIDTH: u16 = 40;
 const STEP1_MODAL_WIDTH: u16 = 48;
-const CONFIRMATION_MODAL_WIDTH: u16 = 50;
-const CONFIRMATION_MODAL_HEIGHT: u16 = 8;
-const PASSWORD_MODAL_WIDTH: u16 = 50;
-const PASSWORD_MODAL_HEIGHT: u16 = 8;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub enum Mode {
@@ -153,14 +158,6 @@ impl std::fmt::Debug for Modal {
     }
 }
 
-#[derive(Default, Debug, Clone)]
-pub struct ConfirmationModal {
-    pub is_open: bool,
-    pub selected_button: usize,
-    pub message: String,
-    pub connection: Option<Connection>,
-}
-
 /// Result of confirming an edit in the cell value modal (persisted to the DB, then UI).
 #[derive(Debug, Clone)]
 pub struct CellValueApply {
@@ -194,28 +191,11 @@ pub struct CellValueModal {
 }
 
 #[derive(Default, Debug, Clone)]
-pub struct SqlExecutionConfirmationModal {
-    pub is_open: bool,
-    pub selected_button: usize,
-    pub message: String,
-    pub statement: String,
-}
-
-#[derive(Default, Debug, Clone)]
 pub struct SqlQuerySelectionModal {
     pub is_open: bool,
     pub selected_index: usize,
     pub statements: Vec<String>,
     submitted: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PasswordModal {
-    pub is_open: bool,
-    input: TextArea<'static>,
-    pub connection: Option<Connection>,
-    pub prompt: String,
-    selected_button: usize,
 }
 
 impl Modal {
@@ -1309,105 +1289,6 @@ impl Modal {
     }
 }
 
-impl ConfirmationModal {
-    #[must_use]
-    pub const fn new(message: String, connection: Connection) -> Self {
-        Self {
-            is_open: true,
-            selected_button: 0,
-            message,
-            connection: Some(connection),
-        }
-    }
-
-    pub const fn close(&mut self) {
-        self.is_open = false;
-    }
-
-    pub const fn next_button(&mut self) {
-        self.selected_button = (self.selected_button + 1) % 2;
-    }
-
-    pub const fn prev_button(&mut self) {
-        self.selected_button = (self.selected_button + 1) % 2;
-    }
-
-    #[must_use]
-    pub const fn confirm(&self) -> bool {
-        self.selected_button == 0
-    }
-
-    pub const fn handle_key_events(&mut self, key: KeyEvent) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc | KeyCode::Enter) => {
-                self.close();
-            }
-            (_, KeyCode::Left) => {
-                self.prev_button();
-            }
-            (_, KeyCode::Right) => {
-                self.next_button();
-            }
-            _ => {}
-        }
-    }
-}
-
-impl SqlExecutionConfirmationModal {
-    #[must_use]
-    pub fn new(statement: String) -> Self {
-        let preview = statement
-            .lines()
-            .take(3)
-            .collect::<Vec<_>>()
-            .join("\n")
-            .chars()
-            .take(180)
-            .collect::<String>();
-        let message = format!(
-            "This statement may modify data.\n\nExecute anyway?\n\n{preview}"
-        );
-        Self {
-            is_open: true,
-            selected_button: 1, // Default to "No"
-            message,
-            statement,
-        }
-    }
-
-    pub const fn close(&mut self) {
-        self.is_open = false;
-    }
-
-    pub const fn next_button(&mut self) {
-        self.selected_button = (self.selected_button + 1) % 2;
-    }
-
-    pub const fn prev_button(&mut self) {
-        self.selected_button = (self.selected_button + 1) % 2;
-    }
-
-    #[must_use]
-    pub const fn confirm(&self) -> bool {
-        self.selected_button == 0
-    }
-
-    pub const fn handle_key_events(&mut self, key: KeyEvent) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc | KeyCode::Enter) => {
-                self.close();
-            }
-            (_, KeyCode::Left) => {
-                self.prev_button();
-            }
-            (_, KeyCode::Right) => {
-                self.next_button();
-            }
-            _ => {}
-        }
-    }
-}
-
 impl SqlQuerySelectionModal {
     #[must_use]
     pub const fn new(statements: Vec<String>) -> Self {
@@ -1465,107 +1346,6 @@ impl SqlQuerySelectionModal {
             }
             _ => {}
         }
-    }
-}
-
-impl Widget for ConfirmationModal {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        if !self.is_open {
-            return;
-        }
-
-        // Center a fixed-size modal
-        let x =
-            area.x + (area.width.saturating_sub(CONFIRMATION_MODAL_WIDTH)) / 2;
-        let y = area.y
-            + (area.height.saturating_sub(CONFIRMATION_MODAL_HEIGHT)) / 2;
-        let modal_area = Rect::new(
-            x,
-            y,
-            CONFIRMATION_MODAL_WIDTH,
-            CONFIRMATION_MODAL_HEIGHT,
-        );
-
-        let block = Block::default()
-            .title("Confirm Delete")
-            .title_alignment(Alignment::Center)
-            .borders(Borders::ALL)
-            .border_style(theme::modal_danger_border())
-            .style(Style::default().bg(Color::Black));
-        Clear.render(modal_area, buf);
-        block.render(modal_area, buf);
-
-        // Layout inside the modal: Message, Buttons
-        let inner_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(3), // Message
-                Constraint::Length(1), // Buttons
-            ])
-            .margin(1)
-            .split(modal_area);
-
-        // Render message
-        let content_layout = *inner_layout.first().unwrap_or(&Rect::ZERO);
-        Paragraph::new(self.message)
-            .style(Style::default().fg(Color::White))
-            .alignment(Alignment::Center)
-            .render(content_layout, buf);
-
-        // Render buttons
-        let buttons = Buttons {
-            buttons: vec!["Yes", "No"],
-            selected: self.selected_button,
-        };
-        let button_layout = *inner_layout.get(1).unwrap_or(&Rect::ZERO);
-        buttons.render(button_layout, buf);
-    }
-}
-
-impl Widget for SqlExecutionConfirmationModal {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        if !self.is_open {
-            return;
-        }
-
-        let x =
-            area.x + (area.width.saturating_sub(CONFIRMATION_MODAL_WIDTH)) / 2;
-        let y = area.y
-            + (area.height.saturating_sub(CONFIRMATION_MODAL_HEIGHT)) / 2;
-        let modal_area = Rect::new(
-            x,
-            y,
-            CONFIRMATION_MODAL_WIDTH,
-            CONFIRMATION_MODAL_HEIGHT,
-        );
-
-        let block = Block::default()
-            .title("Confirm SQL Execution")
-            .title_alignment(Alignment::Center)
-            .borders(Borders::ALL)
-            .border_style(theme::modal_confirm_border())
-            .style(Style::default().bg(Color::Black));
-        Clear.render(modal_area, buf);
-        block.render(modal_area, buf);
-
-        let inner_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(3), Constraint::Length(1)])
-            .margin(1)
-            .split(modal_area);
-
-        let content_layout = *inner_layout.first().unwrap_or(&Rect::ZERO);
-        Paragraph::new(self.message)
-            .style(Style::default().fg(Color::White))
-            .alignment(Alignment::Center)
-            .render(content_layout, buf);
-
-        let buttons = Buttons {
-            buttons: vec!["Yes", "No"],
-            selected: self.selected_button,
-        };
-        let button_layout = *inner_layout.get(1).unwrap_or(&Rect::ZERO);
-        buttons.render(button_layout, buf);
     }
 }
 
@@ -1839,297 +1619,20 @@ impl Widget for CellValueModal {
     }
 }
 
-impl PasswordModal {
-    fn make_input() -> TextArea<'static> {
-        let mut input = TextArea::default();
-        input.set_cursor_line_style(Style::default());
-        // Show visible cursor in the password field
-        input.set_cursor_style(theme::focus_cursor());
-        // Mask characters so the password is never visible
-        input.set_mask_char('•');
-        // No undo/redo for password fields
-        input.set_max_histories(0);
-        input
-    }
-
-    #[must_use]
-    pub fn new(connection: Connection, prompt: String) -> Self {
-        Self {
-            is_open: true,
-            input: Self::make_input(),
-            connection: Some(connection),
-            prompt,
-            selected_button: 0,
-        }
-    }
-
-    /// Get the current password text.
-    #[must_use]
-    pub fn password(&self) -> String {
-        self.input.lines().first().cloned().unwrap_or_default()
-    }
-
-    pub const fn close(&mut self) {
-        self.is_open = false;
-    }
-
-    /// Clear the password field
-    pub fn clear_password(&mut self) {
-        self.input = Self::make_input();
-    }
-
-    pub fn handle_key_events(&mut self, key: KeyEvent) -> ModalAction {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
-                self.close();
-                ModalAction::Cancel
-            }
-            (_, KeyCode::Tab | KeyCode::Down) => {
-                if self.selected_button == 0 {
-                    self.selected_button = 1;
-                }
-                ModalAction::None
-            }
-            (_, KeyCode::BackTab | KeyCode::Up) => {
-                if self.selected_button == 1 {
-                    self.selected_button = 0;
-                }
-                ModalAction::None
-            }
-            (_, KeyCode::Left) => {
-                if self.selected_button == 1 {
-                    self.selected_button = 0;
-                } else {
-                    self.input.input(key);
-                }
-                ModalAction::None
-            }
-            (_, KeyCode::Right) => {
-                if self.selected_button == 0 {
-                    // Move to button if cursor is already at end of input
-                    let line =
-                        self.input.lines().first().cloned().unwrap_or_default();
-                    let (_, col) = self.input.cursor();
-                    if col >= line.len() {
-                        self.selected_button = 1;
-                    } else {
-                        self.input.input(key);
-                    }
-                }
-                ModalAction::None
-            }
-            (_, KeyCode::Enter) => match self.selected_button {
-                0 if !self.password().is_empty() => {
-                    self.close();
-                    ModalAction::Save
-                }
-                1 => {
-                    self.close();
-                    ModalAction::Cancel
-                }
-                _ => ModalAction::None,
-            },
-            _ if self.selected_button == 0 => {
-                self.input.input(key);
-                ModalAction::None
-            }
-            _ => ModalAction::None,
-        }
-    }
-
-    pub fn handle_paste(&mut self, text: &str) {
-        if self.selected_button == 0 {
-            self.input.insert_str(text);
-        }
-    }
-}
-
-impl Widget for PasswordModal {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        if !self.is_open {
-            return;
-        }
-
-        // Center a fixed-size modal
-        let x = area.x + (area.width.saturating_sub(PASSWORD_MODAL_WIDTH)) / 2;
-        let y =
-            area.y + (area.height.saturating_sub(PASSWORD_MODAL_HEIGHT)) / 2;
-        let modal_area =
-            Rect::new(x, y, PASSWORD_MODAL_WIDTH, PASSWORD_MODAL_HEIGHT);
-
-        let block = Block::default()
-            .title("Enter Password")
-            .title_alignment(Alignment::Center)
-            .borders(Borders::ALL)
-            .border_style(theme::modal_confirm_border())
-            .style(Style::default().bg(Color::Black));
-        Clear.render(modal_area, buf);
-        block.render(modal_area, buf);
-
-        // Layout inside the modal: Prompt, Password input, Buttons
-        let inner_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(2), // Prompt
-                Constraint::Length(1), // Password input
-                Constraint::Length(1), // Buttons
-            ])
-            .margin(1)
-            .split(modal_area);
-
-        // Render prompt
-        let prompt_layout = *inner_layout.first().unwrap_or(&Rect::ZERO);
-        Paragraph::new(self.prompt)
-            .style(Style::default().fg(Color::White))
-            .alignment(Alignment::Left)
-            .render(prompt_layout, buf);
-
-        // Render password input — masking is handled by set_mask_char('•')
-        let content_layout = *inner_layout.get(1).unwrap_or(&Rect::ZERO);
-        Widget::render(&self.input, content_layout, buf);
-
-        // Render buttons
-        let buttons = Buttons {
-            buttons: vec!["OK", "Cancel"],
-            selected: self.selected_button,
-        };
-        let button_layout = *inner_layout.get(2).unwrap_or(&Rect::ZERO);
-        buttons.render(button_layout, buf);
-    }
-}
-
-/// Numeric row jump prompt (`:` / `#` in table data view).
-#[derive(Debug, Clone)]
-pub struct JumpToRowModal {
-    pub is_open: bool,
-    input: TextArea<'static>,
-    selected_button: usize,
-    submitted: bool,
-}
-
-impl JumpToRowModal {
-    fn make_input() -> TextArea<'static> {
-        let mut input = TextArea::default();
-        input.set_cursor_line_style(Style::default());
-        input.set_cursor_style(theme::focus_cursor());
-        input.set_placeholder_text("Row number");
-        input.set_max_histories(0);
-        input
-    }
-
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            is_open: true,
-            input: Self::make_input(),
-            selected_button: 0,
-            submitted: false,
-        }
-    }
-
-    #[must_use]
-    pub fn row_number(&self) -> Option<u64> {
-        self.input
-            .lines()
-            .first()
-            .and_then(|s| s.trim().parse::<u64>().ok())
-            .filter(|&n| n > 0)
-    }
-
-    pub const fn close(&mut self) {
-        self.is_open = false;
-    }
-
-    pub fn handle_key_events(&mut self, key: KeyEvent) -> ModalAction {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
-                self.close();
-                ModalAction::Cancel
-            }
-            (_, KeyCode::Tab | KeyCode::Down) => {
-                if self.selected_button == 0 {
-                    self.selected_button = 1;
-                }
-                ModalAction::None
-            }
-            (_, KeyCode::BackTab | KeyCode::Up) => {
-                if self.selected_button == 1 {
-                    self.selected_button = 0;
-                }
-                ModalAction::None
-            }
-            (_, KeyCode::Enter) => {
-                if self.selected_button == 0 && self.row_number().is_some() {
-                    self.submitted = true;
-                    self.close();
-                    ModalAction::Save
-                } else if self.selected_button == 1 {
-                    self.close();
-                    ModalAction::Cancel
-                } else {
-                    ModalAction::None
-                }
-            }
-            _ if self.selected_button == 0 => {
-                self.input.input(key);
-                ModalAction::None
-            }
-            _ => ModalAction::None,
-        }
-    }
-
-    pub fn handle_paste(&mut self, text: &str) {
-        if self.selected_button == 0 {
-            self.input.insert_str(text);
-        }
-    }
-}
-
-const JUMP_TO_ROW_MODAL_WIDTH: u16 = 36;
-const JUMP_TO_ROW_MODAL_HEIGHT: u16 = 7;
-
-impl Widget for JumpToRowModal {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        if !self.is_open {
-            return;
-        }
-        let x =
-            area.x + (area.width.saturating_sub(JUMP_TO_ROW_MODAL_WIDTH)) / 2;
-        let y =
-            area.y + (area.height.saturating_sub(JUMP_TO_ROW_MODAL_HEIGHT)) / 2;
-        let modal_area =
-            Rect::new(x, y, JUMP_TO_ROW_MODAL_WIDTH, JUMP_TO_ROW_MODAL_HEIGHT);
-        let block = Block::default()
-            .title(" Jump to row ")
-            .title_alignment(Alignment::Center)
-            .borders(Borders::ALL)
-            .border_style(theme::modal_confirm_border());
-        Clear.render(modal_area, buf);
-        let inner = block.inner(modal_area);
-        block.render(modal_area, buf);
-        let [input_area, button_area] =
-            Layout::vertical([Constraint::Length(3), Constraint::Length(1)])
-                .areas(inner);
-        Widget::render(&self.input, input_area, buf);
-        Buttons {
-            buttons: vec!["Go", "Cancel"],
-            selected: self.selected_button,
-        }
-        .render(button_area, buf);
-    }
-}
-
 /// Manager for handling multiple modals in the application
 #[derive(Default, Debug)]
 pub struct ModalManager {
     connection_modal: Option<Modal>,
-    confirmation_modal: Option<ConfirmationModal>,
-    sql_execution_confirmation_modal: Option<SqlExecutionConfirmationModal>,
+    confirmation_modal: Option<ConfirmDialog>,
+    confirmation_connection: Option<Connection>,
+    sql_execution_confirmation_modal: Option<ConfirmDialog>,
+    sql_execution_statement: Option<String>,
     sql_query_selection_modal: Option<SqlQuerySelectionModal>,
     cell_value_modal: Option<CellValueModal>,
     cell_value_apply: Option<CellValueApply>,
-    password_modal: Option<PasswordModal>,
-    jump_to_row_modal: Option<JumpToRowModal>,
+    password_modal: Option<TextPromptModal>,
+    password_connection: Option<Connection>,
+    jump_to_row_modal: Option<TextPromptModal>,
     active_modal_type: Option<ModalType>,
 }
 
@@ -2140,11 +1643,14 @@ impl ModalManager {
         Self {
             connection_modal: None,
             confirmation_modal: None,
+            confirmation_connection: None,
             sql_execution_confirmation_modal: None,
+            sql_execution_statement: None,
             sql_query_selection_modal: None,
             cell_value_modal: None,
             cell_value_apply: None,
             password_modal: None,
+            password_connection: None,
             jump_to_row_modal: None,
             active_modal_type: None,
         }
@@ -2198,14 +1704,37 @@ impl ModalManager {
         message: String,
         connection: Connection,
     ) {
-        let modal = ConfirmationModal::new(message, connection);
+        let modal = ConfirmDialog::new(
+            "Confirm Delete",
+            message,
+            theme::modal_danger_border(),
+            0,
+        );
         self.confirmation_modal = Some(modal);
+        self.confirmation_connection = Some(connection);
         self.active_modal_type = Some(ModalType::Confirmation);
     }
 
     pub fn open_sql_execution_confirmation_modal(&mut self, statement: String) {
-        let modal = SqlExecutionConfirmationModal::new(statement);
+        let preview = statement
+            .lines()
+            .take(3)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .chars()
+            .take(180)
+            .collect::<String>();
+        let message = format!(
+            "This statement may modify data.\n\nExecute anyway?\n\n{preview}"
+        );
+        let modal = ConfirmDialog::new(
+            "Confirm SQL Execution",
+            message,
+            theme::modal_confirm_border(),
+            1,
+        );
         self.sql_execution_confirmation_modal = Some(modal);
+        self.sql_execution_statement = Some(statement);
         self.active_modal_type = Some(ModalType::SqlExecutionConfirmation);
     }
 
@@ -2250,13 +1779,20 @@ impl ModalManager {
         connection: Connection,
         prompt: String,
     ) {
-        let modal = PasswordModal::new(connection, prompt);
+        let modal = TextPromptModal::new("Enter Password", 50, 8)
+            .with_prompt(prompt)
+            .masked();
         self.password_modal = Some(modal);
+        self.password_connection = Some(connection);
         self.active_modal_type = Some(ModalType::Password);
     }
 
     pub fn open_jump_to_row_modal(&mut self) {
-        self.jump_to_row_modal = Some(JumpToRowModal::new());
+        let modal = TextPromptModal::new(" Jump to row ", 36, 7)
+            .with_placeholder("Row number")
+            .with_validation(PromptValidation::PositiveInteger)
+            .with_buttons("Go", "Cancel");
+        self.jump_to_row_modal = Some(modal);
         self.active_modal_type = Some(ModalType::JumpToRow);
     }
 
@@ -2267,14 +1803,20 @@ impl ModalManager {
             && !modal.is_open
             && modal.submitted
         {
-            return modal.row_number();
+            return modal.parsed_positive_int();
         }
         None
     }
 
     #[must_use]
-    pub const fn get_jump_to_row_modal(&self) -> Option<&JumpToRowModal> {
+    pub const fn get_jump_to_row_modal(&self) -> Option<&TextPromptModal> {
         self.jump_to_row_modal.as_ref()
+    }
+
+    /// Connection associated with the currently open (or just-closed) password modal.
+    #[must_use]
+    pub const fn password_connection(&self) -> Option<&Connection> {
+        self.password_connection.as_ref()
     }
 
     /// Close the currently active modal
@@ -2339,15 +1881,14 @@ impl ModalManager {
             }
             Some(ModalType::Confirmation) => {
                 if let Some(modal) = &mut self.confirmation_modal {
-                    modal.handle_key_events(key);
-                    // If modal was closed, clear the active type
+                    let action = modal.handle_key_events(key);
                     if !modal.is_open {
                         self.active_modal_type = None;
                     }
-                    if modal.confirm() {
-                        ModalAction::Save
-                    } else {
-                        ModalAction::Cancel
+                    match action {
+                        DialogAction::Submit => ModalAction::Save,
+                        DialogAction::Cancel => ModalAction::Cancel,
+                        DialogAction::None => ModalAction::None,
                     }
                 } else {
                     ModalAction::None
@@ -2370,14 +1911,14 @@ impl ModalManager {
             Some(ModalType::SqlExecutionConfirmation) => {
                 if let Some(modal) = &mut self.sql_execution_confirmation_modal
                 {
-                    modal.handle_key_events(key);
+                    let action = modal.handle_key_events(key);
                     if !modal.is_open {
                         self.active_modal_type = None;
                     }
-                    if modal.confirm() {
-                        ModalAction::Save
-                    } else {
-                        ModalAction::Cancel
+                    match action {
+                        DialogAction::Submit => ModalAction::Save,
+                        DialogAction::Cancel => ModalAction::Cancel,
+                        DialogAction::None => ModalAction::None,
                     }
                 } else {
                     ModalAction::None
@@ -2405,7 +1946,11 @@ impl ModalManager {
                     if !modal.is_open {
                         self.active_modal_type = None;
                     }
-                    action
+                    match action {
+                        DialogAction::Submit => ModalAction::Save,
+                        DialogAction::Cancel => ModalAction::Cancel,
+                        DialogAction::None => ModalAction::None,
+                    }
                 } else {
                     ModalAction::None
                 }
@@ -2416,7 +1961,11 @@ impl ModalManager {
                     if !modal.is_open {
                         self.active_modal_type = None;
                     }
-                    action
+                    match action {
+                        DialogAction::Submit => ModalAction::Save,
+                        DialogAction::Cancel => ModalAction::Cancel,
+                        DialogAction::None => ModalAction::None,
+                    }
                 } else {
                     ModalAction::None
                 }
@@ -2439,7 +1988,7 @@ impl ModalManager {
 
     /// Get a reference to the confirmation modal
     #[must_use]
-    pub const fn get_confirmation_modal(&self) -> Option<&ConfirmationModal> {
+    pub const fn get_confirmation_modal(&self) -> Option<&ConfirmDialog> {
         self.confirmation_modal.as_ref()
     }
 
@@ -2454,9 +2003,9 @@ impl ModalManager {
     pub fn was_confirmation_modal_confirmed(&self) -> Option<Connection> {
         if let Some(modal) = &self.confirmation_modal
             && !modal.is_open
-            && modal.confirm()
+            && modal.is_confirmed()
         {
-            return modal.connection.clone();
+            return self.confirmation_connection.clone();
         }
 
         None
@@ -2474,6 +2023,7 @@ impl ModalManager {
             && !modal.is_open
         {
             self.confirmation_modal = None;
+            self.confirmation_connection = None;
         }
 
         if let Some(modal) = &self.cell_value_modal
@@ -2498,6 +2048,7 @@ impl ModalManager {
             && !modal.is_open
         {
             self.password_modal = None;
+            self.password_connection = None;
         }
 
         if let Some(modal) = &self.jump_to_row_modal
@@ -2509,14 +2060,14 @@ impl ModalManager {
 
     /// Get a reference to the password modal
     #[must_use]
-    pub const fn get_password_modal(&self) -> Option<&PasswordModal> {
+    pub const fn get_password_modal(&self) -> Option<&TextPromptModal> {
         self.password_modal.as_ref()
     }
 
     /// Get a mutable reference to the password modal
     pub const fn get_password_modal_mut(
         &mut self,
-    ) -> Option<&mut PasswordModal> {
+    ) -> Option<&mut TextPromptModal> {
         self.password_modal.as_mut()
     }
 
@@ -2537,9 +2088,9 @@ impl ModalManager {
     pub fn was_sql_execution_confirmed(&self) -> Option<String> {
         if let Some(modal) = &self.sql_execution_confirmation_modal
             && !modal.is_open
-            && modal.confirm()
+            && modal.is_confirmed()
         {
-            return Some(modal.statement.clone());
+            return self.sql_execution_statement.clone();
         }
         None
     }
@@ -2548,7 +2099,7 @@ impl ModalManager {
     #[must_use]
     pub const fn get_sql_execution_confirmation_modal(
         &self,
-    ) -> Option<&SqlExecutionConfirmationModal> {
+    ) -> Option<&ConfirmDialog> {
         self.sql_execution_confirmation_modal.as_ref()
     }
 
