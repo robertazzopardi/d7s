@@ -249,6 +249,8 @@ pub struct TextPromptModal {
     validation: PromptValidation,
     buttons: [&'static str; 2],
     selected_button: usize,
+    masked: bool,
+    placeholder: Option<&'static str>,
 }
 
 impl TextPromptModal {
@@ -273,6 +275,8 @@ impl TextPromptModal {
             validation: PromptValidation::NonEmpty,
             buttons: ["OK", "Cancel"],
             selected_button: 0,
+            masked: false,
+            placeholder: None,
         }
     }
 
@@ -284,12 +288,14 @@ impl TextPromptModal {
 
     #[must_use]
     pub fn masked(mut self) -> Self {
+        self.masked = true;
         self.input.set_mask_char('•');
         self
     }
 
     #[must_use]
     pub fn with_placeholder(mut self, placeholder: &'static str) -> Self {
+        self.placeholder = Some(placeholder);
         self.input.set_placeholder_text(placeholder);
         self
     }
@@ -333,6 +339,12 @@ impl TextPromptModal {
     /// Clear the input field back to empty.
     pub fn clear_input(&mut self) {
         self.input = Self::make_input();
+        if self.masked {
+            self.input.set_mask_char('•');
+        }
+        if let Some(placeholder) = self.placeholder {
+            self.input.set_placeholder_text(placeholder);
+        }
     }
 
     fn can_submit(&self) -> bool {
