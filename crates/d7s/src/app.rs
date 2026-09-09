@@ -10,6 +10,7 @@ use crossterm::{
         enable_raw_mode,
     },
 };
+use k9tui::widgets::{hotkey::Hotkey, status_line::StatusLine};
 use ratatui::DefaultTerminal;
 use ratatui_textarea::TextArea;
 
@@ -21,8 +22,7 @@ use crate::{
     services::{ConnectionService, PasswordService, PreferencesService},
     sql::safety::{StatementSafety, classify_statement, split_statements},
     ui::widgets::{
-        help_view::HelpRow, hotkey::Hotkey, modal::ModalManager,
-        status_line::StatusLine, table::TableDataState,
+        help_view::HelpRow, modal::ModalManager, table::TableDataState,
         top_bar_view::CONNECTION_HOTKEYS,
     },
     virtual_table::VIRTUAL_TABLE_PAGE_SIZE,

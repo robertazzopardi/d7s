@@ -1,7 +1,4 @@
-pub mod buttons;
 pub mod help_view;
-pub mod hotkey;
-pub mod hotkey_view;
 pub mod modal;
 pub mod sql_executor;
 pub mod status_line;

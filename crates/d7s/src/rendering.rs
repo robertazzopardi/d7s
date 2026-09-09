@@ -1,4 +1,7 @@
-use k9tui::theme;
+use k9tui::{
+    theme,
+    widgets::{hotkey::Hotkey, hotkey_view::global_hotkeys},
+};
 use ratatui::{
     Frame,
     prelude::*,
@@ -16,8 +19,6 @@ use crate::{
         theme as d7s_theme,
         widgets::{
             help_view::HelpRow,
-            hotkey::Hotkey,
-            hotkey_view::global_hotkeys,
             modal::ConnectionModalWidget,
             status_line::default_idle_hint,
             table::DataTable,

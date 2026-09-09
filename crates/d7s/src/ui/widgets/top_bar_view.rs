@@ -1,11 +1,13 @@
-use k9tui::theme;
+use k9tui::{
+    theme,
+    widgets::{hotkey::Hotkey, hotkey_view::HotkeyView},
+};
 use ratatui::{
     prelude::{Buffer, Constraint, Layout, Rect, Widget},
     text::{Line, Span},
     widgets::Paragraph,
 };
 
-use super::{hotkey::Hotkey, hotkey_view::HotkeyView};
 use crate::db::connection::Connection;
 
 pub const CONNECTION_HOTKEYS: [Hotkey; 5] = [

@@ -1,4 +1,5 @@
 use crossterm::event::KeyCode;
+use k9tui::widgets::hotkey::{Hotkey, HotkeyDescription};
 use ratatui::widgets::TableState;
 
 use crate::{
@@ -8,13 +9,7 @@ use crate::{
     },
     filtered_data::FilteredData,
     services::PreferencesService,
-    ui::{
-        sql_executor::SqlExecutorState,
-        widgets::{
-            hotkey::{Hotkey, HotkeyDescription},
-            table::RawTableRow,
-        },
-    },
+    ui::{sql_executor::SqlExecutorState, widgets::table::RawTableRow},
     virtual_table::VirtualTableMeta,
 };
 

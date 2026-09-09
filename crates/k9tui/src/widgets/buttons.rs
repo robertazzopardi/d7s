@@ -1,4 +1,4 @@
-use k9tui::theme;
+use crate::theme;
 use ratatui::{
     prelude::{Buffer, Rect, Widget},
     style::{Color, Style},
