@@ -6,7 +6,7 @@ authors = ["Rob <robertazzopardi@users.noreply.github.com>"]
 license = "MIT"
 repository = "https://github.com/robertazzopardi/d7s"
 edition = "2024"
-readme = "../../README.md"
+readme = "README.md"
 keywords = [
     "database",
     "tui",
@@ -22,9 +22,9 @@ categories = [
 include = [
     "src/**/*",
     "Cargo.toml",
-    "../../LICENSE",
-    "../../README.md",
-    "../../CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md",
 ]
 
 [package.metadata.bundle]
@@ -32,7 +32,7 @@ identifier = "com.robertazzopardi.d7s"
 
 [dependencies]
 # Internal
-k9tui = { path = "../k9tui" }
+k9tui = { path = "../k9tui", version = "0.1.0" }
 
 # UI
 crossterm = { version = "0.29.0", default-features = false, features = ["osc52", "bracketed-paste", "events", "windows"] }
@@ -79,16 +79,5 @@ directories = "6.0.0"
 ratatui-textarea = "0.8.0"
 sqlparser = "0.61.0"
 
-[profile.release]
-codegen-units = 1
-lto = true
-opt-level = "s"
-strip = true
-
-[lints.clippy]
-indexing_slicing = "deny"
-fallible_impl_from = "deny"
-wildcard_enum_match_arm = "deny"
-unneeded_field_pattern = "deny"
-fn_params_excessive_bools = "deny"
-must_use_candidate = "deny"
+[lints]
+workspace = true

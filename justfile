@@ -122,8 +122,8 @@ release VERSION:
         exit 1
     fi
 
-    # Bump version
-    cargo set-version {{VERSION}}
+    # Bump version (d7s only — k9tui versions independently)
+    cargo set-version -p d7s {{VERSION}}
 
     # Commit and tag
     git add Cargo.toml Cargo.lock CHANGELOG.md
@@ -133,6 +133,7 @@ release VERSION:
 
     echo "Pushed v{{VERSION}} — waiting for crates.io index to update before publishing..."
     sleep 10
-    cargo publish
+    cargo publish -p d7s
+    # TODO: once k9tui is meant to be published standalone, add `cargo publish -p k9tui` here too
 
     echo "Released v{{VERSION}} — GitHub Actions will build and publish binaries."

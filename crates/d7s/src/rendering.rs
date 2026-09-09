@@ -1,8 +1,8 @@
+use crate::ui::widgets::hotkey_view::global_hotkeys;
 use k9tui::{
     theme,
     widgets::{
         hotkey::Hotkey,
-        hotkey_view::global_hotkeys,
         table::{DataTable, TableData},
     },
 };

@@ -1,4 +1,3 @@
-use crossterm::event::KeyCode;
 use crate::theme;
 use ratatui::{
     prelude::{Buffer, Rect, Widget},
@@ -100,16 +99,4 @@ impl Widget for HotkeyView<'_> {
             }
         }
     }
-}
-
-/// Always-visible global shortcuts shown in the top bar.
-#[must_use]
-pub fn global_hotkeys(on_connection_list: bool) -> Vec<Hotkey> {
-    let mut keys = vec![Hotkey::new('?', "Help")];
-    if on_connection_list {
-        keys.push(Hotkey::new('q', "Quit"));
-    } else {
-        keys.push(Hotkey::code(KeyCode::Esc, "Back"));
-    }
-    keys
 }
