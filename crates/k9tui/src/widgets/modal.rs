@@ -437,7 +437,6 @@ impl Widget for TextPromptModal {
                 Constraint::Length(1),
                 Constraint::Length(1),
             ])
-            .margin(1)
             .areas(inner);
 
             Paragraph::new(prompt.clone())
