@@ -2,6 +2,7 @@ pub mod buttons;
 pub mod help_view;
 pub mod hotkey;
 pub mod hotkey_view;
+pub mod modal;
 pub mod status_line;
 pub mod table;
 pub mod text_input;
