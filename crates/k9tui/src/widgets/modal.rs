@@ -301,7 +301,10 @@ impl TextPromptModal {
     }
 
     #[must_use]
-    pub const fn with_validation(mut self, validation: PromptValidation) -> Self {
+    pub const fn with_validation(
+        mut self,
+        validation: PromptValidation,
+    ) -> Self {
         self.validation = validation;
         self
     }

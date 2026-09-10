@@ -25,13 +25,11 @@ use ratatui_textarea::TextArea;
 use tui_menu::{MenuEvent, MenuItem, MenuState};
 use unicode_width::UnicodeWidthStr;
 
-use crate::{
-    db::{
-        DbRowId,
-        connection::{
-            Connection, ConnectionType, build_postgres_url,
-            parse_connection_string, parse_postgres_url,
-        },
+use crate::db::{
+    DbRowId,
+    connection::{
+        Connection, ConnectionType, build_postgres_url,
+        parse_connection_string, parse_postgres_url,
     },
 };
 

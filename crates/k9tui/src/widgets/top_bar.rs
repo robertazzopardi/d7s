@@ -1,8 +1,4 @@
-use crate::{
-    theme,
-    widgets::hotkey::Hotkey,
-    widgets::hotkey_view::HotkeyView,
-};
+use crate::{theme, widgets::hotkey::Hotkey, widgets::hotkey_view::HotkeyView};
 use ratatui::{
     prelude::{Buffer, Constraint, Layout, Rect, Widget},
     text::{Line, Span},

@@ -23,10 +23,8 @@ use crate::{
         sql_executor::SqlExecutor,
         theme as d7s_theme,
         widgets::{
-            connection_modal::ConnectionModalWidget,
-            help_content::HelpRow,
-            hotkeys::TABLE_DATA_VIEW_HOTKEYS,
-            idle_hint::default_idle_hint,
+            connection_modal::ConnectionModalWidget, help_content::HelpRow,
+            hotkeys::TABLE_DATA_VIEW_HOTKEYS, idle_hint::default_idle_hint,
         },
     },
 };
@@ -60,20 +58,19 @@ impl App<'_> {
         );
         let global = global_hotkeys(on_connection_list);
 
-        let (connection, build_info, recent_hotkeys) =
-            if on_connection_list {
-                (
-                    &Connection::default(),
-                    Some(self.build_info.clone()),
-                    Vec::new(),
-                )
-            } else {
-                (
-                    &self.database_explorer.connection,
-                    None,
-                    self.database_explorer.recent_table_hotkeys(),
-                )
-            };
+        let (connection, build_info, recent_hotkeys) = if on_connection_list {
+            (
+                &Connection::default(),
+                Some(self.build_info.clone()),
+                Vec::new(),
+            )
+        } else {
+            (
+                &self.database_explorer.connection,
+                None,
+                self.database_explorer.recent_table_hotkeys(),
+            )
+        };
 
         let summary = connection.summary_stack();
 

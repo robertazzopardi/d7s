@@ -1,7 +1,9 @@
 use crossterm::event::KeyCode;
 use ratatui::widgets::TableState;
 
-use crate::widgets::table::{TableData, TableDataState, TableModel, TableViewState};
+use crate::widgets::table::{
+    TableData, TableDataState, TableModel, TableViewState,
+};
 
 /// Helper for table navigation operations
 pub struct TableNavigationHandler;
