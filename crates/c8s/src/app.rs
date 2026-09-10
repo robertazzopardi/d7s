@@ -19,12 +19,12 @@ use crate::{
     docker::{ContainerRow, client::DockerClient},
 };
 
-pub const APP_NAME: &str = r"________
-\_____  \
- /   |   \
-/    |    \
-\_______  /
-        \/
+pub const APP_NAME: &str = r"         ______
+  ____  /  __  \  ______
+_/ ___\ >      < /  ___/
+\  \___/   --   \\___ \
+ \___  >______  /____  >
+     \/       \/     \/
 ";
 
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
