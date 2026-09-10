@@ -9,7 +9,7 @@ use ratatui::{
 };
 use ratatui_textarea::TextArea;
 
-use crate::ui::widgets::table::{RawTableRow, RawTableStateExt};
+use crate::ui::widgets::raw_table::{RawTableRow, RawTableStateExt};
 
 /// State for the SQL executor widget
 #[derive(Debug, Clone)]

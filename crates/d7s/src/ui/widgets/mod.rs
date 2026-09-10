@@ -1,7 +1,7 @@
-pub mod help_view;
-pub mod hotkey_view;
-pub mod modal;
+pub mod connection_modal;
+pub mod global_hotkeys;
+pub mod help_content;
+pub mod hotkeys;
+pub mod idle_hint;
+pub mod raw_table;
 pub mod sql_executor;
-pub mod status_line;
-pub mod table;
-pub mod top_bar_view;

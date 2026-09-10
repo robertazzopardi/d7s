@@ -9,7 +9,7 @@ use crate::{
     },
     filtered_data::FilteredData,
     services::PreferencesService,
-    ui::{sql_executor::SqlExecutorState, widgets::table::RawTableRow},
+    ui::{sql_executor::SqlExecutorState, widgets::raw_table::RawTableRow},
     virtual_table::VirtualTableMeta,
 };
 

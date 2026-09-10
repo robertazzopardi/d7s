@@ -3,7 +3,7 @@ use std::str::FromStr;
 use crate::{
     auth::Keyring,
     db::connection::Connection,
-    ui::widgets::modal::{PasswordStorageType, TestResult},
+    ui::widgets::connection_modal::{PasswordStorageType, TestResult},
 };
 
 /// Handles saving a connection from the modal
@@ -19,7 +19,7 @@ use crate::{
 pub fn handle_save_connection(
     #[allow(unused_variables)] keyring: &Option<Keyring>,
     connection: &Connection,
-    mode: crate::ui::widgets::modal::Mode,
+    mode: crate::ui::widgets::connection_modal::Mode,
     original_name: Option<String>,
 ) -> Result<(), String> {
     // Handle password storage based on connection's storage preference
@@ -75,10 +75,10 @@ pub fn handle_save_connection(
         }
     }
 
-    if matches!(mode, crate::ui::widgets::modal::Mode::New) {
+    if matches!(mode, crate::ui::widgets::connection_modal::Mode::New) {
         crate::db::sqlite::save_connection(connection)
             .map_err(|e| format!("Failed to save connection: {e}"))?;
-    } else if matches!(mode, crate::ui::widgets::modal::Mode::Edit)
+    } else if matches!(mode, crate::ui::widgets::connection_modal::Mode::Edit)
         && let Some(original_name) = original_name
     {
         crate::db::sqlite::update_connection(&original_name, connection)

@@ -26,8 +26,8 @@ use crate::{
     services::{ConnectionService, PasswordService, PreferencesService},
     sql::safety::{StatementSafety, classify_statement, split_statements},
     ui::widgets::{
-        help_view::HelpRow, modal::ModalManager,
-        top_bar_view::CONNECTION_HOTKEYS,
+        connection_modal::ModalManager, help_content::HelpRow,
+        hotkeys::CONNECTION_HOTKEYS,
     },
     virtual_table::VIRTUAL_TABLE_PAGE_SIZE,
 };

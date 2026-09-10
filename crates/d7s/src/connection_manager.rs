@@ -6,7 +6,7 @@ use crate::{
     database_explorer_state::DatabaseExplorer,
     db::connection::{Connection, ConnectionType},
     services::PreferencesService,
-    ui::widgets::top_bar_view::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS},
+    ui::widgets::hotkeys::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS},
 };
 
 impl App<'_> {

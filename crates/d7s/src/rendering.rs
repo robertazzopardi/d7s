@@ -1,4 +1,4 @@
-use crate::ui::widgets::hotkey_view::global_hotkeys;
+use crate::ui::widgets::global_hotkeys::global_hotkeys;
 use k9tui::{
     theme,
     widgets::{
@@ -23,10 +23,10 @@ use crate::{
         sql_executor::SqlExecutor,
         theme as d7s_theme,
         widgets::{
-            help_view::HelpRow,
-            modal::ConnectionModalWidget,
-            status_line::default_idle_hint,
-            top_bar_view::TABLE_DATA_VIEW_HOTKEYS,
+            connection_modal::ConnectionModalWidget,
+            help_content::HelpRow,
+            hotkeys::TABLE_DATA_VIEW_HOTKEYS,
+            idle_hint::default_idle_hint,
         },
     },
 };

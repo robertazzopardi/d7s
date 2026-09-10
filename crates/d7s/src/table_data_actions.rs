@@ -4,15 +4,13 @@ use std::collections::BTreeSet;
 
 use color_eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent};
+use k9tui::widgets::navigation::TableNavigationHandler;
 
 use crate::{
     app::App,
     app_state::{AppState, DatabaseExplorerState},
     db::{DbRowId, RowDeleteSpec, connection::ConnectionType},
-    ui::{
-        handlers::TableNavigationHandler,
-        widgets::table::{RawTableRow, RawTableStateExt},
-    },
+    ui::widgets::raw_table::{RawTableRow, RawTableStateExt},
 };
 
 impl App<'_> {

@@ -1,6 +1,6 @@
 use k9tui::widgets::table::{TableData, TableDataState};
 
-use crate::ui::handlers::TableNavigationHandler;
+use k9tui::widgets::navigation::TableNavigationHandler;
 
 /// A wrapper for managing filtered data with original data preservation
 #[derive(Clone, Default)]

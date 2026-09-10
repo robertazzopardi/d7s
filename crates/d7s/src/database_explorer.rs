@@ -1,17 +1,14 @@
 use color_eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 
-use k9tui::widgets::table::TableDataState;
+use k9tui::widgets::{navigation::TableNavigationHandler, table::TableDataState};
 
 use crate::{
     app::App,
     app_state::DatabaseExplorerState,
     db::{Database, DbRowId, TableDataPage, connection::ConnectionType},
     filtered_data::FilteredData,
-    ui::{
-        handlers::TableNavigationHandler,
-        widgets::{modal::CellValueApply, table::RawTableStateExt},
-    },
+    ui::widgets::{connection_modal::CellValueApply, raw_table::RawTableStateExt},
     virtual_table::VirtualTableMeta,
 };
 
