@@ -45,9 +45,36 @@ impl App {
     }
 
     fn on_key_logs(&mut self, key: KeyEvent) {
+        let max_start = self
+            .log_lines
+            .len()
+            .saturating_sub(self.log_viewport_height);
         match (key.modifiers, key.code) {
             (_, KeyCode::Char('q') | KeyCode::Esc) => self.close_logs(),
             (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
+            (_, KeyCode::Char('k') | KeyCode::Up) => {
+                self.log_follow = false;
+                self.log_scroll = self.log_scroll.saturating_sub(1);
+            }
+            (_, KeyCode::Char('j') | KeyCode::Down) => {
+                self.log_scroll = (self.log_scroll + 1).min(max_start);
+                self.log_follow = self.log_scroll >= max_start;
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('u')) | (_, KeyCode::PageUp) => {
+                self.log_follow = false;
+                self.log_scroll = self.log_scroll.saturating_sub(10);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('d')) | (_, KeyCode::PageDown) => {
+                self.log_scroll = (self.log_scroll + 10).min(max_start);
+                self.log_follow = self.log_scroll >= max_start;
+            }
+            (_, KeyCode::Char('g') | KeyCode::Home) => {
+                self.log_follow = false;
+                self.log_scroll = 0;
+            }
+            (_, KeyCode::Char('G') | KeyCode::End) => {
+                self.log_follow = true;
+            }
             _ => {}
         }
     }

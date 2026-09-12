@@ -109,7 +109,7 @@ impl App {
         }
     }
 
-    fn render_logs(&self, frame: &mut Frame, name: String) {
+    fn render_logs(&mut self, frame: &mut Frame, name: String) {
         let layout = Layout::vertical([
             Constraint::Length(TOPBAR_HEIGHT),
             Constraint::Min(0),
@@ -134,18 +134,31 @@ impl App {
             top_area,
         );
 
+        let title = if self.log_follow {
+            format!(" Logs: {name} (live) ")
+        } else {
+            format!(" Logs: {name} (scrolled, G to follow) ")
+        };
         let block = Block::new()
             .borders(Borders::ALL)
             .border_style(theme::border())
-            .title(format!(" Logs: {name} "))
+            .title(title)
             .title_alignment(Alignment::Center);
         let inner = block.inner(content_area);
         frame.render_widget(block, content_area);
 
-        // Tail: show the last lines that fit the visible height.
+        // log_scroll is the absolute index of the first visible line.
         let visible = inner.height as usize;
-        let start = self.log_lines.len().saturating_sub(visible);
-        let text = self.log_lines.get(start..).unwrap_or(&[]).join("\n");
+        self.log_viewport_height = visible;
+        let max_start = self.log_lines.len().saturating_sub(visible);
+        let start = if self.log_follow {
+            max_start
+        } else {
+            self.log_scroll.min(max_start)
+        };
+        self.log_scroll = start;
+        let end = (start + visible).min(self.log_lines.len());
+        let text = self.log_lines.get(start..end).unwrap_or(&[]).join("\n");
         Paragraph::new(text)
             .wrap(Wrap { trim: false })
             .render(inner, frame.buffer_mut());

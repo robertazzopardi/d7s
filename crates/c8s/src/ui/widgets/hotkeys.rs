@@ -13,6 +13,12 @@ pub const GLOBAL_HOTKEYS: [Hotkey; 1] = [Hotkey::new('q', "quit")];
 
 pub fn log_hotkeys() -> Vec<Hotkey> {
     vec![
+        Hotkey::new('j', "down"),
+        Hotkey::new('k', "up"),
+        Hotkey::code(KeyCode::PageUp, "page up"),
+        Hotkey::code(KeyCode::PageDown, "page down"),
+        Hotkey::new('g', "top"),
+        Hotkey::new('G', "follow"),
         Hotkey::code(KeyCode::Esc, "back"),
         Hotkey::new('q', "back"),
     ]

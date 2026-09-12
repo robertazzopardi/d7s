@@ -53,6 +53,12 @@ pub struct App {
     /// Container id pending removal once the confirm dialog resolves.
     pub(crate) pending_remove: Option<String>,
     pub(crate) log_lines: Vec<String>,
+    /// Absolute index of the first visible log line, synced each render.
+    pub(crate) log_scroll: usize,
+    /// True while the log view tracks new output; false once the user scrolls up.
+    pub(crate) log_follow: bool,
+    /// Height of the last-rendered log viewport, used to clamp scrolling.
+    pub(crate) log_viewport_height: usize,
     pub(crate) build_info: String,
 
     pub(crate) bg_tx: UnboundedSender<BackgroundEvent>,
@@ -76,6 +82,9 @@ impl App {
             confirm_dialog: None,
             pending_remove: None,
             log_lines: Vec::new(),
+            log_scroll: 0,
+            log_follow: true,
+            log_viewport_height: 0,
             build_info: format!("Name: {PKG_NAME}\nVersion: {PKG_VERSION}"),
             bg_tx,
             bg_rx,
@@ -197,6 +206,7 @@ impl App {
                     if self.log_lines.len() > MAX_LOG_LINES {
                         let drop = self.log_lines.len() - MAX_LOG_LINES;
                         self.log_lines.drain(..drop);
+                        self.log_scroll = self.log_scroll.saturating_sub(drop);
                     }
                 }
             }
@@ -260,6 +270,8 @@ impl App {
             return;
         };
         self.log_lines.clear();
+        self.log_scroll = 0;
+        self.log_follow = true;
         self.state = AppState::Logs {
             id: id.to_string(),
             name: name.to_string(),
