@@ -145,9 +145,6 @@ impl App {
                     ));
                 }
             }
-            (_, KeyCode::Enter) => {
-                // TODO: container details view — out of scope for v1.
-            }
             _ => {}
         }
         Ok(())
