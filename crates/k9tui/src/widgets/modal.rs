@@ -480,3 +480,92 @@ impl Widget for TextPromptModal {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    #[test]
+    fn modal_field_set_value_updates_text_and_cursor() {
+        let mut field = ModalField::new("Name");
+        field.set_value("hello");
+        assert_eq!(field.value(), "hello");
+    }
+
+    #[test]
+    fn modal_field_clamp_to_options_resets_invalid_value() {
+        let mut field = ModalField::new("Env");
+        field.set_options(vec!["dev", "prod"]);
+        field.set_value("garbage");
+        field.clamp_to_options();
+        assert_eq!(field.value(), "dev");
+    }
+
+    #[test]
+    fn confirm_dialog_esc_submits_when_yes_selected() {
+        let mut dialog =
+            ConfirmDialog::new("Delete?", "sure?", Style::default(), 0);
+        let action = dialog.handle_key_events(KeyEvent::from(KeyCode::Enter));
+        assert_eq!(action, DialogAction::Submit);
+        assert!(!dialog.is_open);
+    }
+
+    #[test]
+    fn confirm_dialog_left_right_toggles_selection() {
+        let mut dialog =
+            ConfirmDialog::new("Delete?", "sure?", Style::default(), 0);
+        dialog.handle_key_events(KeyEvent::from(KeyCode::Right));
+        assert!(!dialog.is_confirmed());
+        dialog.handle_key_events(KeyEvent::from(KeyCode::Left));
+        assert!(dialog.is_confirmed());
+    }
+
+    #[test]
+    fn confirm_dialog_renders_title_and_message() {
+        let dialog =
+            ConfirmDialog::new("Delete?", "Remove this row?", Style::default(), 0);
+        let backend = TestBackend::new(60, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| frame.render_widget(dialog, frame.area()))
+            .unwrap();
+
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+
+        assert!(content.contains("Delete?"));
+        assert!(content.contains("Remove this row?"));
+        assert!(content.contains("Yes"));
+        assert!(content.contains("No"));
+    }
+
+    #[test]
+    fn text_prompt_modal_requires_non_empty_by_default() {
+        let mut modal = TextPromptModal::new("Rename", 30, 5);
+        let action = modal.handle_key_events(KeyEvent::from(KeyCode::Enter));
+        assert_eq!(action, DialogAction::None);
+        assert!(modal.is_open);
+
+        modal.handle_key_events(KeyEvent::from(KeyCode::Char('x')));
+        let action = modal.handle_key_events(KeyEvent::from(KeyCode::Enter));
+        assert_eq!(action, DialogAction::Submit);
+        assert_eq!(modal.input_value(), "x");
+    }
+
+    #[test]
+    fn text_prompt_modal_positive_integer_validation_rejects_zero() {
+        let mut modal = TextPromptModal::new("Count", 30, 5)
+            .with_validation(PromptValidation::PositiveInteger);
+        modal.handle_key_events(KeyEvent::from(KeyCode::Char('0')));
+        let action = modal.handle_key_events(KeyEvent::from(KeyCode::Enter));
+        assert_eq!(action, DialogAction::None);
+        assert_eq!(modal.parsed_positive_int(), None);
+    }
+}
