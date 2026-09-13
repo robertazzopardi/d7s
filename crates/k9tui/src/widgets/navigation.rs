@@ -141,3 +141,96 @@ impl TableNavigationHandler {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widgets::table::TableDataState;
+
+    #[derive(Debug, Clone)]
+    struct Row(&'static str);
+
+    impl TableData for Row {
+        fn title() -> &'static str {
+            "rows"
+        }
+        fn ref_array(&self) -> Vec<String> {
+            vec![self.0.to_string()]
+        }
+        fn num_columns(&self) -> usize {
+            1
+        }
+        fn cols() -> Vec<&'static str> {
+            vec!["col"]
+        }
+    }
+
+    fn rows(n: usize) -> Vec<Row> {
+        const NAMES: [&str; 3] = ["a", "b", "c"];
+        NAMES.iter().take(n).map(|&name| Row(name)).collect()
+    }
+
+    #[test]
+    fn wrap_rows_selects_first_past_end() {
+        let items = rows(3);
+        let mut state = TableState::default().with_selected(3);
+        TableNavigationHandler::wrap_rows(&mut state, &items);
+        assert_eq!(state.selected(), Some(0));
+    }
+
+    #[test]
+    fn wrap_rows_selects_none_when_empty() {
+        let items: Vec<Row> = vec![];
+        let mut state = TableState::default().with_selected(0);
+        TableNavigationHandler::wrap_rows(&mut state, &items);
+        assert_eq!(state.selected(), None);
+    }
+
+    #[test]
+    fn navigate_down_wraps_to_top_from_last_row() {
+        let mut table = TableDataState::new(rows(3));
+        table.view.state.select(Some(2));
+        TableNavigationHandler::navigate_table(
+            &table.model,
+            &mut table.view,
+            KeyCode::Char('j'),
+        );
+        assert_eq!(table.view.state.selected(), Some(0));
+    }
+
+    #[test]
+    fn navigate_up_wraps_to_bottom_from_first_row() {
+        let mut table = TableDataState::new(rows(3));
+        table.view.state.select(Some(0));
+        TableNavigationHandler::navigate_table(
+            &table.model,
+            &mut table.view,
+            KeyCode::Char('k'),
+        );
+        assert_eq!(table.view.state.selected(), Some(2));
+    }
+
+    #[test]
+    fn navigate_g_jumps_to_top() {
+        let mut table = TableDataState::new(rows(3));
+        table.view.state.select(Some(2));
+        TableNavigationHandler::navigate_table(
+            &table.model,
+            &mut table.view,
+            KeyCode::Char('g'),
+        );
+        assert_eq!(table.view.state.selected(), Some(0));
+    }
+
+    #[test]
+    fn navigate_shift_g_jumps_to_bottom() {
+        let mut table = TableDataState::new(rows(3));
+        table.view.state.select(Some(0));
+        TableNavigationHandler::navigate_table(
+            &table.model,
+            &mut table.view,
+            KeyCode::Char('G'),
+        );
+        assert_eq!(table.view.state.selected(), Some(2));
+    }
+}

@@ -3,7 +3,7 @@ name = "k9tui"
 version = "0.1.0"
 description = "Reusable k9s-style ratatui widget kit"
 license = "MIT"
-edition = "2024"
+edition.workspace = true
 
 [lints]
 workspace = true

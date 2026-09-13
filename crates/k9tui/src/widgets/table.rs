@@ -417,3 +417,95 @@ fn format_display_cell<T: TableData>(
     }
     (value, data.cell_style(column))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    #[derive(Debug, Clone)]
+    struct Item {
+        name: &'static str,
+        value: &'static str,
+    }
+
+    impl TableData for Item {
+        fn title() -> &'static str {
+            "items"
+        }
+        fn ref_array(&self) -> Vec<String> {
+            vec![self.name.to_string(), self.value.to_string()]
+        }
+        fn num_columns(&self) -> usize {
+            2
+        }
+        fn cols() -> Vec<&'static str> {
+            vec!["Name", "Value"]
+        }
+    }
+
+    fn items() -> Vec<Item> {
+        vec![
+            Item {
+                name: "alpha",
+                value: "1",
+            },
+            Item {
+                name: "beta",
+                value: "2",
+            },
+        ]
+    }
+
+    #[test]
+    fn horizontal_window_start_shows_all_columns_when_fits() {
+        let lens = vec![5, 5];
+        assert_eq!(horizontal_window_start(&lens, 80, 0, 0), 0);
+    }
+
+    #[test]
+    fn horizontal_window_start_keeps_selected_visible() {
+        let lens = vec![5, 5, 5, 5];
+        // Narrow area: only ~2 columns fit, selecting the last must scroll to include it.
+        let start = horizontal_window_start(&lens, 12, 3, 0);
+        let visible = visible_columns_packed(&lens, start, 12);
+        assert!(visible.contains(&3));
+    }
+
+    #[test]
+    fn visible_columns_packed_always_shows_at_least_one() {
+        // Column wider than the area still yields a non-empty visible set.
+        let lens = vec![100];
+        let visible = visible_columns_packed(&lens, 0, 10);
+        assert_eq!(visible, vec![0]);
+    }
+
+    #[test]
+    fn renders_header_and_rows_into_buffer() {
+        let mut state = TableDataState::new(items());
+        let backend = TestBackend::new(20, 4);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                frame.render_stateful_widget(
+                    DataTable::<Item>::default(),
+                    frame.area(),
+                    &mut state,
+                );
+            })
+            .unwrap();
+
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+
+        assert!(content.contains("Name"));
+        assert!(content.contains("alpha"));
+        assert!(content.contains("beta"));
+    }
+}
