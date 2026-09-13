@@ -9,8 +9,7 @@ use k9tui::{
 };
 use ratatui::{DefaultTerminal, style::Style};
 
-use crate::app::App;
-use crate::app_state::AppState;
+use crate::{app::App, app_state::AppState};
 
 impl App {
     pub async fn on_key_event(

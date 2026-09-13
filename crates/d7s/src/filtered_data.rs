@@ -1,6 +1,7 @@
-use k9tui::widgets::table::{TableData, TableDataState};
-
-use k9tui::widgets::navigation::TableNavigationHandler;
+use k9tui::widgets::{
+    navigation::TableNavigationHandler,
+    table::{TableData, TableDataState},
+};
 
 /// A wrapper for managing filtered data with original data preservation
 #[derive(Clone, Default)]

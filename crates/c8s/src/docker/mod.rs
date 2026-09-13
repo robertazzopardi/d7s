@@ -91,8 +91,9 @@ impl TableData for ContainerRow {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use bollard::models::{ContainerSummary, Port, PortTypeEnum};
+
+    use super::*;
 
     fn summary() -> ContainerSummary {
         ContainerSummary {
