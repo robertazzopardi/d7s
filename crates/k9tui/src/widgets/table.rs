@@ -210,6 +210,22 @@ fn visible_columns_packed(
     vis_cols
 }
 
+/// Row offset so the selected row stays centered in the viewport instead of
+/// hugging the bottom edge (ratatui's stock `TableState` offset only ever
+/// increases to keep the selection in view, so once `selected >= visible_rows`
+/// it tracks the bottom 1:1). Clamped so it never scrolls past the last page.
+fn calculate_row_offset(
+    selected: usize,
+    total_rows: usize,
+    visible_rows: usize,
+) -> usize {
+    if visible_rows == 0 {
+        return 0;
+    }
+    let max_offset = total_rows.saturating_sub(visible_rows);
+    selected.saturating_sub(visible_rows / 2).min(max_offset)
+}
+
 /// Helper function to calculate visible columns for `DataTable`
 fn calculate_visible_columns_for_table(
     longest_item_lens: &[usize],
@@ -269,6 +285,15 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
 
         let original_col = state.view.state.selected_column();
         state.view.state.select_column(relative_selected_col);
+
+        let visible_rows = area.height.saturating_sub(1) as usize; // minus header
+        if let Some(selected) = state.view.state.selected() {
+            *state.view.state.offset_mut() = calculate_row_offset(
+                selected,
+                state.model.items.len(),
+                visible_rows,
+            );
+        }
 
         let (
             selected_row_style,
@@ -479,6 +504,18 @@ mod tests {
         let lens = vec![100];
         let visible = visible_columns_packed(&lens, 0, 10);
         assert_eq!(visible, vec![0]);
+    }
+
+    #[test]
+    fn row_offset_centers_selection_instead_of_hugging_bottom() {
+        // 100 rows, 10 visible: selecting row 50 should center it (offset 45),
+        // not pin it to the bottom (offset 41).
+        assert_eq!(calculate_row_offset(50, 100, 10), 45);
+        // Near the end of the list, offset clamps so it never scrolls past
+        // the last page.
+        assert_eq!(calculate_row_offset(99, 100, 10), 90);
+        // Near the start, offset never goes negative.
+        assert_eq!(calculate_row_offset(2, 100, 10), 0);
     }
 
     #[test]
