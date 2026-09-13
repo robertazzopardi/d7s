@@ -5,3 +5,6 @@ rustc-ice-*
 .demo-home/
 .demo-data/
 docker/sqlite/*.sqlite
+.claude/
+docs/superpowers/
+.superpowers/
