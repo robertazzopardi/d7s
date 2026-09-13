@@ -523,8 +523,12 @@ mod tests {
 
     #[test]
     fn confirm_dialog_renders_title_and_message() {
-        let dialog =
-            ConfirmDialog::new("Delete?", "Remove this row?", Style::default(), 0);
+        let dialog = ConfirmDialog::new(
+            "Delete?",
+            "Remove this row?",
+            Style::default(),
+            0,
+        );
         let backend = TestBackend::new(60, 10);
         let mut terminal = Terminal::new(backend).unwrap();
 

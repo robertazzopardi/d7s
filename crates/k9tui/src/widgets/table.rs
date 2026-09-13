@@ -446,8 +446,14 @@ mod tests {
 
     fn items() -> Vec<Item> {
         vec![
-            Item { name: "alpha", value: "1" },
-            Item { name: "beta", value: "2" },
+            Item {
+                name: "alpha",
+                value: "1",
+            },
+            Item {
+                name: "beta",
+                value: "2",
+            },
         ]
     }
 
