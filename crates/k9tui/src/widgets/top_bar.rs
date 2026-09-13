@@ -36,7 +36,7 @@ impl Widget for TopBarView<'_> {
             .copied()
             .unwrap_or(area);
 
-        let app_name_lines = self.app_name.trim().lines();
+        let app_name_lines = self.app_name.trim_matches('\n').lines();
         let app_name_width =
             app_name_lines.clone().map(str::len).max().unwrap_or(0);
         let app_label_width = u16::try_from(app_name_width.max(1))
