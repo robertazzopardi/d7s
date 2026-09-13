@@ -28,17 +28,17 @@ fmt *ARGS:
     if [ -n "${RUST_NIGHTLY_BIN:-}" ]; then
         PATH="${RUST_NIGHTLY_BIN}:$PATH" cargo fmt -- {{ARGS}}
     else
-        rustup run nightly cargo fmt -- {{ARGS}}
+        rustup run nightly-2026-03-01 cargo fmt -- {{ARGS}}
     fi
 
-# Check formatting (nightly rustfmt, no write)
+# Check formatting (pinned nightly rustfmt, no write)
 fmt-check *ARGS:
     #!/usr/bin/env bash
     set -e
     if [ -n "${RUST_NIGHTLY_BIN:-}" ]; then
         PATH="${RUST_NIGHTLY_BIN}:$PATH" cargo fmt -- --check {{ARGS}}
     else
-        rustup run nightly cargo fmt -- --check {{ARGS}}
+        rustup run nightly-2026-03-01 cargo fmt -- --check {{ARGS}}
     fi
 
 # Clippy with pedantic, nursery, cargo and all lints enabled
