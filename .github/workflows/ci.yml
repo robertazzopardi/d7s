@@ -31,7 +31,7 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
-          toolchain: nightly-2026-03-01
+          toolchain: nightly-2026-09-08
           components: rustfmt
           cache: "false"
       - name: check formatting
