@@ -1,8 +1,9 @@
-use crate::theme;
 use ratatui::{
     prelude::*,
     widgets::{Paragraph, Widget},
 };
+
+use crate::theme;
 
 /// Footer status line (ratatui `Paragraph`).
 #[derive(Clone, Debug, Default)]

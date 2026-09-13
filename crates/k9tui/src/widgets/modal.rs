@@ -1,5 +1,3 @@
-use crate::theme;
-use crate::widgets::buttons::Buttons;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     prelude::{Alignment, Buffer, Constraint, Direction, Layout, Rect, Widget},
@@ -7,6 +5,8 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use ratatui_textarea::TextArea;
+
+use crate::{theme, widgets::buttons::Buttons};
 
 #[derive(Debug, Clone)]
 pub struct ModalField {
@@ -483,8 +483,9 @@ impl Widget for TextPromptModal {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ratatui::{Terminal, backend::TestBackend};
+
+    use super::*;
 
     #[test]
     fn modal_field_set_value_updates_text_and_cursor() {

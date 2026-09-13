@@ -420,8 +420,9 @@ fn format_display_cell<T: TableData>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ratatui::{Terminal, backend::TestBackend};
+
+    use super::*;
 
     #[derive(Debug, Clone)]
     struct Item {

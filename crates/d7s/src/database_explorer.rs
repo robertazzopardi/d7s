@@ -1,6 +1,5 @@
 use color_eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent};
-
 use k9tui::widgets::{
     navigation::TableNavigationHandler, table::TableDataState,
 };

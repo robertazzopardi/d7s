@@ -1,8 +1,12 @@
-use crate::{theme, widgets::hotkey::Hotkey, widgets::hotkey_view::HotkeyView};
 use ratatui::{
     prelude::{Buffer, Constraint, Layout, Rect, Widget},
     text::{Line, Span},
     widgets::Paragraph,
+};
+
+use crate::{
+    theme,
+    widgets::{hotkey::Hotkey, hotkey_view::HotkeyView},
 };
 
 /// Flex weights for the four middle segments (info / recent / primary / global hotkeys).

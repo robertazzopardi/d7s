@@ -1,10 +1,11 @@
 use std::time::Duration;
 
 use color_eyre::Result;
-use crossterm::event::{
-    DisableBracketedPaste, EnableBracketedPaste, Event, KeyEventKind,
+use crossterm::{
+    ExecutableCommand,
+    event::{DisableBracketedPaste, EnableBracketedPaste, Event, KeyEventKind},
+    execute,
 };
-use crossterm::{ExecutableCommand, execute};
 use k9tui::widgets::{
     hotkey::Hotkey, modal::ConfirmDialog, status_line::StatusLine,
     table::TableDataState,

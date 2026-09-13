@@ -1,10 +1,10 @@
-use crate::theme;
 use ratatui::{
     prelude::{Buffer, Rect, Widget},
     text::{Line, Span},
 };
 
 use super::hotkey::Hotkey;
+use crate::theme;
 
 pub struct HotkeyView<'a> {
     pub hotkeys: &'a [Hotkey],

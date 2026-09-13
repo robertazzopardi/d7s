@@ -1,9 +1,10 @@
-use crate::theme;
 use ratatui::{
     prelude::{Buffer, Rect, Widget},
     style::{Color, Style},
     text::{Line, Span},
 };
+
+use crate::theme;
 
 pub struct Buttons<'a> {
     pub buttons: Vec<&'a str>,

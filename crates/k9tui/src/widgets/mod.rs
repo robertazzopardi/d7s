@@ -9,9 +9,8 @@ pub mod table;
 pub mod text_input;
 pub mod top_bar;
 
-use unicode_width::UnicodeWidthStr;
-
 use table::TableData;
+use unicode_width::UnicodeWidthStr;
 
 pub fn constraint_len_calculator<T: TableData>(items: &[T]) -> Vec<usize> {
     if items.is_empty() {
