@@ -6,13 +6,13 @@ use crossterm::event::{
 };
 use crossterm::{ExecutableCommand, execute};
 use k9tui::widgets::{
-    hotkey::Hotkey,
-    modal::ConfirmDialog,
-    status_line::StatusLine,
+    hotkey::Hotkey, modal::ConfirmDialog, status_line::StatusLine,
     table::TableDataState,
 };
 use ratatui::DefaultTerminal;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio::sync::mpsc::{
+    UnboundedReceiver, UnboundedSender, unbounded_channel,
+};
 
 use crate::{
     app_state::AppState,
@@ -103,8 +103,9 @@ impl App {
                     self.start_polling();
                 }
                 Err(e) => {
-                    self.state =
-                        AppState::ConnectError(format!("Docker unreachable: {e}"));
+                    self.state = AppState::ConnectError(format!(
+                        "Docker unreachable: {e}"
+                    ));
                 }
             },
             Err(e) => {
@@ -155,10 +156,11 @@ impl App {
         let len = self.containers.model.items.len();
         match selected {
             Some(sel) if sel >= len => {
-                self.containers
-                    .view
-                    .state
-                    .select(if len == 0 { None } else { Some(len - 1) });
+                self.containers.view.state.select(if len == 0 {
+                    None
+                } else {
+                    Some(len - 1)
+                });
             }
             None if len > 0 => self.containers.view.state.select(Some(0)),
             _ => {}
@@ -243,8 +245,7 @@ impl App {
         id: &str,
     ) -> Result<()> {
         execute!(std::io::stdout(), DisableBracketedPaste)?;
-        std::io::stdout()
-            .execute(crossterm::terminal::LeaveAlternateScreen)?;
+        std::io::stdout().execute(crossterm::terminal::LeaveAlternateScreen)?;
         crossterm::terminal::disable_raw_mode()?;
 
         let status = std::process::Command::new("docker")

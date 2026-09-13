@@ -35,8 +35,7 @@ impl DockerClient {
             all: true,
             ..Default::default()
         };
-        let summaries =
-            self.docker.list_containers(Some(options)).await?;
+        let summaries = self.docker.list_containers(Some(options)).await?;
         Ok(summaries.iter().map(ContainerRow::from_summary).collect())
     }
 

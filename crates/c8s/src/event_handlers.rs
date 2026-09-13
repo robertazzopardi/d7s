@@ -60,11 +60,13 @@ impl App {
                 self.log_scroll = (self.log_scroll + 1).min(max_start);
                 self.log_follow = self.log_scroll >= max_start;
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('u')) | (_, KeyCode::PageUp) => {
+            (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (_, KeyCode::PageUp) => {
                 self.log_follow = false;
                 self.log_scroll = self.log_scroll.saturating_sub(10);
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('d')) | (_, KeyCode::PageDown) => {
+            (KeyModifiers::CONTROL, KeyCode::Char('d'))
+            | (_, KeyCode::PageDown) => {
                 self.log_scroll = (self.log_scroll + 10).min(max_start);
                 self.log_follow = self.log_scroll >= max_start;
             }

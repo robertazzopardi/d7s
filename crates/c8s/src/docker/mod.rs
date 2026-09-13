@@ -16,9 +16,7 @@ pub struct ContainerRow {
 impl ContainerRow {
     /// Build a row from a bollard container-summary response.
     #[must_use]
-    pub fn from_summary(
-        summary: &bollard::models::ContainerSummary,
-    ) -> Self {
+    pub fn from_summary(summary: &bollard::models::ContainerSummary) -> Self {
         let id = summary.id.clone().unwrap_or_default();
         let name = summary
             .names
@@ -33,15 +31,18 @@ impl ContainerRow {
             .ports
             .as_ref()
             .map(|ports| {
-                ports
-                    .iter()
-                    .map(format_port)
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                ports.iter().map(format_port).collect::<Vec<_>>().join(", ")
             })
             .unwrap_or_default();
 
-        Self { id, name, image, status, ports, uptime }
+        Self {
+            id,
+            name,
+            image,
+            status,
+            ports,
+            uptime,
+        }
     }
 }
 

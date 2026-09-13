@@ -1,10 +1,6 @@
 use k9tui::{
     theme,
-    widgets::{
-        hotkey::Hotkey,
-        table::DataTable,
-        top_bar::TopBarView,
-    },
+    widgets::{hotkey::Hotkey, table::DataTable, top_bar::TopBarView},
 };
 use ratatui::{
     Frame,
