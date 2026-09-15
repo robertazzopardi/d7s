@@ -1,4 +1,3 @@
-use ansi_to_tui::IntoText;
 use k9tui::{
     theme,
     widgets::{hotkey::Hotkey, table::DataTable, top_bar::TopBarView},
@@ -155,9 +154,8 @@ impl App {
         };
         self.log_scroll = start;
         let end = (start + visible).min(self.log_lines.len());
-        let raw = self.log_lines.get(start..end).unwrap_or(&[]).join("\n");
-        let text = raw.as_bytes().into_text().unwrap_or_else(|_| Text::raw(raw));
-        Paragraph::new(text)
+        let lines = self.log_lines.get(start..end).unwrap_or(&[]).to_vec();
+        Paragraph::new(Text::from(lines))
             .wrap(Wrap { trim: false })
             .render(inner, frame.buffer_mut());
 

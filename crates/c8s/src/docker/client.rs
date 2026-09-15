@@ -27,7 +27,7 @@ fn sanitize_log_bytes(s: &str) -> String {
         match chars.peek() {
             Some('[') => {
                 out.push(c);
-                out.push(*chars.peek().unwrap());
+                out.push('[');
                 chars.next();
                 for c in chars.by_ref() {
                     out.push(c);
