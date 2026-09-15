@@ -39,6 +39,7 @@ serde_json = "1.0.142"
 
 # Utilities
 color-eyre = "0.6.3"
+ansi-to-tui = "8.0.1"
 
 [lints]
 workspace = true

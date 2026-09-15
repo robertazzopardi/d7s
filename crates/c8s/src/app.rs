@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use ansi_to_tui::IntoText;
 use color_eyre::Result;
 use crossterm::{
     ExecutableCommand,
@@ -10,7 +11,7 @@ use k9tui::widgets::{
     hotkey::Hotkey, modal::ConfirmDialog, status_line::StatusLine,
     table::TableDataState,
 };
-use ratatui::DefaultTerminal;
+use ratatui::{DefaultTerminal, text::Line};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
@@ -53,7 +54,7 @@ pub struct App {
     pub(crate) confirm_dialog: Option<ConfirmDialog>,
     /// Container id pending removal once the confirm dialog resolves.
     pub(crate) pending_remove: Option<String>,
-    pub(crate) log_lines: Vec<String>,
+    pub(crate) log_lines: Vec<Line<'static>>,
     /// Absolute index of the first visible log line, synced each render.
     pub(crate) log_scroll: usize,
     /// True while the log view tracks new output; false once the user scrolls up.
@@ -205,7 +206,11 @@ impl App {
                 }
                 BackgroundEvent::LogLine(line) => {
                     const MAX_LOG_LINES: usize = 5000;
-                    self.log_lines.push(line);
+                    let parsed = line
+                        .as_bytes()
+                        .into_text()
+                        .unwrap_or_else(|_| ratatui::text::Text::raw(line));
+                    self.log_lines.extend(parsed.lines);
                     if self.log_lines.len() > MAX_LOG_LINES {
                         let drop = self.log_lines.len() - MAX_LOG_LINES;
                         self.log_lines.drain(..drop);
