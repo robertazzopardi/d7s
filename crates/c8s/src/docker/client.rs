@@ -11,53 +11,6 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::ContainerRow;
 
-/// Drop OSC sequences (terminal title-set etc, not renderable) and stray
-/// control bytes from raw docker log output. CSI sequences (SGR color codes,
-/// the ones that matter) are left intact for `ansi_to_tui` to render.
-fn sanitize_log_bytes(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c != '\u{1b}' {
-            if c == '\n' || c == '\t' || !c.is_control() {
-                out.push(c);
-            }
-            continue;
-        }
-        match chars.peek() {
-            Some('[') => {
-                out.push(c);
-                out.push('[');
-                chars.next();
-                for c in chars.by_ref() {
-                    out.push(c);
-                    if ('@'..='~').contains(&c) {
-                        break;
-                    }
-                }
-            }
-            Some(']') => {
-                chars.next();
-                loop {
-                    match chars.next() {
-                        None | Some('\u{7}') => break,
-                        Some('\u{1b}') if chars.peek() == Some(&'\\') => {
-                            chars.next();
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Some(_) => {
-                chars.next();
-            }
-            None => {}
-        }
-    }
-    out
-}
-
 /// Thin wrapper around a bollard `Docker` handle, scoped to what c8s needs.
 #[derive(Clone)]
 pub struct DockerClient {
@@ -131,7 +84,7 @@ impl DockerClient {
         let mut stream = self.docker.logs(id, Some(options));
         while let Some(chunk) = stream.next().await {
             let line = match chunk {
-                Ok(output) => sanitize_log_bytes(&output.to_string()),
+                Ok(output) => output.to_string(),
                 Err(e) => format!("[log stream error: {e}]"),
             };
             for line in line.lines() {
@@ -140,33 +93,5 @@ impl DockerClient {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::sanitize_log_bytes;
-
-    #[test]
-    fn keeps_csi_color_codes() {
-        assert_eq!(
-            sanitize_log_bytes("\u{1b}[32mok\u{1b}[0m"),
-            "\u{1b}[32mok\u{1b}[0m"
-        );
-    }
-
-    #[test]
-    fn strips_osc_title_sequence() {
-        assert_eq!(sanitize_log_bytes("\u{1b}]0;title\u{7}rest"), "rest");
-    }
-
-    #[test]
-    fn strips_stray_control_bytes_keeps_newline_and_tab() {
-        assert_eq!(sanitize_log_bytes("a\u{0}b\tc\n"), "ab\tc\n");
-    }
-
-    #[test]
-    fn passes_through_plain_text() {
-        assert_eq!(sanitize_log_bytes("plain log line"), "plain log line");
     }
 }
