@@ -22,8 +22,10 @@ impl ContainerRow {
             .names
             .as_ref()
             .and_then(|names| names.first())
-            .map(|n| n.trim_start_matches('/').to_string())
-            .unwrap_or_else(|| short_id(&id));
+            .map_or_else(
+                || short_id(&id),
+                |n| n.trim_start_matches('/').to_string(),
+            );
         let image = summary.image.clone().unwrap_or_default();
         let status = summary.state.clone().unwrap_or_default();
         let uptime = summary.status.clone().unwrap_or_default();

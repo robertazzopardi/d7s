@@ -20,18 +20,19 @@ const FOOTER_HEIGHT: u16 = 1;
 impl App {
     pub fn render(&mut self, frame: &mut Frame) {
         match &self.state {
-            AppState::Connecting => self.render_connecting(frame),
+            AppState::Connecting => Self::render_connecting(frame),
             AppState::ConnectError(message) => {
-                self.render_connect_error(frame, message.clone());
+                Self::render_connect_error(frame, message);
             }
             AppState::List => self.render_list(frame),
             AppState::Logs { name, .. } => {
-                self.render_logs(frame, name.clone());
+                let name = name.clone();
+                self.render_logs(frame, &name);
             }
         }
     }
 
-    fn render_connecting(&self, frame: &mut Frame) {
+    fn render_connecting(frame: &mut Frame) {
         let area = frame.area();
         Paragraph::new("Connecting to Docker daemon…")
             .style(theme::muted())
@@ -39,7 +40,7 @@ impl App {
             .render(centered(area), frame.buffer_mut());
     }
 
-    fn render_connect_error(&self, frame: &mut Frame, message: String) {
+    fn render_connect_error(frame: &mut Frame, message: &str) {
         let area = frame.area();
         let text = format!("{message}\n\nPress r to retry, q to quit.");
         Paragraph::new(text)
@@ -105,7 +106,7 @@ impl App {
         }
     }
 
-    fn render_logs(&mut self, frame: &mut Frame, name: String) {
+    fn render_logs(&mut self, frame: &mut Frame, name: &str) {
         let layout = Layout::vertical([
             Constraint::Length(TOPBAR_HEIGHT),
             Constraint::Min(0),

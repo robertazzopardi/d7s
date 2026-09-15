@@ -163,7 +163,7 @@ impl ConfirmDialog {
         self.selected_button == 0
     }
 
-    pub fn handle_key_events(&mut self, key: KeyEvent) -> DialogAction {
+    pub const fn handle_key_events(&mut self, key: KeyEvent) -> DialogAction {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc | KeyCode::Enter) => {
                 let action = if self.is_confirmed() {
@@ -542,7 +542,7 @@ mod tests {
             .buffer()
             .content
             .iter()
-            .map(|cell| cell.symbol())
+            .map(ratatui::buffer::Cell::symbol)
             .collect();
 
         assert!(content.contains("Delete?"));
