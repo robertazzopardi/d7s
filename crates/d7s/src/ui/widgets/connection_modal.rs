@@ -1883,11 +1883,7 @@ impl ModalManager {
                     if !modal.is_open {
                         self.active_modal_type = None;
                     }
-                    match action {
-                        DialogAction::Submit => ModalAction::Save,
-                        DialogAction::Cancel => ModalAction::Cancel,
-                        DialogAction::None => ModalAction::None,
-                    }
+                    Self::dialog_to_modal_action(action)
                 } else {
                     ModalAction::None
                 }
@@ -1913,11 +1909,7 @@ impl ModalManager {
                     if !modal.is_open {
                         self.active_modal_type = None;
                     }
-                    match action {
-                        DialogAction::Submit => ModalAction::Save,
-                        DialogAction::Cancel => ModalAction::Cancel,
-                        DialogAction::None => ModalAction::None,
-                    }
+                    Self::dialog_to_modal_action(action)
                 } else {
                     ModalAction::None
                 }
@@ -1944,11 +1936,7 @@ impl ModalManager {
                     if !modal.is_open {
                         self.active_modal_type = None;
                     }
-                    match action {
-                        DialogAction::Submit => ModalAction::Save,
-                        DialogAction::Cancel => ModalAction::Cancel,
-                        DialogAction::None => ModalAction::None,
-                    }
+                    Self::dialog_to_modal_action(action)
                 } else {
                     ModalAction::None
                 }
@@ -1959,16 +1947,20 @@ impl ModalManager {
                     if !modal.is_open {
                         self.active_modal_type = None;
                     }
-                    match action {
-                        DialogAction::Submit => ModalAction::Save,
-                        DialogAction::Cancel => ModalAction::Cancel,
-                        DialogAction::None => ModalAction::None,
-                    }
+                    Self::dialog_to_modal_action(action)
                 } else {
                     ModalAction::None
                 }
             }
             None => ModalAction::None,
+        }
+    }
+
+    const fn dialog_to_modal_action(action: DialogAction) -> ModalAction {
+        match action {
+            DialogAction::Submit => ModalAction::Save,
+            DialogAction::Cancel => ModalAction::Cancel,
+            DialogAction::None => ModalAction::None,
         }
     }
 

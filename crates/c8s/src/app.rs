@@ -204,8 +204,8 @@ impl App {
                     self.set_status(format!("Refresh failed: {e}"));
                 }
                 BackgroundEvent::LogLine(line) => {
-                    self.log_lines.push(line);
                     const MAX_LOG_LINES: usize = 5000;
+                    self.log_lines.push(line);
                     if self.log_lines.len() > MAX_LOG_LINES {
                         let drop = self.log_lines.len() - MAX_LOG_LINES;
                         self.log_lines.drain(..drop);
