@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use ansi_to_tui::IntoText;
 use color_eyre::Result;
 use crossterm::{
     ExecutableCommand,
@@ -10,7 +11,6 @@ use k9tui::widgets::{
     hotkey::Hotkey, modal::ConfirmDialog, status_line::StatusLine,
     table::TableDataState,
 };
-use ansi_to_tui::IntoText;
 use ratatui::{DefaultTerminal, text::Line};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
@@ -205,12 +205,12 @@ impl App {
                     self.set_status(format!("Refresh failed: {e}"));
                 }
                 BackgroundEvent::LogLine(line) => {
+                    const MAX_LOG_LINES: usize = 5000;
                     let parsed = line
                         .as_bytes()
                         .into_text()
                         .unwrap_or_else(|_| ratatui::text::Text::raw(line));
                     self.log_lines.extend(parsed.lines);
-                    const MAX_LOG_LINES: usize = 5000;
                     if self.log_lines.len() > MAX_LOG_LINES {
                         let drop = self.log_lines.len() - MAX_LOG_LINES;
                         self.log_lines.drain(..drop);
