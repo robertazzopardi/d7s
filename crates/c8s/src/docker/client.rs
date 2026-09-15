@@ -11,9 +11,10 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::ContainerRow;
 
-/// Strip ANSI escape sequences (CSI, OSC, and single-char) and stray control
-/// bytes so raw docker log output renders as plain text instead of garbage.
-fn strip_ansi(s: &str) -> String {
+/// Drop OSC sequences (terminal title-set etc, not renderable) and stray
+/// control bytes from raw docker log output. CSI sequences (SGR color codes,
+/// the ones that matter) are left intact for `ansi_to_tui` to render.
+fn sanitize_log_bytes(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
@@ -25,8 +26,11 @@ fn strip_ansi(s: &str) -> String {
         }
         match chars.peek() {
             Some('[') => {
+                out.push(c);
+                out.push(*chars.peek().unwrap());
                 chars.next();
                 for c in chars.by_ref() {
+                    out.push(c);
                     if ('@'..='~').contains(&c) {
                         break;
                     }
@@ -127,7 +131,7 @@ impl DockerClient {
         let mut stream = self.docker.logs(id, Some(options));
         while let Some(chunk) = stream.next().await {
             let line = match chunk {
-                Ok(output) => strip_ansi(&output.to_string()),
+                Ok(output) => sanitize_log_bytes(&output.to_string()),
                 Err(e) => format!("[log stream error: {e}]"),
             };
             for line in line.lines() {
@@ -141,25 +145,28 @@ impl DockerClient {
 
 #[cfg(test)]
 mod tests {
-    use super::strip_ansi;
+    use super::sanitize_log_bytes;
 
     #[test]
-    fn strips_csi_color_codes() {
-        assert_eq!(strip_ansi("\u{1b}[32mok\u{1b}[0m"), "ok");
+    fn keeps_csi_color_codes() {
+        assert_eq!(
+            sanitize_log_bytes("\u{1b}[32mok\u{1b}[0m"),
+            "\u{1b}[32mok\u{1b}[0m"
+        );
     }
 
     #[test]
     fn strips_osc_title_sequence() {
-        assert_eq!(strip_ansi("\u{1b}]0;title\u{7}rest"), "rest");
+        assert_eq!(sanitize_log_bytes("\u{1b}]0;title\u{7}rest"), "rest");
     }
 
     #[test]
     fn strips_stray_control_bytes_keeps_newline_and_tab() {
-        assert_eq!(strip_ansi("a\u{0}b\tc\n"), "ab\tc\n");
+        assert_eq!(sanitize_log_bytes("a\u{0}b\tc\n"), "ab\tc\n");
     }
 
     #[test]
     fn passes_through_plain_text() {
-        assert_eq!(strip_ansi("plain log line"), "plain log line");
+        assert_eq!(sanitize_log_bytes("plain log line"), "plain log line");
     }
 }
