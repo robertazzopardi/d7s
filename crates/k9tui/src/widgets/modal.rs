@@ -389,7 +389,7 @@ impl TextPromptModal {
             (_, KeyCode::Right) => {
                 if self.selected_button == 0 {
                     let line = self.input_value();
-                    let (_, col) = self.input.cursor();
+                    let col = self.input.cursor().1;
                     if col >= line.len() {
                         self.selected_button = 1;
                     } else {
