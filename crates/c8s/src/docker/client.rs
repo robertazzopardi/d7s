@@ -11,6 +11,49 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::ContainerRow;
 
+/// Strip ANSI escape sequences (CSI, OSC, and single-char) and stray control
+/// bytes so raw docker log output renders as plain text instead of garbage.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            if c == '\n' || c == '\t' || !c.is_control() {
+                out.push(c);
+            }
+            continue;
+        }
+        match chars.peek() {
+            Some('[') => {
+                chars.next();
+                for c in chars.by_ref() {
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
+                }
+            }
+            Some(']') => {
+                chars.next();
+                loop {
+                    match chars.next() {
+                        None | Some('\u{7}') => break,
+                        Some('\u{1b}') if chars.peek() == Some(&'\\') => {
+                            chars.next();
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Some(_) => {
+                chars.next();
+            }
+            None => {}
+        }
+    }
+    out
+}
+
 /// Thin wrapper around a bollard `Docker` handle, scoped to what c8s needs.
 #[derive(Clone)]
 pub struct DockerClient {
@@ -84,7 +127,7 @@ impl DockerClient {
         let mut stream = self.docker.logs(id, Some(options));
         while let Some(chunk) = stream.next().await {
             let line = match chunk {
-                Ok(output) => output.to_string(),
+                Ok(output) => strip_ansi(&output.to_string()),
                 Err(e) => format!("[log stream error: {e}]"),
             };
             for line in line.lines() {
@@ -93,5 +136,30 @@ impl DockerClient {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_ansi;
+
+    #[test]
+    fn strips_csi_color_codes() {
+        assert_eq!(strip_ansi("\u{1b}[32mok\u{1b}[0m"), "ok");
+    }
+
+    #[test]
+    fn strips_osc_title_sequence() {
+        assert_eq!(strip_ansi("\u{1b}]0;title\u{7}rest"), "rest");
+    }
+
+    #[test]
+    fn strips_stray_control_bytes_keeps_newline_and_tab() {
+        assert_eq!(strip_ansi("a\u{0}b\tc\n"), "ab\tc\n");
+    }
+
+    #[test]
+    fn passes_through_plain_text() {
+        assert_eq!(strip_ansi("plain log line"), "plain log line");
     }
 }
