@@ -82,10 +82,15 @@ impl App {
             top_area,
         );
 
+        let title = if self.filter_query.is_empty() {
+            format!(" Containers [{n}] ")
+        } else {
+            format!(" Containers [{n}] (filter: {}) ", self.filter_query)
+        };
         let block = Block::new()
             .borders(Borders::ALL)
             .border_style(theme::border())
-            .title(format!(" Containers [{n}] "))
+            .title(title)
             .title_alignment(Alignment::Center);
         let inner = block.inner(content_area);
         frame.render_widget(block, content_area);

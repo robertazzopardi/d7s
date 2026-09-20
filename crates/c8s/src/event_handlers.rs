@@ -110,6 +110,54 @@ impl App {
         key: KeyEvent,
         terminal: &mut DefaultTerminal,
     ) -> Result<()> {
+        if self.filtering {
+            match key.code {
+                KeyCode::Esc => {
+                    self.filtering = false;
+                    self.filter_query.clear();
+                    self.recompute_filtered();
+                    self.set_status("Filter cleared");
+                }
+                KeyCode::Enter => {
+                    self.filtering = false;
+                }
+                KeyCode::Backspace => {
+                    self.filter_query.pop();
+                    self.recompute_filtered();
+                    self.set_status(format!("/{}", self.filter_query));
+                }
+                KeyCode::Char(c) => {
+                    self.filter_query.push(c);
+                    self.recompute_filtered();
+                    self.set_status(format!("/{}", self.filter_query));
+                }
+                KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::Home
+                | KeyCode::End
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+                | KeyCode::Tab
+                | KeyCode::BackTab
+                | KeyCode::Delete
+                | KeyCode::Insert
+                | KeyCode::F(_)
+                | KeyCode::Null
+                | KeyCode::CapsLock
+                | KeyCode::ScrollLock
+                | KeyCode::NumLock
+                | KeyCode::PrintScreen
+                | KeyCode::Pause
+                | KeyCode::Menu
+                | KeyCode::KeypadBegin
+                | KeyCode::Media(_)
+                | KeyCode::Modifier(_) => {}
+            }
+            return Ok(());
+        }
+
         if let Some(dialog) = self.confirm_dialog.as_mut() {
             match dialog.handle_key_events(key) {
                 DialogAction::Submit => {
@@ -183,6 +231,11 @@ impl App {
                 if let Some(row) = self.selected_container().cloned() {
                     self.exec_shell(terminal, &row.id)?;
                 }
+            }
+            (_, KeyCode::Char('/')) => {
+                self.filtering = true;
+                self.filter_query.clear();
+                self.set_status("/");
             }
             (_, KeyCode::Char('d') | KeyCode::Delete) => {
                 if let Some(row) = self.selected_container().cloned() {

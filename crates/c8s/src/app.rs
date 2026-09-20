@@ -50,6 +50,13 @@ pub struct App {
     pub(crate) docker: Option<DockerClient>,
     pub(crate) hotkeys: Vec<Hotkey>,
     pub(crate) containers: TableDataState<ContainerRow>,
+    /// Full, unfiltered container list as last polled; `containers` holds the
+    /// (possibly filtered) subset actually displayed.
+    pub(crate) all_containers: Vec<ContainerRow>,
+    /// True while the `/` filter input is being edited.
+    pub(crate) filtering: bool,
+    /// Current filter substring (name/image match), applied live as typed.
+    pub(crate) filter_query: String,
     pub(crate) status_line: StatusLine,
     pub(crate) confirm_dialog: Option<ConfirmDialog>,
     /// Container id pending removal once the confirm dialog resolves.
@@ -84,6 +91,9 @@ impl App {
             docker: None,
             hotkeys: crate::ui::widgets::hotkeys::LIST_HOTKEYS.to_vec(),
             containers: TableDataState::new(Vec::new()),
+            all_containers: Vec::new(),
+            filtering: false,
+            filter_query: String::new(),
             status_line: StatusLine::new(),
             confirm_dialog: None,
             pending_remove: None,
@@ -154,25 +164,45 @@ impl App {
     }
 
     /// Merge a freshly polled container list into the table, preserving the
-    /// current selection where possible instead of resetting it to row 0.
+    /// current selection (and any active filter) where possible instead of
+    /// resetting it to row 0.
     pub(crate) fn apply_containers_update(&mut self, rows: Vec<ContainerRow>) {
-        let selected = self.containers.view.state.selected();
+        self.all_containers = rows;
+        self.recompute_filtered();
+    }
+
+    /// Re-derive the displayed (filtered) container list from
+    /// `all_containers` and `filter_query`, keeping the same row selected by
+    /// id when it still matches.
+    pub(crate) fn recompute_filtered(&mut self) {
+        let selected_id = self.selected_container().map(|c| c.id.clone());
+
+        let items = if self.filter_query.is_empty() {
+            self.all_containers.clone()
+        } else {
+            let query = self.filter_query.to_lowercase();
+            self.all_containers
+                .iter()
+                .filter(|c| {
+                    c.name.to_lowercase().contains(&query)
+                        || c.image.to_lowercase().contains(&query)
+                })
+                .cloned()
+                .collect()
+        };
+
         self.containers.model.longest_item_lens =
-            k9tui::widgets::constraint_len_calculator(&rows);
-        self.containers.model.items = rows;
+            k9tui::widgets::constraint_len_calculator(&items);
+        self.containers.model.items = items;
 
         let len = self.containers.model.items.len();
-        match selected {
-            Some(sel) if sel >= len => {
-                self.containers.view.state.select(if len == 0 {
-                    None
-                } else {
-                    Some(len - 1)
-                });
-            }
-            None if len > 0 => self.containers.view.state.select(Some(0)),
-            _ => {}
-        }
+        let idx = selected_id.and_then(|id| {
+            self.containers.model.items.iter().position(|c| c.id == id)
+        });
+        self.containers
+            .view
+            .state
+            .select(idx.or(if len == 0 { None } else { Some(0) }));
     }
 
     pub(crate) fn selected_container(&self) -> Option<&ContainerRow> {
