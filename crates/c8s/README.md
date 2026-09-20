@@ -49,6 +49,40 @@ cargo build --release -p c8s
 | `Enter` | Container details (stub, not yet implemented) |
 | `q` / `Ctrl-C` | Quit |
 
+## Configuration
+
+### Skin (colors)
+
+Drop a `~/.config/c8s/skin.yml` to override theme colors. Any color omitted
+keeps its built-in default; if the file is absent, c8s uses the built-in
+theme unchanged. Colors are ANSI names (`white`, `darkgray`, `cyan`, ...) or
+`#rrggbb` hex.
+
+```yaml
+colors:
+  text: white
+  focus: "#ffcc00"
+  error: red
+  success: green
+```
+
+Available color names: `muted`, `text`, `focus`, `on_focus`, `selection_fg`,
+`selection_bg`, `bg_alt`, `draft`, `multi_select`, `info`, `error`,
+`success`, `warning`, `link`.
+
+### Key bindings
+
+Drop a `~/.config/c8s/keys.yml` to remap the action hotkeys (not navigation,
+quit, or the `Delete` fallback). It's a flat map of action name to a single
+character or a named key (`esc`, `f1`–`f12`, ...):
+
+```yaml
+start_stop: s
+remove: x
+```
+
+Remappable actions: `start_stop`, `restart`, `logs`, `exec`, `remove`.
+
 ## Scope
 
 v1 covers containers only — no images, volumes, networks, compose grouping, or stats/CPU graphs.

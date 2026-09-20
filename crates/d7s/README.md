@@ -138,3 +138,42 @@ SQL results:
 | `Ctrl-s` / `x` | Export results to temp TSV |
 
 Paste works in connection/cell/password modals and the search bar (bracketed paste).
+
+## Configuration
+
+### Skin (colors)
+
+Drop a `~/.config/d7s/skin.yml` to override theme colors. Any color omitted
+keeps its built-in default; if the file is absent, d7s uses the built-in
+theme unchanged. Colors are ANSI names (`white`, `darkgray`, `cyan`, ...) or
+`#rrggbb` hex.
+
+```yaml
+colors:
+  text: white
+  focus: "#ffcc00"
+  error: red
+  success: green
+  info: cyan
+```
+
+Available color names: `muted`, `text`, `focus`, `on_focus`, `selection_fg`,
+`selection_bg`, `bg_alt`, `draft`, `multi_select`, `info`, `error`,
+`success`, `warning`, `link`.
+
+### Key bindings
+
+Drop a `~/.config/d7s/keys.yml` to remap the action hotkeys shown in the
+hotkey bar (not vim-style navigation, quit, help, or Esc). It's a flat map
+of action name to a single character or a named key (`esc`, `enter`, `tab`,
+`f1`–`f12`, `pageup`, ...):
+
+```yaml
+new_connection: n
+delete_connection: x
+refresh: f5
+```
+
+Remappable actions: `new_connection`, `edit_connection`, `delete_connection`,
+`open_connection`, `sql_editor`, `table_structure`, `run_sql`, `copy_value`,
+`refresh`, `new_row`, `duplicate_row`, `commit_row`, `delete_row`.
