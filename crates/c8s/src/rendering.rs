@@ -14,7 +14,7 @@ use ratatui::{
 use crate::{
     app::{APP_NAME, App},
     app_state::{AppState, ResourceKind},
-    ui::widgets::hotkeys::{GLOBAL_HOTKEYS, VIEW_SWITCH_HOTKEYS, log_hotkeys},
+    ui::widgets::hotkeys::{GLOBAL_HOTKEYS, VIEW_SWITCH_HOTKEYS, describe_hotkeys, log_hotkeys},
 };
 
 const TOPBAR_HEIGHT: u16 = 7;
@@ -32,6 +32,11 @@ impl App {
             AppState::Logs { name, .. } => {
                 let name = name.clone();
                 self.render_logs(frame, &name);
+            }
+            AppState::Describe { name, text } => {
+                let name = name.clone();
+                let text = text.clone();
+                self.render_describe(frame, &name, &text);
             }
         }
     }
@@ -253,6 +258,54 @@ impl App {
         let end = (start + visible).min(filtered.len());
         let lines = filtered.get(start..end).unwrap_or(&[]).to_vec();
         Paragraph::new(Text::from(lines))
+            .wrap(Wrap { trim: false })
+            .render(inner, frame.buffer_mut());
+
+        frame.render_widget(self.status_line.clone(), footer_area);
+    }
+
+    fn render_describe(&mut self, frame: &mut Frame, name: &str, text: &str) {
+        let layout = Layout::vertical([
+            Constraint::Length(TOPBAR_HEIGHT),
+            Constraint::Min(0),
+            Constraint::Length(FOOTER_HEIGHT),
+        ])
+        .split(frame.area());
+
+        let top_area = layout.first().copied().unwrap_or_default();
+        let content_area = layout.get(1).copied().unwrap_or_default();
+        let footer_area = layout.get(2).copied().unwrap_or_default();
+
+        let hotkeys = describe_hotkeys();
+        frame.render_widget(
+            TopBarView {
+                summary: &format!("Describe: {name}"),
+                recent_hotkeys: &[],
+                hotkeys: &hotkeys,
+                global_hotkeys: &[],
+                app_name: APP_NAME,
+                build_info: None,
+            },
+            top_area,
+        );
+
+        let block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(theme::border())
+            .title(format!(" Describe: {name} "))
+            .title_alignment(Alignment::Center);
+        let inner = block.inner(content_area);
+        frame.render_widget(block, content_area);
+
+        let all_lines: Vec<&str> = text.lines().collect();
+        let visible = inner.height as usize;
+        self.describe_viewport_height = visible;
+        let max_start = all_lines.len().saturating_sub(visible);
+        let start = self.describe_scroll.min(max_start);
+        self.describe_scroll = start;
+        let end = (start + visible).min(all_lines.len());
+        let shown = all_lines.get(start..end).unwrap_or(&[]).join("\n");
+        Paragraph::new(shown)
             .wrap(Wrap { trim: false })
             .render(inner, frame.buffer_mut());
 

@@ -1,11 +1,12 @@
 use bollard::{
     Docker,
     query_parameters::{
-        ListContainersOptions, ListImagesOptions, ListNetworksOptions,
+        InspectContainerOptions, ListContainersOptions, ListImagesOptions, ListNetworksOptions,
         ListVolumesOptions, LogsOptions, RemoveContainerOptions,
         RemoveImageOptions, RemoveVolumeOptions, RestartContainerOptions,
         StopContainerOptions,
     },
+    models::ContainerInspectResponse,
 };
 use color_eyre::Result;
 use futures_util::StreamExt;
@@ -125,6 +126,11 @@ impl DockerClient {
     pub async fn remove_network(&self, name: &str) -> Result<()> {
         self.docker.remove_network(name).await?;
         Ok(())
+    }
+
+    /// Fetch full inspect details for `id` (id, image, status, ports, mounts, env, created time).
+    pub async fn inspect(&self, id: &str) -> Result<ContainerInspectResponse> {
+        Ok(self.docker.inspect_container(id, None::<InspectContainerOptions>).await?)
     }
 
     /// Stream log lines for `id` into `tx` until the stream ends or the

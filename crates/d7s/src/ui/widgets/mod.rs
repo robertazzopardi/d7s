@@ -1,4 +1,5 @@
 pub mod connection_modal;
+pub mod describe_content;
 pub mod global_hotkeys;
 pub mod help_content;
 pub mod hotkeys;
