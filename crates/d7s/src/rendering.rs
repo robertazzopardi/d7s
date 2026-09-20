@@ -340,6 +340,10 @@ impl App<'_> {
         if let Some(modal) = self.modal_manager.get_jump_to_row_modal() {
             frame.render_widget(modal.clone(), area);
         }
+
+        if let Some(modal) = self.modal_manager.get_jump_to_table_modal() {
+            frame.render_widget(modal.clone(), area);
+        }
     }
 
     pub fn render_database_table(&mut self, frame: &mut Frame, area: Rect) {
