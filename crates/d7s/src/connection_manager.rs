@@ -4,7 +4,7 @@ use crate::{
     app::App,
     app_state::{AppState, DatabaseExplorerState},
     database_explorer_state::DatabaseExplorer,
-    db::connection::{Connection, ConnectionType},
+    db::connection::{Connection, ConnectionStatus, ConnectionType},
     services::PreferencesService,
     ui::widgets::hotkeys::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS},
 };
@@ -153,6 +153,50 @@ impl App<'_> {
             .state
             .select(Some(idx));
         self.connect_to_database().await
+    }
+
+    /// Ping every saved connection concurrently (`SELECT 1` for Postgres, a cheap
+    /// open for `SQLite`) and update each row's status column in place. This is a
+    /// lightweight reachability check, not a full connect.
+    pub async fn check_connections_health(&mut self) {
+        for item in
+            &mut self.database_explorer.connections.table.model.items
+        {
+            item.status = ConnectionStatus::Checking;
+        }
+        let snapshot: Vec<Connection> =
+            self.database_explorer.connections.table.model.items.clone();
+
+        let mut set = tokio::task::JoinSet::new();
+        for (idx, connection) in snapshot.into_iter().enumerate() {
+            set.spawn(async move {
+                let db = match connection.r#type {
+                    ConnectionType::Postgres => connection.to_postgres(),
+                    ConnectionType::Sqlite => connection.to_sqlite(),
+                };
+                (idx, db.test().await)
+            });
+        }
+
+        while let Some(result) = set.join_next().await {
+            let Ok((idx, reachable)) = result else {
+                continue;
+            };
+            let status =
+                if reachable { ConnectionStatus::Up } else { ConnectionStatus::Down };
+            if let Some(item) = self
+                .database_explorer
+                .connections
+                .table
+                .model
+                .items
+                .get_mut(idx)
+            {
+                item.status = status;
+            }
+        }
+
+        self.set_status("Connection health check complete.");
     }
 
     /// Disconnect from the current database

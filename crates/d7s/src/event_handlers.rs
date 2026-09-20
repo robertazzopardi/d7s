@@ -244,6 +244,16 @@ impl App<'_> {
                 }
                 Ok(true)
             }
+            (_, KeyCode::Char('p')) => {
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::Connections
+                ) {
+                    self.set_status("Checking connection health...");
+                    self.check_connections_health().await;
+                }
+                Ok(true)
+            }
             (_, KeyCode::Char('d')) => {
                 if matches!(
                     self.database_explorer.state,

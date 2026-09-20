@@ -98,6 +98,30 @@ pub struct Connection {
     pub password: Option<String>,
     /// Where to store password: `keyring` or `dont_save`.
     pub password_storage: Option<String>,
+    /// Runtime-only health status from the last `p` ping check (not persisted).
+    pub status: ConnectionStatus,
+}
+
+/// Result of a lightweight reachability check (`SELECT 1` / cheap open), not a full connect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConnectionStatus {
+    #[default]
+    Unknown,
+    Checking,
+    Up,
+    Down,
+}
+
+impl ConnectionStatus {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Unknown => "",
+            Self::Checking => "…",
+            Self::Up => "● up",
+            Self::Down => "● down",
+        }
+    }
 }
 
 impl Display for Connection {
@@ -151,6 +175,7 @@ impl TableData for Connection {
             ),
             self.environment.to_string(),
             self.auth_badge().to_string(),
+            self.status.label().to_string(),
         ]
     }
 
@@ -159,12 +184,24 @@ impl TableData for Connection {
     }
 
     fn cols() -> Vec<&'static str> {
-        vec!["Name", "Type", "Url", "Env", "Auth"]
+        vec!["Name", "Type", "Url", "Env", "Auth", "Status"]
     }
 
     fn cell_style(&self, column: usize) -> Option<ratatui::style::Style> {
         if column == Self::ENV_COLUMN {
             Some(theme::env_style(self.environment))
+        } else if column == Self::STATUS_COLUMN {
+            match self.status {
+                ConnectionStatus::Up => Some(
+                    ratatui::style::Style::default()
+                        .fg(ratatui::style::Color::Green),
+                ),
+                ConnectionStatus::Down => Some(
+                    ratatui::style::Style::default()
+                        .fg(ratatui::style::Color::Red),
+                ),
+                ConnectionStatus::Unknown | ConnectionStatus::Checking => None,
+            }
         } else {
             None
         }
@@ -332,6 +369,8 @@ impl Connection {
 
     /// Environment column index in the connections table.
     pub const ENV_COLUMN: usize = 3;
+    /// Status column index in the connections table.
+    pub const STATUS_COLUMN: usize = 5;
 }
 
 /// Result of parsing a connection string. Used to prefill the connection form.

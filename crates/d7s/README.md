@@ -24,6 +24,7 @@ d7s and c8s are the shipped apps; k9tui exists so k9s-style TUI apps in this wor
 - **Database traversal** — navigate databases, schemas, tables, columns, and row data with keyboard-driven menus, supports vim.
 - **SQL executor** — execute SQL from the editor, choose a statement when multiple are present, with read-only-by-default safety and confirmation for mutating statements.
 - **Environment tagging** — label each connection as dev, staging, or prod.
+- **Connection health check** — press `p` in the connection list to ping every saved connection concurrently (`SELECT 1` for Postgres, a cheap open for SQLite) and see an up/down status per row, without fully connecting.
 
 ## Demo
 
@@ -107,6 +108,7 @@ Connections:
 | `d` | Delete connection |
 | `o` / Enter | Open connection |
 | `O` | Reconnect last connection |
+| `p` | Ping health check (all saved connections) |
 
 Connected:
 

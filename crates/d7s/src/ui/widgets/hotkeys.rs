@@ -1,10 +1,11 @@
 use k9tui::widgets::hotkey::Hotkey;
 
-pub const CONNECTION_HOTKEYS: [Hotkey; 5] = [
+pub const CONNECTION_HOTKEYS: [Hotkey; 6] = [
     Hotkey::new('n', "New Connection"),
     Hotkey::new('e', "Edit Connection"),
     Hotkey::new('d', "Delete Connection"),
     Hotkey::new('o', "Open Connection"),
+    Hotkey::new('p', "Ping Health"),
     Hotkey::new('/', "Search"),
 ];
 

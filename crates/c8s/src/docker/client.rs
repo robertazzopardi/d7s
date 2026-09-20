@@ -11,6 +11,20 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::ContainerRow;
 
+/// Snapshot of daemon-level health/info — c8s's single-daemon analog of a
+/// fleet-wide health dashboard (there's only ever one daemon to summarize).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DaemonHealth {
+    pub server_version: String,
+    pub api_version: String,
+    pub os: String,
+    pub arch: String,
+    pub containers_running: i64,
+    pub containers_paused: i64,
+    pub containers_stopped: i64,
+    pub images: i64,
+}
+
 /// Thin wrapper around a bollard `Docker` handle, scoped to what c8s needs.
 #[derive(Clone)]
 pub struct DockerClient {
@@ -28,6 +42,23 @@ impl DockerClient {
     pub async fn ping(&self) -> Result<()> {
         self.docker.ping().await?;
         Ok(())
+    }
+
+    /// Cheap daemon-level summary (version + container counts by state), for
+    /// c8s's health panel. Two lightweight API calls; no per-container size scan.
+    pub async fn daemon_health(&self) -> Result<DaemonHealth> {
+        let version = self.docker.version().await?;
+        let info = self.docker.info().await?;
+        Ok(DaemonHealth {
+            server_version: version.version.unwrap_or_default(),
+            api_version: version.api_version.unwrap_or_default(),
+            os: version.os.unwrap_or_default(),
+            arch: version.arch.unwrap_or_default(),
+            containers_running: info.containers_running.unwrap_or_default(),
+            containers_paused: info.containers_paused.unwrap_or_default(),
+            containers_stopped: info.containers_stopped.unwrap_or_default(),
+            images: info.images.unwrap_or_default(),
+        })
     }
 
     pub async fn list_containers(&self) -> Result<Vec<ContainerRow>> {
