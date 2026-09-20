@@ -4,12 +4,15 @@ use bollard::{
         ListContainersOptions, LogsOptions, RemoveContainerOptions,
         RestartContainerOptions, StopContainerOptions,
     },
+    image::{ListImagesOptions, RemoveImageOptions},
+    network::ListNetworksOptions,
+    volume::{ListVolumesOptions, RemoveVolumeOptions},
 };
 use color_eyre::Result;
 use futures_util::StreamExt;
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::ContainerRow;
+use super::{ContainerRow, ImageRow, NetworkRow, VolumeRow};
 
 /// Thin wrapper around a bollard `Docker` handle, scoped to what c8s needs.
 #[derive(Clone)]
@@ -68,6 +71,62 @@ impl DockerClient {
                 }),
             )
             .await?;
+        Ok(())
+    }
+
+    pub async fn list_images(&self) -> Result<Vec<ImageRow>> {
+        let options = ListImagesOptions::<String> {
+            all: false,
+            ..Default::default()
+        };
+        let summaries = self.docker.list_images(Some(options)).await?;
+        Ok(summaries.iter().map(ImageRow::from_summary).collect())
+    }
+
+    pub async fn remove_image(&self, id: &str) -> Result<()> {
+        self.docker
+            .remove_image(
+                id,
+                Some(RemoveImageOptions {
+                    force: true,
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_volumes(&self) -> Result<Vec<VolumeRow>> {
+        let response = self
+            .docker
+            .list_volumes(None::<ListVolumesOptions<String>>)
+            .await?;
+        Ok(response
+            .volumes
+            .unwrap_or_default()
+            .iter()
+            .map(VolumeRow::from_volume)
+            .collect())
+    }
+
+    pub async fn remove_volume(&self, name: &str) -> Result<()> {
+        self.docker
+            .remove_volume(name, Some(RemoveVolumeOptions { force: true }))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_networks(&self) -> Result<Vec<NetworkRow>> {
+        let networks = self
+            .docker
+            .list_networks(None::<ListNetworksOptions<String>>)
+            .await?;
+        Ok(networks.iter().map(NetworkRow::from_network).collect())
+    }
+
+    pub async fn remove_network(&self, name: &str) -> Result<()> {
+        self.docker.remove_network(name).await?;
         Ok(())
     }
 

@@ -9,7 +9,10 @@ use k9tui::{
 };
 use ratatui::{DefaultTerminal, style::Style};
 
-use crate::{app::App, app_state::AppState};
+use crate::{
+    app::App,
+    app_state::{AppState, ResourceKind},
+};
 
 impl App {
     pub async fn on_key_event(
@@ -114,8 +117,8 @@ impl App {
             match dialog.handle_key_events(key) {
                 DialogAction::Submit => {
                     self.confirm_dialog = None;
-                    if let Some(id) = self.pending_remove.take() {
-                        self.remove_container(&id).await;
+                    if let Some((kind, id)) = self.pending_remove.take() {
+                        self.remove_resource(kind, &id).await;
                     }
                 }
                 DialogAction::Cancel => {
@@ -132,35 +135,17 @@ impl App {
             | (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
                 self.quit();
             }
-            (_, KeyCode::Char('j') | KeyCode::Down) => {
-                TableNavigationHandler::navigate_table(
-                    &self.containers.model,
-                    &mut self.containers.view,
-                    KeyCode::Down,
-                );
-            }
-            (_, KeyCode::Char('k') | KeyCode::Up) => {
-                TableNavigationHandler::navigate_table(
-                    &self.containers.model,
-                    &mut self.containers.view,
-                    KeyCode::Up,
-                );
-            }
-            (_, KeyCode::Char('g')) => {
-                TableNavigationHandler::navigate_table(
-                    &self.containers.model,
-                    &mut self.containers.view,
-                    KeyCode::Char('g'),
-                );
-            }
-            (_, KeyCode::Char('G')) => {
-                TableNavigationHandler::navigate_table(
-                    &self.containers.model,
-                    &mut self.containers.view,
-                    KeyCode::Char('G'),
-                );
-            }
-            (_, KeyCode::Char('s' | 'S')) => {
+            (_, KeyCode::Char('1')) => self.switch_view(ResourceKind::Containers),
+            (_, KeyCode::Char('2')) => self.switch_view(ResourceKind::Images),
+            (_, KeyCode::Char('3')) => self.switch_view(ResourceKind::Volumes),
+            (_, KeyCode::Char('4')) => self.switch_view(ResourceKind::Networks),
+            (_, KeyCode::Char('j') | KeyCode::Down) => self.navigate(KeyCode::Down),
+            (_, KeyCode::Char('k') | KeyCode::Up) => self.navigate(KeyCode::Up),
+            (_, KeyCode::Char('g')) => self.navigate(KeyCode::Char('g')),
+            (_, KeyCode::Char('G')) => self.navigate(KeyCode::Char('G')),
+            (_, KeyCode::Char('s' | 'S'))
+                if self.view == ResourceKind::Containers =>
+            {
                 if let Some(row) = self.selected_container().cloned() {
                     if row.status.eq_ignore_ascii_case("running") {
                         self.stop_container(&row.id).await;
@@ -169,38 +154,98 @@ impl App {
                     }
                 }
             }
-            (_, KeyCode::Char('r')) => {
+            (_, KeyCode::Char('r')) if self.view == ResourceKind::Containers => {
                 if let Some(row) = self.selected_container().cloned() {
                     self.restart_container(&row.id).await;
                 }
             }
-            (_, KeyCode::Char('l')) => {
+            (_, KeyCode::Char('l')) if self.view == ResourceKind::Containers => {
                 if let Some(row) = self.selected_container().cloned() {
                     self.open_logs(&row.id, &row.name);
                 }
             }
-            (_, KeyCode::Char('e')) => {
+            (_, KeyCode::Char('e')) if self.view == ResourceKind::Containers => {
                 if let Some(row) = self.selected_container().cloned() {
                     self.exec_shell(terminal, &row.id)?;
                 }
             }
             (_, KeyCode::Char('d') | KeyCode::Delete) => {
-                if let Some(row) = self.selected_container().cloned() {
-                    self.pending_remove = Some(row.id);
-                    self.confirm_dialog = Some(ConfirmDialog::new(
-                        " Remove container? ",
-                        format!(
-                            "Remove container '{}'?\nThis action cannot be undone.",
-                            row.name
-                        ),
-                        modal_border(),
-                        1,
-                    ));
-                }
+                self.prompt_remove_selected();
             }
             _ => {}
         }
         Ok(())
+    }
+
+    /// Switch the active list view. Selection state per resource kind is
+    /// preserved on its own `TableDataState`, so no reset is needed here.
+    fn switch_view(&mut self, kind: ResourceKind) {
+        self.view = kind;
+        self.hotkeys = match kind {
+            ResourceKind::Containers => {
+                crate::ui::widgets::hotkeys::LIST_HOTKEYS.to_vec()
+            }
+            ResourceKind::Images | ResourceKind::Volumes | ResourceKind::Networks => {
+                crate::ui::widgets::hotkeys::RESOURCE_HOTKEYS.to_vec()
+            }
+        };
+    }
+
+    fn navigate(&mut self, key: KeyCode) {
+        match self.view {
+            ResourceKind::Containers => TableNavigationHandler::navigate_table(
+                &self.containers.model,
+                &mut self.containers.view,
+                key,
+            ),
+            ResourceKind::Images => TableNavigationHandler::navigate_table(
+                &self.images.model,
+                &mut self.images.view,
+                key,
+            ),
+            ResourceKind::Volumes => TableNavigationHandler::navigate_table(
+                &self.volumes.model,
+                &mut self.volumes.view,
+                key,
+            ),
+            ResourceKind::Networks => TableNavigationHandler::navigate_table(
+                &self.networks.model,
+                &mut self.networks.view,
+                key,
+            ),
+        }
+    }
+
+    /// Open the remove-confirmation dialog for whatever's selected in the
+    /// active view, if anything is selected.
+    fn prompt_remove_selected(&mut self) {
+        let Some((kind, id, label)) = (match self.view {
+            ResourceKind::Containers => self
+                .selected_container()
+                .map(|r| (self.view, r.id.clone(), r.name.clone())),
+            ResourceKind::Images => self
+                .selected_image()
+                .map(|r| (self.view, r.id.clone(), r.repo_tags.clone())),
+            ResourceKind::Volumes => self
+                .selected_volume()
+                .map(|r| (self.view, r.name.clone(), r.name.clone())),
+            ResourceKind::Networks => self
+                .selected_network()
+                .map(|r| (self.view, r.id.clone(), r.name.clone())),
+        }) else {
+            return;
+        };
+
+        self.pending_remove = Some((kind, id));
+        self.confirm_dialog = Some(ConfirmDialog::new(
+            format!(" Remove {}? ", singular(kind)),
+            format!(
+                "Remove {} '{label}'?\nThis action cannot be undone.",
+                singular(kind)
+            ),
+            modal_border(),
+            1,
+        ));
     }
 
     async fn start_container(&mut self, id: &str) {
@@ -233,12 +278,18 @@ impl App {
         }
     }
 
-    async fn remove_container(&mut self, id: &str) {
+    async fn remove_resource(&mut self, kind: ResourceKind, id: &str) {
         let Some(docker) = self.docker.clone() else {
             return;
         };
-        match docker.remove(id).await {
-            Ok(()) => self.set_status("Container removed"),
+        let result = match kind {
+            ResourceKind::Containers => docker.remove(id).await,
+            ResourceKind::Images => docker.remove_image(id).await,
+            ResourceKind::Volumes => docker.remove_volume(id).await,
+            ResourceKind::Networks => docker.remove_network(id).await,
+        };
+        match result {
+            Ok(()) => self.set_status(format!("{} removed", singular(kind))),
             Err(e) => self.set_status(format!("Remove failed: {e}")),
         }
     }
@@ -246,4 +297,14 @@ impl App {
 
 fn modal_border() -> Style {
     theme::border()
+}
+
+/// Human-readable singular label for a resource kind, for status/dialog text.
+fn singular(kind: ResourceKind) -> &'static str {
+    match kind {
+        ResourceKind::Containers => "Container",
+        ResourceKind::Images => "Image",
+        ResourceKind::Volumes => "Volume",
+        ResourceKind::Networks => "Network",
+    }
 }

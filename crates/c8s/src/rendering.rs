@@ -13,8 +13,8 @@ use ratatui::{
 
 use crate::{
     app::{APP_NAME, App},
-    app_state::AppState,
-    ui::widgets::hotkeys::{GLOBAL_HOTKEYS, log_hotkeys},
+    app_state::{AppState, ResourceKind},
+    ui::widgets::hotkeys::{GLOBAL_HOTKEYS, VIEW_SWITCH_HOTKEYS, log_hotkeys},
 };
 
 const TOPBAR_HEIGHT: u16 = 7;
@@ -66,9 +66,16 @@ impl App {
         let content_area = layout.get(1).copied().unwrap_or_default();
         let footer_area = layout.get(2).copied().unwrap_or_default();
 
-        let global: Vec<Hotkey> = GLOBAL_HOTKEYS.to_vec();
-        let n = self.containers.model.items.len();
-        let summary = format!("Containers: {n}");
+        let mut global: Vec<Hotkey> = VIEW_SWITCH_HOTKEYS.to_vec();
+        global.extend(GLOBAL_HOTKEYS);
+        let label = self.view.label();
+        let n = match self.view {
+            ResourceKind::Containers => self.containers.model.items.len(),
+            ResourceKind::Images => self.images.model.items.len(),
+            ResourceKind::Volumes => self.volumes.model.items.len(),
+            ResourceKind::Networks => self.networks.model.items.len(),
+        };
+        let summary = format!("{label}: {n}");
 
         frame.render_widget(
             TopBarView {
@@ -85,22 +92,39 @@ impl App {
         let block = Block::new()
             .borders(Borders::ALL)
             .border_style(theme::border())
-            .title(format!(" Containers [{n}] "))
+            .title(format!(" {label} [{n}] "))
             .title_alignment(Alignment::Center);
         let inner = block.inner(content_area);
         frame.render_widget(block, content_area);
 
         if n == 0 {
-            Paragraph::new("No containers found")
+            Paragraph::new(format!("No {} found", label.to_lowercase()))
                 .style(theme::muted())
                 .alignment(Alignment::Center)
                 .render(inner, frame.buffer_mut());
         } else {
-            frame.render_stateful_widget(
-                DataTable::default(),
-                inner,
-                &mut self.containers,
-            );
+            match self.view {
+                ResourceKind::Containers => frame.render_stateful_widget(
+                    DataTable::default(),
+                    inner,
+                    &mut self.containers,
+                ),
+                ResourceKind::Images => frame.render_stateful_widget(
+                    DataTable::default(),
+                    inner,
+                    &mut self.images,
+                ),
+                ResourceKind::Volumes => frame.render_stateful_widget(
+                    DataTable::default(),
+                    inner,
+                    &mut self.volumes,
+                ),
+                ResourceKind::Networks => frame.render_stateful_widget(
+                    DataTable::default(),
+                    inner,
+                    &mut self.networks,
+                ),
+            }
         }
 
         frame.render_widget(self.status_line.clone(), footer_area);

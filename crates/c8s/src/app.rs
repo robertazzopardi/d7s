@@ -9,7 +9,7 @@ use crossterm::{
 };
 use k9tui::widgets::{
     hotkey::Hotkey, modal::ConfirmDialog, status_line::StatusLine,
-    table::TableDataState,
+    table::{TableData, TableDataState},
 };
 use ratatui::{DefaultTerminal, text::Line};
 use tokio::sync::mpsc::{
@@ -17,8 +17,8 @@ use tokio::sync::mpsc::{
 };
 
 use crate::{
-    app_state::AppState,
-    docker::{ContainerRow, client::DockerClient},
+    app_state::{AppState, ResourceKind},
+    docker::{ContainerRow, ImageRow, NetworkRow, VolumeRow, client::DockerClient},
 };
 
 pub const APP_NAME: &str = r"         ______
@@ -38,6 +38,12 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 pub enum BackgroundEvent {
     /// Container list refreshed by the poller.
     Containers(Vec<ContainerRow>),
+    /// Image list refreshed by the poller.
+    Images(Vec<ImageRow>),
+    /// Volume list refreshed by the poller.
+    Volumes(Vec<VolumeRow>),
+    /// Network list refreshed by the poller.
+    Networks(Vec<NetworkRow>),
     /// The poller failed to reach the daemon (e.g. it was stopped mid-session).
     PollError(String),
     /// One log line from the active log-tail task.
@@ -47,13 +53,18 @@ pub enum BackgroundEvent {
 pub struct App {
     pub(crate) running: bool,
     pub(crate) state: AppState,
+    /// Which resource table the list view currently shows.
+    pub(crate) view: ResourceKind,
     pub(crate) docker: Option<DockerClient>,
     pub(crate) hotkeys: Vec<Hotkey>,
     pub(crate) containers: TableDataState<ContainerRow>,
+    pub(crate) images: TableDataState<ImageRow>,
+    pub(crate) volumes: TableDataState<VolumeRow>,
+    pub(crate) networks: TableDataState<NetworkRow>,
     pub(crate) status_line: StatusLine,
     pub(crate) confirm_dialog: Option<ConfirmDialog>,
-    /// Container id pending removal once the confirm dialog resolves.
-    pub(crate) pending_remove: Option<String>,
+    /// Resource kind + id pending removal once the confirm dialog resolves.
+    pub(crate) pending_remove: Option<(ResourceKind, String)>,
     pub(crate) log_lines: Vec<Line<'static>>,
     /// Absolute index of the first visible log line, synced each render.
     pub(crate) log_scroll: usize,
@@ -81,9 +92,13 @@ impl App {
         Self {
             running: false,
             state: AppState::default(),
+            view: ResourceKind::default(),
             docker: None,
             hotkeys: crate::ui::widgets::hotkeys::LIST_HOTKEYS.to_vec(),
             containers: TableDataState::new(Vec::new()),
+            images: TableDataState::new(Vec::new()),
+            volumes: TableDataState::new(Vec::new()),
+            networks: TableDataState::new(Vec::new()),
             status_line: StatusLine::new(),
             confirm_dialog: None,
             pending_remove: None,
@@ -135,9 +150,7 @@ impl App {
             loop {
                 match docker.list_containers().await {
                     Ok(rows) => {
-                        if tx.send(BackgroundEvent::Containers(rows)).is_err() {
-                            return;
-                        }
+                        let _ = tx.send(BackgroundEvent::Containers(rows));
                     }
                     Err(e) => {
                         if tx
@@ -148,36 +161,53 @@ impl App {
                         }
                     }
                 }
+                match docker.list_images().await {
+                    Ok(rows) => {
+                        let _ = tx.send(BackgroundEvent::Images(rows));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(BackgroundEvent::PollError(e.to_string()));
+                    }
+                }
+                match docker.list_volumes().await {
+                    Ok(rows) => {
+                        let _ = tx.send(BackgroundEvent::Volumes(rows));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(BackgroundEvent::PollError(e.to_string()));
+                    }
+                }
+                match docker.list_networks().await {
+                    Ok(rows) => {
+                        let _ = tx.send(BackgroundEvent::Networks(rows));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(BackgroundEvent::PollError(e.to_string()));
+                    }
+                }
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
         }));
     }
 
-    /// Merge a freshly polled container list into the table, preserving the
-    /// current selection where possible instead of resetting it to row 0.
-    pub(crate) fn apply_containers_update(&mut self, rows: Vec<ContainerRow>) {
-        let selected = self.containers.view.state.selected();
-        self.containers.model.longest_item_lens =
-            k9tui::widgets::constraint_len_calculator(&rows);
-        self.containers.model.items = rows;
-
-        let len = self.containers.model.items.len();
-        match selected {
-            Some(sel) if sel >= len => {
-                self.containers.view.state.select(if len == 0 {
-                    None
-                } else {
-                    Some(len - 1)
-                });
-            }
-            None if len > 0 => self.containers.view.state.select(Some(0)),
-            _ => {}
-        }
-    }
-
     pub(crate) fn selected_container(&self) -> Option<&ContainerRow> {
         let idx = self.containers.view.state.selected()?;
         self.containers.model.items.get(idx)
+    }
+
+    pub(crate) fn selected_image(&self) -> Option<&ImageRow> {
+        let idx = self.images.view.state.selected()?;
+        self.images.model.items.get(idx)
+    }
+
+    pub(crate) fn selected_volume(&self) -> Option<&VolumeRow> {
+        let idx = self.volumes.view.state.selected()?;
+        self.volumes.model.items.get(idx)
+    }
+
+    pub(crate) fn selected_network(&self) -> Option<&NetworkRow> {
+        let idx = self.networks.view.state.selected()?;
+        self.networks.model.items.get(idx)
     }
 
     pub(crate) const fn quit(&mut self) {
@@ -205,7 +235,16 @@ impl App {
         while let Ok(event) = self.bg_rx.try_recv() {
             match event {
                 BackgroundEvent::Containers(rows) => {
-                    self.apply_containers_update(rows);
+                    apply_table_update(&mut self.containers, rows);
+                }
+                BackgroundEvent::Images(rows) => {
+                    apply_table_update(&mut self.images, rows);
+                }
+                BackgroundEvent::Volumes(rows) => {
+                    apply_table_update(&mut self.volumes, rows);
+                }
+                BackgroundEvent::Networks(rows) => {
+                    apply_table_update(&mut self.networks, rows);
                 }
                 BackgroundEvent::PollError(e) => {
                     self.set_status(format!("Refresh failed: {e}"));
@@ -322,5 +361,28 @@ impl App {
 impl Default for App {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Merge a freshly polled row list into a table, preserving the current
+/// selection where possible instead of resetting it to row 0.
+fn apply_table_update<T: TableData + Clone>(
+    table: &mut TableDataState<T>,
+    rows: Vec<T>,
+) {
+    let selected = table.view.state.selected();
+    table.model.longest_item_lens = k9tui::widgets::constraint_len_calculator(&rows);
+    table.model.items = rows;
+
+    let len = table.model.items.len();
+    match selected {
+        Some(sel) if sel >= len => {
+            table
+                .view
+                .state
+                .select(if len == 0 { None } else { Some(len - 1) });
+        }
+        None if len > 0 => table.view.state.select(Some(0)),
+        _ => {}
     }
 }

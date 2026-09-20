@@ -91,6 +91,164 @@ impl TableData for ContainerRow {
     }
 }
 
+/// One row in the image list table.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ImageRow {
+    pub id: String,
+    pub repo_tags: String,
+    pub size: String,
+    pub created: String,
+}
+
+impl ImageRow {
+    #[must_use]
+    pub fn from_summary(summary: &bollard::models::ImageSummary) -> Self {
+        let repo_tags = if summary.repo_tags.is_empty() {
+            "<none>:<none>".to_string()
+        } else {
+            summary.repo_tags.join(", ")
+        };
+        Self {
+            id: short_id(summary.id.trim_start_matches("sha256:")),
+            repo_tags,
+            size: format_size(summary.size),
+            created: format_timestamp(summary.created),
+        }
+    }
+}
+
+const IMAGE_COLUMNS: [&str; 4] = ["REPO:TAG", "ID", "SIZE", "CREATED"];
+
+impl TableData for ImageRow {
+    fn title() -> &'static str {
+        "Images"
+    }
+
+    fn ref_array(&self) -> Vec<String> {
+        vec![
+            self.repo_tags.clone(),
+            self.id.clone(),
+            self.size.clone(),
+            self.created.clone(),
+        ]
+    }
+
+    fn num_columns(&self) -> usize {
+        IMAGE_COLUMNS.len()
+    }
+
+    fn cols() -> Vec<&'static str> {
+        IMAGE_COLUMNS.to_vec()
+    }
+}
+
+/// One row in the volume list table.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct VolumeRow {
+    pub name: String,
+    pub driver: String,
+    pub mountpoint: String,
+}
+
+impl VolumeRow {
+    #[must_use]
+    pub fn from_volume(volume: &bollard::models::Volume) -> Self {
+        Self {
+            name: volume.name.clone(),
+            driver: volume.driver.clone(),
+            mountpoint: volume.mountpoint.clone(),
+        }
+    }
+}
+
+const VOLUME_COLUMNS: [&str; 3] = ["NAME", "DRIVER", "MOUNTPOINT"];
+
+impl TableData for VolumeRow {
+    fn title() -> &'static str {
+        "Volumes"
+    }
+
+    fn ref_array(&self) -> Vec<String> {
+        vec![self.name.clone(), self.driver.clone(), self.mountpoint.clone()]
+    }
+
+    fn num_columns(&self) -> usize {
+        VOLUME_COLUMNS.len()
+    }
+
+    fn cols() -> Vec<&'static str> {
+        VOLUME_COLUMNS.to_vec()
+    }
+}
+
+/// One row in the network list table.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct NetworkRow {
+    pub id: String,
+    pub name: String,
+    pub driver: String,
+    pub scope: String,
+}
+
+impl NetworkRow {
+    #[must_use]
+    pub fn from_network(network: &bollard::models::Network) -> Self {
+        Self {
+            id: network.id.as_deref().map_or_else(String::new, short_id),
+            name: network.name.clone().unwrap_or_default(),
+            driver: network.driver.clone().unwrap_or_default(),
+            scope: network.scope.clone().unwrap_or_default(),
+        }
+    }
+}
+
+const NETWORK_COLUMNS: [&str; 3] = ["NAME", "DRIVER", "SCOPE"];
+
+impl TableData for NetworkRow {
+    fn title() -> &'static str {
+        "Networks"
+    }
+
+    fn ref_array(&self) -> Vec<String> {
+        vec![self.name.clone(), self.driver.clone(), self.scope.clone()]
+    }
+
+    fn num_columns(&self) -> usize {
+        NETWORK_COLUMNS.len()
+    }
+
+    fn cols() -> Vec<&'static str> {
+        NETWORK_COLUMNS.to_vec()
+    }
+}
+
+fn format_size(bytes: i64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut size = bytes.max(0) as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    format!("{size:.1}{}", UNITS.get(unit).unwrap_or(&"B"))
+}
+
+/// Render a Unix timestamp as a rough "N <unit> ago" string, docker-CLI style.
+fn format_timestamp(secs: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let created = secs.max(0).unsigned_abs();
+    let elapsed = now.saturating_sub(created);
+    match elapsed {
+        s if s < 60 => format!("{s}s ago"),
+        s if s < 3600 => format!("{}m ago", s / 60),
+        s if s < 86400 => format!("{}h ago", s / 3600),
+        s => format!("{}d ago", s / 86400),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bollard::models::{
