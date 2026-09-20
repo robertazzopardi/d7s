@@ -38,6 +38,12 @@ impl App<'_> {
     pub fn render(&mut self, frame: &mut Frame) {
         self.status_line
             .set_idle_hint(default_idle_hint(self.state));
+        if self.watch_active {
+            self.status_line.set_idle_hint(format!(
+                "● WATCHING · {}",
+                default_idle_hint(self.state)
+            ));
+        }
 
         let layout = Layout::default()
             .direction(Direction::Vertical)

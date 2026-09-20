@@ -136,5 +136,6 @@ SQL results:
 | Key | Action |
 |-----|--------|
 | `Ctrl-s` / `x` | Export results to temp TSV |
+| `w` | Toggle watch (re-run query every 2s until toggled off or the query/view changes) |
 
 Paste works in connection/cell/password modals and the search bar (bracketed paste).
