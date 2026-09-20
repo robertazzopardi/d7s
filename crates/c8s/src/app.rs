@@ -302,6 +302,17 @@ impl App {
         }));
     }
 
+    /// Fetch a cheap daemon-level summary and switch to the info panel.
+    pub(crate) async fn open_daemon_health(&mut self) {
+        let Some(docker) = self.docker.clone() else {
+            return;
+        };
+        match docker.daemon_health().await {
+            Ok(health) => self.state = AppState::Info(health),
+            Err(e) => self.set_status(format!("Daemon info failed: {e}")),
+        }
+    }
+
     /// Leave the log view, stopping the tail task.
     pub(crate) fn close_logs(&mut self) {
         if let Some(handle) = self.log_task.take() {

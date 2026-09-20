@@ -25,6 +25,20 @@ impl App {
                 self.on_key_logs(key);
                 Ok(())
             }
+            AppState::Info(_) => {
+                self.on_key_info(key);
+                Ok(())
+            }
+        }
+    }
+
+    fn on_key_info(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('i')) => {
+                self.state = AppState::List;
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
+            _ => {}
         }
     }
 
@@ -158,6 +172,9 @@ impl App {
                 if let Some(row) = self.selected_container().cloned() {
                     self.exec_shell(terminal, &row.id)?;
                 }
+            }
+            (_, KeyCode::Char('i')) => {
+                self.open_daemon_health().await;
             }
             (_, KeyCode::Char('d') | KeyCode::Delete) => {
                 if let Some(row) = self.selected_container().cloned() {

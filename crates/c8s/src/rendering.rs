@@ -29,6 +29,10 @@ impl App {
                 let name = name.clone();
                 self.render_logs(frame, &name);
             }
+            AppState::Info(health) => {
+                let health = health.clone();
+                Self::render_daemon_health(frame, &health);
+            }
         }
     }
 
@@ -48,6 +52,38 @@ impl App {
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true })
             .render(centered(area), frame.buffer_mut());
+    }
+
+    /// c8s's single-daemon analog of a fleet health dashboard: this daemon's
+    /// version/info, since there's only ever one daemon connected to summarize.
+    fn render_daemon_health(
+        frame: &mut Frame,
+        health: &crate::docker::client::DaemonHealth,
+    ) {
+        let area = frame.area();
+        let text = format!(
+            "Docker version: {}\nAPI version: {}\nOS/Arch: {}/{}\n\nContainers running: {}\nContainers paused: {}\nContainers stopped: {}\nImages: {}\n\nPress i, q, or Esc to close.",
+            health.server_version,
+            health.api_version,
+            health.os,
+            health.arch,
+            health.containers_running,
+            health.containers_paused,
+            health.containers_stopped,
+            health.images,
+        );
+        let block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(theme::border())
+            .title(" Daemon Health ")
+            .title_alignment(Alignment::Center);
+        let modal_area = centered_box(area, 42, 12);
+        let inner = block.inner(modal_area);
+        frame.render_widget(block, modal_area);
+        Paragraph::new(text)
+            .alignment(Alignment::Left)
+            .wrap(Wrap { trim: true })
+            .render(inner, frame.buffer_mut());
     }
 
     fn render_list(&mut self, frame: &mut Frame) {
@@ -162,6 +198,19 @@ impl App {
 
         frame.render_widget(self.status_line.clone(), footer_area);
     }
+}
+
+/// A fixed-size box centered within `area`, clamped to fit.
+fn centered_box(area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
+    let vertical = Layout::vertical([Constraint::Length(height)])
+        .flex(layout::Flex::Center)
+        .split(area);
+    let horizontal = Layout::horizontal([Constraint::Length(width)])
+        .flex(layout::Flex::Center)
+        .split(vertical.first().copied().unwrap_or(area));
+    horizontal.first().copied().unwrap_or(area)
 }
 
 fn centered(area: Rect) -> Rect {
