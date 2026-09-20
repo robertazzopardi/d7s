@@ -11,6 +11,10 @@ use ratatui::{DefaultTerminal, style::Style};
 
 use crate::{app::App, app_state::AppState};
 
+// TODO(command-mode bucket): k9s-style `:resource` command bar is deferred
+// here — c8s only has one resource type (containers) today, so there's
+// nothing to switch between yet. Add it once images/volumes/networks views
+// exist (separate bucket).
 impl App {
     pub async fn on_key_event(
         &mut self,

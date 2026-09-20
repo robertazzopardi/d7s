@@ -117,6 +117,7 @@ Connected:
 | `t` | Toggle table structure |
 | `/` | Search |
 | `1`–`5` | Jump to recent table |
+| `` ` `` | Jump to table by name (fuzzy/substring match, current schema) |
 
 Table data:
 

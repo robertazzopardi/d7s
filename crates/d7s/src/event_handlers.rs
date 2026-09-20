@@ -326,6 +326,18 @@ impl App<'_> {
                 self.modal_manager.open_jump_to_row_modal();
                 Ok(true)
             }
+            (_, KeyCode::Char('`'))
+                if self.state == AppState::DatabaseConnected
+                    && matches!(
+                        self.database_explorer.state,
+                        DatabaseExplorerState::Tables(_)
+                            | DatabaseExplorerState::TableData(_, _)
+                            | DatabaseExplorerState::Columns(_, _)
+                    ) =>
+            {
+                self.modal_manager.open_jump_to_table_modal();
+                Ok(true)
+            }
             (_, KeyCode::Esc) => {
                 if self.modal_manager.is_any_modal_open() {
                     self.modal_manager.close_active_modal();
@@ -524,6 +536,14 @@ impl App<'_> {
                     && matches!(key.code, KeyCode::Enter)
                 {
                     self.jump_to_table_row(row).await?;
+                    self.modal_manager.cleanup_closed_modals();
+                    return Ok(());
+                }
+                if let Some(query) =
+                    self.modal_manager.was_jump_to_table_confirmed()
+                    && matches!(key.code, KeyCode::Enter)
+                {
+                    self.jump_to_table_by_name(&query).await?;
                     self.modal_manager.cleanup_closed_modals();
                     return Ok(());
                 }

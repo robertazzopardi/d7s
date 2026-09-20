@@ -18,6 +18,12 @@ use crate::{
 const STATUS_DB_NOT_CONNECTED: &str = "Not connected to database.";
 const STATUS_CONNECT_FAILED: &str = "Failed to connect to database.";
 
+/// Small hardcoded shortcut map for `` ` `` command-mode table jumps
+/// (e.g. `usr` -> `users`). Substring match already covers most cases;
+/// this only helps for abbreviations that aren't substrings of the name.
+const TABLE_ALIASES: &[(&str, &str)] =
+    &[("usr", "users"), ("acct", "accounts"), ("tx", "transactions")];
+
 fn column_index_for_name(names: &[String], name: &str) -> Option<usize> {
     names
         .iter()
@@ -289,6 +295,49 @@ impl App<'_> {
                 }
             }
             Err(e) => self.status_load_failed("jump to row", e),
+        }
+        Ok(())
+    }
+
+    /// Command-mode table jump (`` ` `` key): fuzzy/substring match a table
+    /// name (or a small hardcoded alias) against the current schema's table
+    /// list and open its data view.
+    pub async fn jump_to_table_by_name(&mut self, query: &str) -> Result<()> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(());
+        }
+        let Some(schema) = self.database_explorer.state.schema_name() else {
+            return Ok(());
+        };
+        let Some(tables) = self.database_explorer.tables.as_ref() else {
+            self.set_status("No tables loaded for this schema.");
+            return Ok(());
+        };
+        let needle = TABLE_ALIASES
+            .iter()
+            .find(|(alias, _)| alias.eq_ignore_ascii_case(query))
+            .map_or(query, |(_, target)| *target)
+            .to_ascii_lowercase();
+
+        let names = &tables.original;
+        let matched = names
+            .iter()
+            .find(|t| t.name.eq_ignore_ascii_case(&needle))
+            .or_else(|| {
+                names
+                    .iter()
+                    .find(|t| t.name.to_ascii_lowercase().contains(&needle))
+            });
+
+        match matched {
+            Some(table) => {
+                let table_name = table.name.clone();
+                self.load_table_data(&schema, &table_name).await?;
+            }
+            None => {
+                self.set_status(format!("No table matching '{query}'"));
+            }
         }
         Ok(())
     }
