@@ -26,7 +26,9 @@ use crate::{
     services::{ConnectionService, PasswordService, PreferencesService},
     sql::safety::{StatementSafety, classify_statement, split_statements},
     ui::widgets::{
-        connection_modal::ModalManager, help_content::HelpRow,
+        connection_modal::ModalManager,
+        describe_content::DescribeRow,
+        help_content::HelpRow,
         hotkeys::CONNECTION_HOTKEYS,
     },
     virtual_table::VIRTUAL_TABLE_PAGE_SIZE,
@@ -70,6 +72,9 @@ pub struct App<'a> {
     /// k9s-style help panel in main content area (`?` toggles).
     pub(crate) show_help: bool,
     pub(crate) help_table: TableDataState<HelpRow>,
+    /// k9s-style describe panel for the currently selected object (`i` toggles).
+    pub(crate) show_describe: bool,
+    pub(crate) describe_table: TableDataState<DescribeRow>,
     /// Rows per virtual table page (from prefs / `D7S_PAGE_SIZE`).
     pub(crate) page_size: u32,
     /// First Esc warns before dropping draft rows; second Esc discards.
@@ -94,6 +99,8 @@ impl Default for App<'_> {
             pending_row_deletes: None,
             show_help: false,
             help_table: TableDataState::new(Vec::new()),
+            show_describe: false,
+            describe_table: TableDataState::new(Vec::new()),
             page_size: VIRTUAL_TABLE_PAGE_SIZE,
             draft_discard_pending: false,
             showed_help_hint: false,
@@ -295,6 +302,98 @@ impl App<'_> {
         }
     }
 
+    /// Build the field/value rows describing whatever object is currently
+    /// selected (connection, table, column, or table-data row).
+    pub(crate) fn build_describe_rows(&self) -> Vec<DescribeRow> {
+        let explorer = &self.database_explorer;
+        match &explorer.state {
+            DatabaseExplorerState::Connections => explorer
+                .connections
+                .table
+                .view
+                .state
+                .selected()
+                .and_then(|i| explorer.connections.table.model.items.get(i))
+                .map_or_else(Vec::new, |conn| {
+                    connection_describe_rows(conn)
+                }),
+            DatabaseExplorerState::Tables(_) => explorer
+                .tables
+                .as_ref()
+                .and_then(|t| {
+                    let i = t.table.view.state.selected()?;
+                    t.table.model.items.get(i)
+                })
+                .map_or_else(Vec::new, |table| {
+                    vec![
+                        DescribeRow::section("Table"),
+                        DescribeRow::new("Name", &table.name),
+                        DescribeRow::new("Schema", &table.schema),
+                        DescribeRow::new(
+                            "Size",
+                            table.size.clone().unwrap_or_default(),
+                        ),
+                    ]
+                }),
+            DatabaseExplorerState::Columns(schema, table_name) => explorer
+                .columns
+                .as_ref()
+                .and_then(|c| {
+                    let i = c.table.view.state.selected()?;
+                    c.table.model.items.get(i)
+                })
+                .map_or_else(Vec::new, |col| {
+                    vec![
+                        DescribeRow::section("Column"),
+                        DescribeRow::new("Table", format!("{schema}.{table_name}")),
+                        DescribeRow::new("Name", &col.name),
+                        DescribeRow::new("Type", &col.data_type),
+                        DescribeRow::new(
+                            "Nullable",
+                            if col.is_nullable { "YES" } else { "NO" },
+                        ),
+                        DescribeRow::new(
+                            "Default",
+                            col.default_value.clone().unwrap_or_default(),
+                        ),
+                        DescribeRow::new(
+                            "Description",
+                            col.description.clone().unwrap_or_default(),
+                        ),
+                    ]
+                }),
+            DatabaseExplorerState::TableData(schema, table_name) => explorer
+                .table_data
+                .as_ref()
+                .and_then(|t| {
+                    let i = t.table.view.state.selected()?;
+                    let row = t.table.model.items.get(i)?;
+                    let names = t.table.model.dynamic_column_names.as_ref();
+                    Some((row, names))
+                })
+                .map_or_else(Vec::new, |(row, names)| {
+                    let mut rows = vec![
+                        DescribeRow::section("Row"),
+                        DescribeRow::new(
+                            "Table",
+                            format!("{schema}.{table_name}"),
+                        ),
+                    ];
+                    for (idx, value) in row.values.iter().enumerate() {
+                        let field = names
+                            .and_then(|n| n.get(idx))
+                            .cloned()
+                            .unwrap_or_else(|| format!("col{idx}"));
+                        rows.push(DescribeRow::new(field, value.clone()));
+                    }
+                    rows
+                }),
+            DatabaseExplorerState::Databases
+            | DatabaseExplorerState::Schemas
+            | DatabaseExplorerState::SqlResults(_) => Vec::new(),
+        }
+    }
+
     /// Copy the full selected row as tab-separated values.
     pub(crate) fn copy_row_tsv(&mut self) {
         let explorer = &self.database_explorer;
@@ -461,6 +560,24 @@ impl App<'_> {
             .set_selected_statement(statement);
         self.execute_sql_query().await;
     }
+}
+
+/// Turn a connection's existing `Display` output ("` Field: value`" per line)
+/// into describe rows, reusing the formatting already defined for it.
+fn connection_describe_rows(
+    conn: &crate::db::connection::Connection,
+) -> Vec<DescribeRow> {
+    let mut rows = vec![DescribeRow::section("Connection")];
+    for line in conn.to_string().lines() {
+        if let Some((field, value)) = line.trim().split_once(':') {
+            rows.push(DescribeRow::new(field.trim(), value.trim()));
+        }
+    }
+    rows.push(DescribeRow::new(
+        "Environment",
+        conn.environment.to_string(),
+    ));
+    rows
 }
 
 /// Info related to the program

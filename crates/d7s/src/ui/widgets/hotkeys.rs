@@ -1,16 +1,18 @@
 use k9tui::widgets::hotkey::Hotkey;
 
-pub const CONNECTION_HOTKEYS: [Hotkey; 5] = [
+pub const CONNECTION_HOTKEYS: [Hotkey; 6] = [
     Hotkey::new('n', "New Connection"),
     Hotkey::new('e', "Edit Connection"),
     Hotkey::new('d', "Delete Connection"),
     Hotkey::new('o', "Open Connection"),
+    Hotkey::new('i', "Describe"),
     Hotkey::new('/', "Search"),
 ];
 
-pub const DATABASE_HOTKEYS: [Hotkey; 5] = [
+pub const DATABASE_HOTKEYS: [Hotkey; 6] = [
     Hotkey::new('e', "SQL Editor"),
     Hotkey::new('t', "Table structure"),
+    Hotkey::new('i', "Describe"),
     Hotkey::new('E', "Run SQL"),
     Hotkey::new('/', "Search"),
     Hotkey::new('y', "Copy value"),

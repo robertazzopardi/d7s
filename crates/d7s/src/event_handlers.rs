@@ -107,6 +107,27 @@ impl App<'_> {
             return Ok(());
         }
 
+        // Describe view: only toggle/close, quit, and scroll
+        if self.show_describe {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('i') | KeyCode::Esc) => {
+                    self.show_describe = false;
+                }
+                (_, KeyCode::Char('q'))
+                | (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
+                    self.quit();
+                }
+                _ => {
+                    TableNavigationHandler::navigate_table(
+                        &self.describe_table.model,
+                        &mut self.describe_table.view,
+                        key.code,
+                    );
+                }
+            }
+            return Ok(());
+        }
+
         // Handle search filter input first
         if let Some(textarea) = &mut self.search_filter {
             if key.code == KeyCode::Esc {
@@ -275,6 +296,16 @@ impl App<'_> {
                     self.open_editor_requested = true;
                 }
                 Ok(true)
+            }
+            (_, KeyCode::Char('i')) => {
+                let rows = self.build_describe_rows();
+                if rows.is_empty() {
+                    Ok(false)
+                } else {
+                    self.describe_table = TableDataState::new(rows);
+                    self.show_describe = true;
+                    Ok(true)
+                }
             }
             (_, KeyCode::Char('t')) => {
                 if self.state == AppState::DatabaseConnected {

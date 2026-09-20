@@ -107,6 +107,7 @@ Connections:
 | `d` | Delete connection |
 | `o` / Enter | Open connection |
 | `O` | Reconnect last connection |
+| `i` | Describe selected connection |
 
 Connected:
 
@@ -115,6 +116,7 @@ Connected:
 | `e` | SQL editor |
 | `E` | Run SQL |
 | `t` | Toggle table structure |
+| `i` | Describe selected table/column/row |
 | `/` | Search |
 | `1`–`5` | Jump to recent table |
 

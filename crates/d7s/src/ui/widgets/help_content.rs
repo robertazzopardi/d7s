@@ -25,6 +25,10 @@ const GLOBAL_HELP: &[HelpEntry] = &[
         desc: "Copy cell value",
     },
     HelpEntry {
+        key: "i",
+        desc: "Describe selected object",
+    },
+    HelpEntry {
         key: "Esc",
         desc: "Back / clear filter / close help",
     },
