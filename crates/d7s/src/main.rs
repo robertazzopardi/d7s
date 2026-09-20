@@ -8,6 +8,7 @@ mod db;
 mod event_handlers;
 mod filtered_data;
 mod filtering;
+mod keymap;
 mod rendering;
 mod services;
 mod sql;
@@ -72,6 +73,7 @@ fn parse_launch_args() -> color_eyre::Result<Option<String>> {
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
+    k9tui::theme::load_skin(PKG_NAME);
     let launch_connection = parse_launch_args()?;
     let terminal = ratatui::init();
     execute!(stdout(), EnableBracketedPaste)?;

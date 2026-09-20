@@ -2,6 +2,7 @@ mod app;
 mod app_state;
 mod docker;
 mod event_handlers;
+mod keymap;
 mod rendering;
 mod ui;
 
@@ -16,6 +17,7 @@ use crossterm::{
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
+    k9tui::theme::load_skin("c8s");
     let terminal = ratatui::init();
     execute!(stdout(), EnableBracketedPaste)?;
     let prev_hook = std::panic::take_hook();

@@ -170,7 +170,7 @@ impl App<'_> {
                 self.quit();
                 Ok(true)
             }
-            (_, KeyCode::Char('y')) => {
+            (_, code) if self.keymap.is("copy_value", code) => {
                 self.copy();
                 Ok(true)
             }
@@ -207,7 +207,7 @@ impl App<'_> {
                     Ok(false)
                 }
             }
-            (_, KeyCode::Char('o')) => {
+            (_, code) if self.keymap.is("open_connection", code) => {
                 if matches!(
                     self.database_explorer.state,
                     DatabaseExplorerState::Connections
@@ -235,7 +235,7 @@ impl App<'_> {
                     Ok(false)
                 }
             }
-            (_, KeyCode::Char('n')) => {
+            (_, code) if self.keymap.is("new_connection", code) => {
                 if matches!(
                     self.database_explorer.state,
                     DatabaseExplorerState::Connections
@@ -244,7 +244,7 @@ impl App<'_> {
                 }
                 Ok(true)
             }
-            (_, KeyCode::Char('d')) => {
+            (_, code) if self.keymap.is("delete_connection", code) => {
                 if matches!(
                     self.database_explorer.state,
                     DatabaseExplorerState::Connections
@@ -254,7 +254,10 @@ impl App<'_> {
                 }
                 Ok(false)
             }
-            (_, KeyCode::Char('e')) => {
+            (_, code)
+                if self.keymap.is("edit_connection", code)
+                    || self.keymap.is("sql_editor", code) =>
+            {
                 if matches!(
                     self.database_explorer.state,
                     DatabaseExplorerState::Connections
@@ -276,13 +279,13 @@ impl App<'_> {
                 }
                 Ok(true)
             }
-            (_, KeyCode::Char('t')) => {
+            (_, code) if self.keymap.is("table_structure", code) => {
                 if self.state == AppState::DatabaseConnected {
                     self.handle_toggle_table_view().await?;
                 }
                 Ok(true)
             }
-            (_, KeyCode::Char('E')) => {
+            (_, code) if self.keymap.is("run_sql", code) => {
                 if matches!(
                     self.database_explorer.state,
                     DatabaseExplorerState::SqlResults(_)

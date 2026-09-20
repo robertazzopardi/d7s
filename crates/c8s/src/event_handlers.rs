@@ -135,7 +135,10 @@ impl App {
                     KeyCode::Char('G'),
                 );
             }
-            (_, KeyCode::Char('s' | 'S')) => {
+            (_, code)
+                if code == KeyCode::Char('S')
+                    || self.keymap.is("start_stop", code) =>
+            {
                 if let Some(row) = self.selected_container().cloned() {
                     if row.status.eq_ignore_ascii_case("running") {
                         self.stop_container(&row.id).await;
@@ -144,22 +147,24 @@ impl App {
                     }
                 }
             }
-            (_, KeyCode::Char('r')) => {
+            (_, code) if self.keymap.is("restart", code) => {
                 if let Some(row) = self.selected_container().cloned() {
                     self.restart_container(&row.id).await;
                 }
             }
-            (_, KeyCode::Char('l')) => {
+            (_, code) if self.keymap.is("logs", code) => {
                 if let Some(row) = self.selected_container().cloned() {
                     self.open_logs(&row.id, &row.name);
                 }
             }
-            (_, KeyCode::Char('e')) => {
+            (_, code) if self.keymap.is("exec", code) => {
                 if let Some(row) = self.selected_container().cloned() {
                     self.exec_shell(terminal, &row.id)?;
                 }
             }
-            (_, KeyCode::Char('d') | KeyCode::Delete) => {
+            (_, code)
+                if code == KeyCode::Delete || self.keymap.is("remove", code) =>
+            {
                 if let Some(row) = self.selected_container().cloned() {
                     self.pending_remove = Some(row.id);
                     self.confirm_dialog = Some(ConfirmDialog::new(

@@ -511,32 +511,35 @@ impl App<'_> {
         if !key.modifiers.is_empty() {
             return Ok(false);
         }
-        match key.code {
-            KeyCode::Char('r' | 'R') => {
-                self.reload_current_table_data().await?;
-                Ok(true)
-            }
-            KeyCode::Char('a' | 'A') => {
-                self.table_data_add_blank_draft()?;
-                Ok(true)
-            }
-            KeyCode::Char('c' | 'C') => {
-                self.table_data_duplicate_as_draft().await?;
-                Ok(true)
-            }
-            KeyCode::Char('s' | 'S') => {
-                self.table_data_commit_draft().await?;
-                Ok(true)
-            }
-            KeyCode::Char('d' | 'D') => {
-                self.table_data_request_delete().await?;
-                Ok(true)
-            }
-            KeyCode::Char(' ') => {
-                self.table_data_toggle_multi_select();
-                Ok(true)
-            }
-            _ => Ok(false),
+        let code = key.code;
+        if self.keymap.is("refresh", code)
+            || code == KeyCode::Char('R')
+        {
+            self.reload_current_table_data().await?;
+            Ok(true)
+        } else if self.keymap.is("new_row", code) || code == KeyCode::Char('A')
+        {
+            self.table_data_add_blank_draft()?;
+            Ok(true)
+        } else if self.keymap.is("duplicate_row", code)
+            || code == KeyCode::Char('C')
+        {
+            self.table_data_duplicate_as_draft().await?;
+            Ok(true)
+        } else if self.keymap.is("commit_row", code)
+            || code == KeyCode::Char('S')
+        {
+            self.table_data_commit_draft().await?;
+            Ok(true)
+        } else if self.keymap.is("delete_row", code) || code == KeyCode::Char('D')
+        {
+            self.table_data_request_delete().await?;
+            Ok(true)
+        } else if code == KeyCode::Char(' ') {
+            self.table_data_toggle_multi_select();
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 }
