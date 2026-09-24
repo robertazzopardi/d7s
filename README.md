@@ -8,29 +8,30 @@ After discovering [k9s](https://k9scli.io/), I liked its format enough to want i
 
 ## Apps
 
-- **[`crates/d7s`](crates/d7s)** — a TUI database client for PostgreSQL and SQLite: connection management, keyring-backed credentials, schema/table/row navigation, and a SQL executor. See its [README](crates/d7s/README.md).
-- **[`crates/c8s`](crates/c8s)** — a TUI for Docker containers: list, start/stop/restart/remove, live log tail, and exec shell. See its [README](crates/c8s/README.md).
+### [d7s](crates/d7s)
+
+A TUI database client for PostgreSQL and SQLite: connection management, keyring-backed credentials, schema/table/row navigation, and a SQL executor. See its [README](crates/d7s/README.md).
+
+![d7s — connect, browse tables, filter, help, SQL](crates/d7s/demo.gif)
+
+### [c8s](crates/c8s)
+
+A TUI for Docker containers: list, start/stop/restart/remove, live log tail, and exec shell. See its [README](crates/c8s/README.md).
+
+Recording coming soon.
 
 ## Shared widget kit
 
 - **[`crates/k9tui`](crates/k9tui)** — the k9s-style ratatui chrome (theme, tables, modals, top bar, hotkeys) both apps build on, with no dependency back on either. See its [README](crates/k9tui/README.md).
 
-## Building
-
-Requires Rust stable (1.91.0 or later).
-
-```sh
-cargo build --release --locked
-```
-
-Binaries land at `target/release/{d7s,c8s}`. A `flake.nix` is provided (`nix develop`); `just --list` shows common tasks.
-
-## Installing a specific app
+## Installing
 
 ```sh
 cargo install d7s --locked
 ```
 
-`c8s` is not yet published to crates.io — build it from source: `cargo build --release --locked -p c8s`.
+`c8s` is not yet published to crates.io. Build from source or see each app's README for details.
 
-See each app's README for usage, hotkeys, and demos.
+## Contributing
+
+PRs welcome. `just check` runs fmt, clippy (pedantic/nursery), and tests before you push — see `just --list` for other recipes.
