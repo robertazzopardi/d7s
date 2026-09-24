@@ -74,6 +74,7 @@ check: fmt-check clippy test
 demo-prep:
     #!/usr/bin/env bash
     set -euo pipefail
+    cd crates/d7s
     rm -rf .demo-home .demo-data
     mkdir -p ".demo-home/Library/Application Support/d7s" .demo-data
     sqlite3 .demo-data/sample.db < demo/sample.sql
@@ -83,19 +84,19 @@ demo-prep:
 
 # Demo: prep, build release binary, record demo.gif
 demo: demo-prep build-release
-    vhs demo.tape
+    cd crates/d7s && vhs demo.tape
 
 # Docker: start database services
 docker-up:
-    docker compose up -d
+    cd crates/d7s && docker compose up -d
 
 # Docker: stop services
 docker-down:
-    docker compose down
+    cd crates/d7s && docker compose down
 
 # Docker: view logs
 docker-logs:
-    docker compose logs -f
+    cd crates/d7s && docker compose logs -f
 
 # Full release: update changelog, bump version, commit, tag, push, publish to crates.io
 # Prereq: cargo install cargo-edit
@@ -111,13 +112,13 @@ release VERSION:
     fi
 
     # Open CHANGELOG.md for editing if no entry exists yet
-    if ! grep -q "\[{{VERSION}}\]" CHANGELOG.md; then
+    if ! grep -q "\[{{VERSION}}\]" crates/d7s/CHANGELOG.md; then
         echo "No CHANGELOG.md entry found for [{{VERSION}}]. Opening for editing..."
-        ${EDITOR:-vi} CHANGELOG.md
+        ${EDITOR:-vi} crates/d7s/CHANGELOG.md
     fi
 
     # Re-check after editing
-    if ! grep -q "\[{{VERSION}}\]" CHANGELOG.md; then
+    if ! grep -q "\[{{VERSION}}\]" crates/d7s/CHANGELOG.md; then
         echo "Error: CHANGELOG.md still has no entry for [{{VERSION}}]. Aborting."
         exit 1
     fi
@@ -126,7 +127,7 @@ release VERSION:
     cargo set-version -p d7s {{VERSION}}
 
     # Commit and tag
-    git add Cargo.toml Cargo.lock CHANGELOG.md
+    git add Cargo.toml Cargo.lock crates/d7s/CHANGELOG.md
     git commit -m "chore: release v{{VERSION}}"
     git tag v{{VERSION}}
     git push origin HEAD --follow-tags

@@ -77,7 +77,7 @@ jobs:
       - name: Extract release notes
         id: release_notes
         run: |
-          awk '/^## \[/{if(found) exit; found=1; next} found' CHANGELOG.md > release_notes.md
+          awk '/^## \[/{if(found) exit; found=1; next} found' crates/d7s/CHANGELOG.md > release_notes.md
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4

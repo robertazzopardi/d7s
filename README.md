@@ -27,13 +27,13 @@ d7s and c8s are the shipped apps; k9tui exists so k9s-style TUI apps in this wor
 
 ## Demo
 
-![d7s — connect, browse tables, filter, help, SQL](demo.gif)
+![d7s — connect, browse tables, filter, help, SQL](crates/d7s/demo.gif)
 
 ```sh
 just demo
 ```
 
-Requires [vhs](https://github.com/charmbracelet/vhs) and `sqlite3`. Uses an isolated HOME with fake connections only — assets and launcher in `demo/` (`D7S_DEMO` hides local paths in the recording).
+Requires [vhs](https://github.com/charmbracelet/vhs) and `sqlite3`. Uses an isolated HOME with fake connections only — assets and launcher in `crates/d7s/demo/` (`D7S_DEMO` hides local paths in the recording).
 
 ## Install
 
