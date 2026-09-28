@@ -1,6 +1,6 @@
 use bollard::{
     Docker,
-    container::{
+    query_parameters::{
         ListContainersOptions, LogsOptions, RemoveContainerOptions,
         RestartContainerOptions, StopContainerOptions,
     },
@@ -31,7 +31,7 @@ impl DockerClient {
     }
 
     pub async fn list_containers(&self) -> Result<Vec<ContainerRow>> {
-        let options = ListContainersOptions::<String> {
+        let options = ListContainersOptions {
             all: true,
             ..Default::default()
         };
@@ -40,7 +40,7 @@ impl DockerClient {
     }
 
     pub async fn start(&self, id: &str) -> Result<()> {
-        self.docker.start_container::<String>(id, None).await?;
+        self.docker.start_container(id, None).await?;
         Ok(())
     }
 
@@ -74,7 +74,7 @@ impl DockerClient {
     /// Stream log lines for `id` into `tx` until the stream ends or the
     /// receiver is dropped (e.g. the user left the log view).
     pub async fn tail_logs(&self, id: &str, tx: UnboundedSender<String>) {
-        let options = LogsOptions::<String> {
+        let options = LogsOptions {
             follow: true,
             stdout: true,
             stderr: true,
