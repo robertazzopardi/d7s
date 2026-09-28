@@ -93,7 +93,10 @@ impl TableData for ContainerRow {
 
 #[cfg(test)]
 mod tests {
-    use bollard::models::{ContainerSummary, ContainerSummaryStateEnum, PortSummary, PortSummaryTypeEnum};
+    use bollard::models::{
+        ContainerSummary, ContainerSummaryStateEnum, PortSummary,
+        PortSummaryTypeEnum,
+    };
 
     use super::*;
 
