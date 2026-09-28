@@ -27,7 +27,7 @@ impl ContainerRow {
                 |n| n.trim_start_matches('/').to_string(),
             );
         let image = summary.image.clone().unwrap_or_default();
-        let status = summary.state.clone().unwrap_or_default();
+        let status = summary.state.map(|s| s.to_string()).unwrap_or_default();
         let uptime = summary.status.clone().unwrap_or_default();
         let ports = summary
             .ports
@@ -52,7 +52,7 @@ fn short_id(id: &str) -> String {
     id.get(..12.min(id.len())).unwrap_or(id).to_string()
 }
 
-fn format_port(port: &bollard::models::Port) -> String {
+fn format_port(port: &bollard::models::PortSummary) -> String {
     let proto = port.typ.map(|t| t.to_string()).unwrap_or_default();
     match (port.ip.as_ref(), port.public_port) {
         (Some(ip), Some(public)) => {
@@ -93,7 +93,10 @@ impl TableData for ContainerRow {
 
 #[cfg(test)]
 mod tests {
-    use bollard::models::{ContainerSummary, Port, PortTypeEnum};
+    use bollard::models::{
+        ContainerSummary, ContainerSummaryStateEnum, PortSummary,
+        PortSummaryTypeEnum,
+    };
 
     use super::*;
 
@@ -102,13 +105,13 @@ mod tests {
             id: Some("abcdef0123456789".to_string()),
             names: Some(vec!["/my-app".to_string()]),
             image: Some("nginx:latest".to_string()),
-            state: Some("running".to_string()),
+            state: Some(ContainerSummaryStateEnum::RUNNING),
             status: Some("Up 3 hours".to_string()),
-            ports: Some(vec![Port {
+            ports: Some(vec![PortSummary {
                 ip: Some("0.0.0.0".to_string()),
                 private_port: 80,
                 public_port: Some(8080),
-                typ: Some(PortTypeEnum::TCP),
+                typ: Some(PortSummaryTypeEnum::TCP),
             }]),
             ..Default::default()
         }
