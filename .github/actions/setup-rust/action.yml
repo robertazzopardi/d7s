@@ -18,10 +18,6 @@ inputs:
     description: Install libdbus-1-dev on Linux.
     required: false
     default: "false"
-  shared-key:
-    description: Shared cache key to reuse a target dir across jobs.
-    required: false
-    default: ""
 
 runs:
   using: composite
@@ -35,8 +31,6 @@ runs:
     - name: Cache Cargo dependencies
       if: inputs.cache == 'true'
       uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-      with:
-        shared-key: ${{ inputs.shared-key }}
 
     - name: Install system dependencies (Linux)
       if: inputs.install-linux-dbus == 'true' && runner.os == 'Linux'

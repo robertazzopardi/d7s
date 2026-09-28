@@ -50,7 +50,6 @@ jobs:
         with:
           components: clippy
           install-linux-dbus: "true"
-          shared-key: ubuntu-workspace
       - name: Run clippy action
         uses: clechasseur/rs-clippy-check@50a0fd6f2f1a33307d603ee50d91eadbb2561120 # v3
         with:
@@ -62,6 +61,8 @@ jobs:
     name: doc
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # dormant: only `pull_request` is wired up above, so this never runs today;
+    # skips PRs so it only fires once the commented-out `push` trigger is enabled.
     if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -97,7 +98,6 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           install-linux-dbus: "true"
-          shared-key: ${{ runner.os == 'Linux' && 'ubuntu-workspace' || '' }}
       - name: Install cargo-nextest
         uses: taiki-e/install-action@23d41aa71228a2692ee31bb433f070fd4bdc6661 # nextest
       # enable this ci template to run regardless of whether the lockfile is checked in or not
