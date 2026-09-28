@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
@@ -44,7 +44,7 @@ jobs:
       checks: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
@@ -52,7 +52,7 @@ jobs:
           install-linux-dbus: "true"
           shared-key: ubuntu-workspace
       - name: Run clippy action
-        uses: clechasseur/rs-clippy-check@v3
+        uses: clechasseur/rs-clippy-check@50a0fd6f2f1a33307d603ee50d91eadbb2561120 # v3
         with:
           args: --workspace --all-features --all-targets -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery
   doc:
@@ -64,7 +64,7 @@ jobs:
     timeout-minutes: 20
     if: github.event_name != 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
@@ -92,14 +92,14 @@ jobs:
             profile: smoke
             test_command: cargo nextest run --locked --workspace
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
           install-linux-dbus: "true"
           shared-key: ${{ runner.os == 'Linux' && 'ubuntu-workspace' || '' }}
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@nextest
+        uses: taiki-e/install-action@23d41aa71228a2692ee31bb433f070fd4bdc6661 # nextest
       # enable this ci template to run regardless of whether the lockfile is checked in or not
       - name: cargo generate-lockfile
         if: hashFiles('Cargo.lock') == ''
