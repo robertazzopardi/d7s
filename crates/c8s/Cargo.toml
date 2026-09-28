@@ -31,7 +31,7 @@ tokio = { version = "1.47.0", features = ["full"] }
 futures-util = "0.3"
 
 # Docker
-bollard = "0.18"
+bollard = "0.21"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
