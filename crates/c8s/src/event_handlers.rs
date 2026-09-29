@@ -44,12 +44,56 @@ impl App {
     }
 
     fn on_key_logs(&mut self, key: KeyEvent) {
+        if self.log_search_open {
+            match key.code {
+                KeyCode::Esc => {
+                    self.log_filter.clear();
+                    self.log_search_open = false;
+                }
+                KeyCode::Enter => self.log_search_open = false,
+                KeyCode::Backspace => {
+                    self.log_filter.pop();
+                }
+                KeyCode::Char(c) => self.log_filter.push(c),
+                KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::Home
+                | KeyCode::End
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+                | KeyCode::Tab
+                | KeyCode::BackTab
+                | KeyCode::Delete
+                | KeyCode::Insert
+                | KeyCode::F(_)
+                | KeyCode::Null
+                | KeyCode::CapsLock
+                | KeyCode::ScrollLock
+                | KeyCode::NumLock
+                | KeyCode::PrintScreen
+                | KeyCode::Pause
+                | KeyCode::Menu
+                | KeyCode::KeypadBegin
+                | KeyCode::Media(_)
+                | KeyCode::Modifier(_) => {}
+            }
+            self.log_scroll = 0;
+            self.log_follow = false;
+            return;
+        }
+
         let max_start = self
             .log_lines
             .len()
             .saturating_sub(self.log_viewport_height);
         match (key.modifiers, key.code) {
-            (_, KeyCode::Char('q') | KeyCode::Esc) => self.close_logs(),
+            (_, KeyCode::Char('q') | KeyCode::Esc) if self.log_filter.is_empty() => {
+                self.close_logs();
+            }
+            (_, KeyCode::Char('q') | KeyCode::Esc) => self.log_filter.clear(),
+            (_, KeyCode::Char('/')) => self.log_search_open = true,
             (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
             (_, KeyCode::Char('k') | KeyCode::Up) => {
                 self.log_follow = false;
