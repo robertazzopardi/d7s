@@ -1,0 +1,10 @@
+services:
+  demo-web:
+    image: nginx:alpine
+    container_name: demo-web
+    ports:
+      - "18080:80"
+
+  demo-cache:
+    image: redis:alpine
+    container_name: demo-cache

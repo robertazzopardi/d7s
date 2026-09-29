@@ -141,7 +141,7 @@ release VERSION:
     cargo set-version -p d7s {{VERSION}}
 
     # Commit and tag
-    git add Cargo.toml Cargo.lock crates/d7s/CHANGELOG.md
+    git add crates/d7s/Cargo.toml Cargo.lock crates/d7s/CHANGELOG.md
     git commit -m "chore: release v{{VERSION}}"
     git tag v{{VERSION}}
     git push origin HEAD --follow-tags

@@ -1,4 +1,5 @@
 #!/bin/sh
 set -eu
-docker rm -f demo-web demo-cache >/dev/null 2>&1 || true
+ROOT="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+docker compose -f "$ROOT/docker-compose.yml" down
 echo "demo-web and demo-cache removed"
