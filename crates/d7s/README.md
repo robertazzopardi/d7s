@@ -8,7 +8,13 @@ After discovering k9s, I thought it had the perfect format for a database client
 
 ## Workspace layout
 
-This repo is a Cargo workspace. `crates/d7s` is the database TUI client (db/auth/app-state logic and the binary). `crates/k9tui` is a reusable k9s-style ratatui widget kit (theme, hotkeys, tables, status line, etc.) extracted from `d7s` so other TUI apps in this repo can build on it without any coupling back to `d7s`.
+This repo is a Cargo workspace with three crates:
+
+- **[`crates/d7s`](.)** — the database TUI client covered by this README (db/auth/app-state logic and the binary).
+- **[`crates/k9tui`](../k9tui)** — a reusable k9s-style ratatui widget kit (theme, tables, modals, top bar, hotkeys) extracted from `d7s`, with no dependency back on it. See its [README](../k9tui/README.md).
+- **[`crates/c8s`](../c8s)** — a k9s-style TUI for Docker containers, the second consumer of k9tui's chrome. See its [README](../c8s/README.md).
+
+d7s and c8s are the shipped apps; k9tui exists so k9s-style TUI apps in this workspace can reuse its chrome. The rest of this README covers d7s specifically.
 
 ## Features
 

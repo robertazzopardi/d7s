@@ -1,140 +1,37 @@
 # d7s
 
-A TUI database client for PostgreSQL and SQLite, built in Rust with [Ratatui](https://ratatui.rs) and inspired by [k9s](https://k9scli.io/).
+A monorepo of k9s-style terminal UIs, built in Rust with [Ratatui](https://ratatui.rs).
 
 ## Why
 
-After discovering k9s, I thought it had the perfect format for a database client and I wanted something simpler than the established solutions.
+After discovering [k9s](https://k9scli.io/), I liked its format enough to want it for more than Kubernetes — a keyboard-driven, table-first TUI shell reused across a few small tools.
 
-## Workspace layout
+## Apps
 
-This repo is a Cargo workspace with three crates:
+### [d7s](crates/d7s)
 
-- **[`crates/d7s`](crates/d7s)** — the database TUI client covered by this README (db/auth/app-state logic and the binary).
-- **[`crates/k9tui`](crates/k9tui)** — a reusable k9s-style ratatui widget kit (theme, tables, modals, top bar, hotkeys) extracted from `d7s`, with no dependency back on it. See its [README](crates/k9tui/README.md).
-- **[`crates/c8s`](crates/c8s)** — a k9s-style TUI for Docker containers, the second consumer of k9tui's chrome. See its [README](crates/c8s/README.md).
+A TUI database client for PostgreSQL and SQLite: connection management, keyring-backed credentials, schema/table/row navigation, and a SQL executor. See its [README](crates/d7s/README.md).
 
-d7s and c8s are the shipped apps; k9tui exists so k9s-style TUI apps in this workspace can reuse its chrome. The rest of this README covers d7s specifically.
+![d7s — connect, browse tables, filter, help, SQL](crates/d7s/demo.gif)
 
-## Features
+### [c8s](crates/c8s)
 
-- **Multi-db Support** — currently supports PostgreSQL and SQLite, with more to come!
-- **Connection management** — save, edit, and delete named connections.
-- **Credential storage** — passwords are stored in the platform keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service), or never saved and prompted everytime.
-- **Database traversal** — navigate databases, schemas, tables, columns, and row data with keyboard-driven menus, supports vim.
-- **SQL executor** — execute SQL from the editor, choose a statement when multiple are present, with read-only-by-default safety and confirmation for mutating statements.
-- **Environment tagging** — label each connection as dev, staging, or prod.
+A TUI for Docker containers: list, start/stop/restart/remove, live log tail, and exec shell. See its [README](crates/c8s/README.md).
 
-## Demo
+![c8s — container list, restart, live logs](crates/c8s/demo.gif)
 
-![d7s — connect, browse tables, filter, help, SQL](demo.gif)
+## Shared widget kit
 
-```sh
-just demo
-```
+- **[`crates/k9tui`](crates/k9tui)** — the k9s-style ratatui chrome (theme, tables, modals, top bar, hotkeys) both apps build on, with no dependency back on either. See its [README](crates/k9tui/README.md).
 
-Requires [vhs](https://github.com/charmbracelet/vhs) and `sqlite3`. Uses an isolated HOME with fake connections only — assets and launcher in `demo/` (`D7S_DEMO` hides local paths in the recording).
-
-## Install
-
-### crates.io
-
-Requires Rust stable (1.91.0 or later).
+## Installing
 
 ```sh
 cargo install d7s --locked
 ```
 
-The `d7s` binary will be placed in `$CARGO_HOME/bin` (usually `~/.cargo/bin`), which should already be on your `PATH`.
+`c8s` is not yet published to crates.io. Build from source or see each app's README for details.
 
-### Building from source
+## Contributing
 
-Requires Rust stable (1.91.0 or later).
-
-```sh
-cargo build --release --locked
-```
-
-The binary will be at `target/release/d7s`.
-
-### Nix
-
-A `flake.nix` is provided. Enter the development shell:
-
-```sh
-nix develop
-```
-
-Then use `just` for common tasks (`just --list`).
-
-## Usage
-
-```sh
-d7s
-```
-
-Or, if built from source:
-
-```sh
-cargo run --release
-# or, after building:
-./target/release/d7s
-```
-
-CLI flags: `-c`/`--connection NAME`, `-h`/`--help`, `-V`/`--version`.
-
-## Hotkeys
-
-Global:
-
-| Key | Action |
-|-----|--------|
-| `q` / `Ctrl-c` | Quit |
-| `?` | Toggle help |
-| `y` | Copy selected value |
-| `Y` | Copy selected row (TSV) |
-| `j`/`k` or ↓/↑ | Move down / up |
-| `h`/`l` or ←/→ | Move left / right |
-| `g` / `G` | Top / bottom |
-| `0` / `$` | First / last column |
-
-Connections:
-
-| Key | Action |
-|-----|--------|
-| `n` | New connection |
-| `e` | Edit connection |
-| `d` | Delete connection |
-| `o` / Enter | Open connection |
-| `O` | Reconnect last connection |
-
-Connected:
-
-| Key | Action |
-|-----|--------|
-| `e` | SQL editor |
-| `E` | Run SQL |
-| `t` | Toggle table structure |
-| `/` | Search |
-| `1`–`5` | Jump to recent table |
-
-Table data:
-
-| Key | Action |
-|-----|--------|
-| `r` | Refresh |
-| `a` | New row |
-| `c` | Duplicate row as draft |
-| `s` | Commit draft row |
-| `d` | Delete row |
-| Space | Toggle multi-select |
-| Enter | Edit cell |
-| `:` / `#` | Jump to row number |
-
-SQL results:
-
-| Key | Action |
-|-----|--------|
-| `Ctrl-s` / `x` | Export results to temp TSV |
-
-Paste works in connection/cell/password modals and the search bar (bracketed paste).
+PRs welcome. `just check` runs fmt, clippy (pedantic/nursery), and tests before you push — see `just --list` for other recipes.

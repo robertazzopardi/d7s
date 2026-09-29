@@ -2,6 +2,14 @@
 
 A k9s-style TUI for Docker containers, built in Rust with [Ratatui](https://ratatui.rs), reusing [k9tui](../k9tui)'s chrome.
 
+![c8s — container list, restart, live logs](demo.gif)
+
+```sh
+just c8s-demo
+```
+
+Requires [vhs](https://github.com/charmbracelet/vhs) and Docker. Starts fake `demo-web`/`demo-cache` containers, records, tears them down (`just c8s-demo-prep` / `just c8s-demo-teardown` to run those steps separately).
+
 ## Features
 
 - **Container list** — name, image, status, ports, and uptime, polled from the Docker daemon every ~2 seconds.
