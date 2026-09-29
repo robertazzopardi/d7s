@@ -94,11 +94,11 @@ c8s-demo: c8s-demo-prep
 
 # c8s demo: start fake demo-web/demo-cache containers
 c8s-demo-prep:
-    ./crates/c8s/demo/prep.sh
+    docker compose -f crates/c8s/demo/docker-compose.yml up -d
 
 # c8s demo: remove fake demo-web/demo-cache containers
 c8s-demo-teardown:
-    ./crates/c8s/demo/teardown.sh
+    docker compose -f crates/c8s/demo/docker-compose.yml down
 
 # Docker: start database services
 docker-up:
