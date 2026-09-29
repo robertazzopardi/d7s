@@ -86,6 +86,20 @@ demo-prep:
 demo: demo-prep build-release
     cd crates/d7s && vhs demo.tape
 
+# c8s demo: start fake containers, build, record demo.gif, tear down
+c8s-demo: c8s-demo-prep
+    cargo build --release --locked -p c8s
+    cd crates/c8s && vhs demo.tape
+    just c8s-demo-teardown
+
+# c8s demo: start fake demo-web/demo-cache containers
+c8s-demo-prep:
+    ./crates/c8s/demo/prep.sh
+
+# c8s demo: remove fake demo-web/demo-cache containers
+c8s-demo-teardown:
+    ./crates/c8s/demo/teardown.sh
+
 # Docker: start database services
 docker-up:
     cd crates/d7s && docker compose up -d

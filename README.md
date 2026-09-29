@@ -18,7 +18,7 @@ A TUI database client for PostgreSQL and SQLite: connection management, keyring-
 
 A TUI for Docker containers: list, start/stop/restart/remove, live log tail, and exec shell. See its [README](crates/c8s/README.md).
 
-Recording coming soon.
+![c8s — container list, restart, live logs](crates/c8s/demo.gif)
 
 ## Shared widget kit
 
