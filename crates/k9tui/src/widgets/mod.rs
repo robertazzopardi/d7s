@@ -7,6 +7,7 @@ pub mod navigation;
 pub mod status_line;
 pub mod table;
 pub mod text_input;
+pub mod text_search;
 pub mod top_bar;
 
 use table::TableData;
