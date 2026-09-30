@@ -61,6 +61,10 @@ pub struct App {
     pub(crate) log_follow: bool,
     /// Height of the last-rendered log viewport, used to clamp scrolling.
     pub(crate) log_viewport_height: usize,
+    /// Case-insensitive substring filter applied to log lines. Empty = no filter.
+    pub(crate) log_filter: String,
+    /// True while the `/` search bar is open for editing.
+    pub(crate) log_search_open: bool,
     pub(crate) build_info: String,
 
     pub(crate) bg_tx: UnboundedSender<BackgroundEvent>,
@@ -87,6 +91,8 @@ impl App {
             log_scroll: 0,
             log_follow: true,
             log_viewport_height: 0,
+            log_filter: String::new(),
+            log_search_open: false,
             build_info: format!("Name: {PKG_NAME}\nVersion: {PKG_VERSION}"),
             bg_tx,
             bg_rx,
@@ -279,6 +285,8 @@ impl App {
         self.log_lines.clear();
         self.log_scroll = 0;
         self.log_follow = true;
+        self.log_filter.clear();
+        self.log_search_open = false;
         self.state = AppState::Logs {
             id: id.to_string(),
             name: name.to_string(),

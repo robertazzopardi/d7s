@@ -1,6 +1,9 @@
 use k9tui::{
     theme,
-    widgets::{hotkey::Hotkey, table::DataTable, top_bar::TopBarView},
+    widgets::{
+        hotkey::Hotkey, table::DataTable, text_search::filter_and_highlight,
+        top_bar::TopBarView,
+    },
 };
 use ratatui::{
     Frame,
@@ -16,6 +19,7 @@ use crate::{
 
 const TOPBAR_HEIGHT: u16 = 7;
 const FOOTER_HEIGHT: u16 = 1;
+const SEARCH_BAR_HEIGHT: u16 = 3;
 
 impl App {
     pub fn render(&mut self, frame: &mut Frame) {
@@ -131,7 +135,35 @@ impl App {
             top_area,
         );
 
-        let title = if self.log_follow {
+        let content_area =
+            if self.log_search_open || !self.log_filter.is_empty() {
+                let search_layout = Layout::vertical([
+                    Constraint::Length(SEARCH_BAR_HEIGHT),
+                    Constraint::Min(0),
+                ])
+                .split(content_area);
+                let search_area =
+                    search_layout.first().copied().unwrap_or_default();
+                let search_block = Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(theme::border())
+                    .title(" Search ")
+                    .title_style(theme::title());
+                let inner = search_block.inner(search_area);
+                frame.render_widget(search_block, search_area);
+                let cursor = if self.log_search_open { "_" } else { "" };
+                Paragraph::new(format!("/{}{cursor}", self.log_filter))
+                    .render(inner, frame.buffer_mut());
+                search_layout.get(1).copied().unwrap_or_default()
+            } else {
+                content_area
+            };
+
+        let filtered = filter_and_highlight(&self.log_lines, &self.log_filter);
+
+        let title = if !self.log_filter.is_empty() {
+            format!(" Logs: {name} ({} matches) ", filtered.len())
+        } else if self.log_follow {
             format!(" Logs: {name} (live) ")
         } else {
             format!(" Logs: {name} (scrolled, G to follow) ")
@@ -147,15 +179,15 @@ impl App {
         // log_scroll is the absolute index of the first visible line.
         let visible = inner.height as usize;
         self.log_viewport_height = visible;
-        let max_start = self.log_lines.len().saturating_sub(visible);
+        let max_start = filtered.len().saturating_sub(visible);
         let start = if self.log_follow {
             max_start
         } else {
             self.log_scroll.min(max_start)
         };
         self.log_scroll = start;
-        let end = (start + visible).min(self.log_lines.len());
-        let lines = self.log_lines.get(start..end).unwrap_or(&[]).to_vec();
+        let end = (start + visible).min(filtered.len());
+        let lines = filtered.get(start..end).unwrap_or(&[]).to_vec();
         Paragraph::new(Text::from(lines))
             .wrap(Wrap { trim: false })
             .render(inner, frame.buffer_mut());
