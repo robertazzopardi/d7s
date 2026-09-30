@@ -11,6 +11,7 @@ use k9tui::widgets::{
     hotkey::Hotkey, modal::ConfirmDialog, status_line::StatusLine,
     table::{TableData, TableDataState},
 };
+
 use ratatui::{DefaultTerminal, text::Line};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
@@ -61,6 +62,17 @@ pub struct App {
     pub(crate) images: TableDataState<ImageRow>,
     pub(crate) volumes: TableDataState<VolumeRow>,
     pub(crate) networks: TableDataState<NetworkRow>,
+    /// Unfiltered rows from the last poll, kept so the `/` filter can be
+    /// re-applied (or cleared) without waiting for the next poll tick.
+    pub(crate) containers_all: Vec<ContainerRow>,
+    pub(crate) images_all: Vec<ImageRow>,
+    pub(crate) volumes_all: Vec<VolumeRow>,
+    pub(crate) networks_all: Vec<NetworkRow>,
+    /// Case-insensitive substring filter applied to the active list view(s).
+    /// Empty = no filter.
+    pub(crate) list_filter: String,
+    /// True while the `/` search bar is open for editing in the list view.
+    pub(crate) list_search_open: bool,
     pub(crate) status_line: StatusLine,
     pub(crate) confirm_dialog: Option<ConfirmDialog>,
     /// Resource kind + id pending removal once the confirm dialog resolves.
@@ -99,6 +111,12 @@ impl App {
             images: TableDataState::new(Vec::new()),
             volumes: TableDataState::new(Vec::new()),
             networks: TableDataState::new(Vec::new()),
+            containers_all: Vec::new(),
+            images_all: Vec::new(),
+            volumes_all: Vec::new(),
+            networks_all: Vec::new(),
+            list_filter: String::new(),
+            list_search_open: false,
             status_line: StatusLine::new(),
             confirm_dialog: None,
             pending_remove: None,
@@ -234,17 +252,29 @@ impl App {
     fn drain_background_events(&mut self) {
         while let Ok(event) = self.bg_rx.try_recv() {
             match event {
-                BackgroundEvent::Containers(rows) => {
-                    apply_table_update(&mut self.containers, rows);
+                BackgroundEvent::Containers(mut rows) => {
+                    rows.sort_by_key(|r| r.name.to_lowercase());
+                    self.containers_all = rows;
+                    let filtered = filter_rows(&self.containers_all, &self.list_filter);
+                    apply_table_update(&mut self.containers, filtered);
                 }
-                BackgroundEvent::Images(rows) => {
-                    apply_table_update(&mut self.images, rows);
+                BackgroundEvent::Images(mut rows) => {
+                    rows.sort_by_key(|r| r.repo_tags.to_lowercase());
+                    self.images_all = rows;
+                    let filtered = filter_rows(&self.images_all, &self.list_filter);
+                    apply_table_update(&mut self.images, filtered);
                 }
-                BackgroundEvent::Volumes(rows) => {
-                    apply_table_update(&mut self.volumes, rows);
+                BackgroundEvent::Volumes(mut rows) => {
+                    rows.sort_by_key(|r| r.name.to_lowercase());
+                    self.volumes_all = rows;
+                    let filtered = filter_rows(&self.volumes_all, &self.list_filter);
+                    apply_table_update(&mut self.volumes, filtered);
                 }
-                BackgroundEvent::Networks(rows) => {
-                    apply_table_update(&mut self.networks, rows);
+                BackgroundEvent::Networks(mut rows) => {
+                    rows.sort_by_key(|r| r.name.to_lowercase());
+                    self.networks_all = rows;
+                    let filtered = filter_rows(&self.networks_all, &self.list_filter);
+                    apply_table_update(&mut self.networks, filtered);
                 }
                 BackgroundEvent::PollError(e) => {
                     self.set_status(format!("Refresh failed: {e}"));
@@ -356,6 +386,28 @@ impl App {
         }
         self.state = AppState::List;
     }
+
+    /// Re-apply the `/` filter to all four resource lists from their
+    /// unfiltered masters, e.g. after the filter text changes.
+    pub(crate) fn reapply_list_filter(&mut self) {
+        let filtered = filter_rows(&self.containers_all, &self.list_filter);
+        apply_table_update(&mut self.containers, filtered);
+        let filtered = filter_rows(&self.images_all, &self.list_filter);
+        apply_table_update(&mut self.images, filtered);
+        let filtered = filter_rows(&self.volumes_all, &self.list_filter);
+        apply_table_update(&mut self.volumes, filtered);
+        let filtered = filter_rows(&self.networks_all, &self.list_filter);
+        apply_table_update(&mut self.networks, filtered);
+    }
+}
+
+/// Case-insensitive substring filter over every column, reusing
+/// `TableDataState`'s own filter so the matching logic stays in one place.
+fn filter_rows<T: TableData + Clone>(rows: &[T], query: &str) -> Vec<T> {
+    if query.is_empty() {
+        return rows.to_vec();
+    }
+    TableDataState::new(rows.to_vec()).filter(query)
 }
 
 impl Default for App {

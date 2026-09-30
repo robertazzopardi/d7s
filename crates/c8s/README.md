@@ -18,6 +18,8 @@ Requires [vhs](https://github.com/charmbracelet/vhs) and Docker. Starts fake `de
 - **Volume list** — name, driver, and mountpoint, with remove (confirm).
 - **Network list** — name, driver, and scope, with remove (confirm).
 - **View switching** — jump between the container/image/volume/network lists with `1`/`2`/`3`/`4`.
+- **Sorted lists** — all four resource lists sort alphabetically by name (images by repo:tag) so ordering stays stable between polls.
+- **Search** — `/` opens a live substring filter across all columns in the active list view (works for containers, images, volumes, and networks); `Enter` commits, `Esc` clears and closes.
 - **Live log tail** — full-screen streamed logs for the selected container (`l`, `q`/`Esc` to return).
 - **Exec shell** — suspends the TUI and hands the real terminal to `docker exec -it <id> sh` (`e`), resuming the TUI on exit.
 - **Connection error screen** — if the Docker daemon is unreachable at startup, shows an error with a retry action instead of panicking.
@@ -46,6 +48,7 @@ cargo build --release -p c8s
 | `1`/`2`/`3`/`4` | Switch view: containers / images / volumes / networks |
 | `j`/`k`, `↑`/`↓` | Move selection |
 | `g`/`G` | Jump to top/bottom |
+| `/` | Open search: live substring filter over the active list view (`Enter` commits, `Esc` clears) |
 | `s` | Start (if stopped) or stop (if running) the selected container (containers view) |
 | `r` | Restart the selected container (containers view) |
 | `l` | Tail logs for the selected container (containers view) |

@@ -108,6 +108,7 @@ impl App {
         }
     }
 
+    #[allow(clippy::wildcard_enum_match_arm)]
     async fn on_key_list(
         &mut self,
         key: KeyEvent,
@@ -130,11 +131,39 @@ impl App {
             return Ok(());
         }
 
+        if self.list_search_open {
+            match key.code {
+                KeyCode::Esc => {
+                    self.list_filter.clear();
+                    self.list_search_open = false;
+                    self.reapply_list_filter();
+                }
+                KeyCode::Enter => self.list_search_open = false,
+                KeyCode::Backspace => {
+                    self.list_filter.pop();
+                    self.reapply_list_filter();
+                }
+                KeyCode::Char(c) => {
+                    self.list_filter.push(c);
+                    self.reapply_list_filter();
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
         match (key.modifiers, key.code) {
-            (_, KeyCode::Char('q'))
-            | (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
+            (_, KeyCode::Char('q')) if self.list_filter.is_empty() => {
                 self.quit();
             }
+            (_, KeyCode::Char('q')) => {
+                self.list_filter.clear();
+                self.reapply_list_filter();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
+                self.quit();
+            }
+            (_, KeyCode::Char('/')) => self.list_search_open = true,
             (_, KeyCode::Char('1')) => self.switch_view(ResourceKind::Containers),
             (_, KeyCode::Char('2')) => self.switch_view(ResourceKind::Images),
             (_, KeyCode::Char('3')) => self.switch_view(ResourceKind::Volumes),

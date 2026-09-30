@@ -89,10 +89,39 @@ impl App {
             top_area,
         );
 
+        let content_area =
+            if self.list_search_open || !self.list_filter.is_empty() {
+                let search_layout = Layout::vertical([
+                    Constraint::Length(SEARCH_BAR_HEIGHT),
+                    Constraint::Min(0),
+                ])
+                .split(content_area);
+                let search_area =
+                    search_layout.first().copied().unwrap_or_default();
+                let search_block = Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(theme::border())
+                    .title(" Search ")
+                    .title_style(theme::title());
+                let inner = search_block.inner(search_area);
+                frame.render_widget(search_block, search_area);
+                let cursor = if self.list_search_open { "_" } else { "" };
+                Paragraph::new(format!("/{}{cursor}", self.list_filter))
+                    .render(inner, frame.buffer_mut());
+                search_layout.get(1).copied().unwrap_or_default()
+            } else {
+                content_area
+            };
+
+        let title = if self.list_filter.is_empty() {
+            format!(" {label} [{n}] ")
+        } else {
+            format!(" {label} [{n} matches] ")
+        };
         let block = Block::new()
             .borders(Borders::ALL)
             .border_style(theme::border())
-            .title(format!(" {label} [{n}] "))
+            .title(title)
             .title_alignment(Alignment::Center);
         let inner = block.inner(content_area);
         frame.render_widget(block, content_area);

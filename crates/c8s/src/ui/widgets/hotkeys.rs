@@ -20,7 +20,8 @@ pub const VIEW_SWITCH_HOTKEYS: [Hotkey; 4] = [
     Hotkey::new('4', "networks"),
 ];
 
-pub const GLOBAL_HOTKEYS: [Hotkey; 1] = [Hotkey::new('q', "quit")];
+pub const GLOBAL_HOTKEYS: [Hotkey; 2] =
+    [Hotkey::new('/', "search"), Hotkey::new('q', "quit")];
 
 pub fn log_hotkeys() -> Vec<Hotkey> {
     vec![
