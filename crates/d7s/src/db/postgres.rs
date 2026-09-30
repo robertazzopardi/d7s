@@ -807,10 +807,8 @@ impl Database for Postgres {
             pg_quote_ident(schema_name),
             pg_quote_ident(table_name)
         );
-        match client.query_one(q, &[&ident]).await {
-            Ok(row) => Ok(Some(row.get::<_, String>(0))),
-            Err(_) => Ok(None),
-        }
+        let row = client.query_one(q, &[&ident]).await?;
+        Ok(Some(row.get::<_, String>(0)))
     }
 
     async fn get_databases(
