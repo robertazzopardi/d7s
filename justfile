@@ -1,4 +1,4 @@
-# d7s project commands
+# Workspace commands (d7s, c8s, k9tui)
 # Run `just` or `just --list` to see all recipes
 
 default:
@@ -21,7 +21,7 @@ test:
     cargo test --all-features --all-targets
 
 # Format with nightly rustfmt (rustfmt.toml uses nightly-only options: group_imports, imports_granularity).
-# Uses nightly then returns to stable — use RUST_NIGHTLY_BIN in nix shell, or rustup run nightly otherwise.
+# Uses RUST_NIGHTLY_BIN in nix shell, or the pinned rustup nightly otherwise.
 fmt *ARGS:
     #!/usr/bin/env bash
     set -e
@@ -32,22 +32,14 @@ fmt *ARGS:
     fi
 
 # Check formatting (pinned nightly rustfmt, no write)
-fmt-check *ARGS:
-    #!/usr/bin/env bash
-    set -e
-    if [ -n "${RUST_NIGHTLY_BIN:-}" ]; then
-        PATH="${RUST_NIGHTLY_BIN}:$PATH" cargo fmt -- --check {{ARGS}}
-    else
-        rustup run nightly-2026-09-08 cargo fmt -- --check {{ARGS}}
-    fi
+fmt-check *ARGS: (fmt "--check" ARGS)
 
-# Clippy with pedantic, nursery, cargo and all lints enabled
-clippy:
-    cargo clippy --workspace --all-features --all-targets -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery # -W clippy::cargo
+# Clippy: default lints + pedantic + nursery, warnings as errors (add -W clippy::cargo to include cargo lints)
+clippy *ARGS:
+    cargo clippy --workspace --all-features --all-targets {{ARGS}} -- -D warnings -W clippy::pedantic -W clippy::nursery
 
 # Clippy and apply fixes where possible
-clippy-fix:
-    cargo clippy --workspace --all-features --all-targets --fix --allow-dirty -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery # -W clippy::cargo
+clippy-fix: (clippy "--fix" "--allow-dirty")
 
 # Code coverage via llvm-cov (requires cargo-llvm-cov and llvm-tools)
 cov:
@@ -125,16 +117,11 @@ release VERSION:
         exit 1
     fi
 
-    # Open CHANGELOG.md for editing if no entry exists yet
+    # Open CHANGELOG.md for editing if no entry exists yet, then require one
     if ! grep -q "\[{{VERSION}}\]" crates/d7s/CHANGELOG.md; then
         echo "No CHANGELOG.md entry found for [{{VERSION}}]. Opening for editing..."
         ${EDITOR:-vi} crates/d7s/CHANGELOG.md
-    fi
-
-    # Re-check after editing
-    if ! grep -q "\[{{VERSION}}\]" crates/d7s/CHANGELOG.md; then
-        echo "Error: CHANGELOG.md still has no entry for [{{VERSION}}]. Aborting."
-        exit 1
+        grep -q "\[{{VERSION}}\]" crates/d7s/CHANGELOG.md || { echo "Error: CHANGELOG.md still has no entry for [{{VERSION}}]. Aborting."; exit 1; }
     fi
 
     # Bump version (d7s only — k9tui versions independently)
