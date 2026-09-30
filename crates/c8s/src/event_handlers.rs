@@ -43,6 +43,7 @@ impl App {
         Ok(())
     }
 
+    #[allow(clippy::wildcard_enum_match_arm)]
     fn on_key_logs(&mut self, key: KeyEvent) {
         if self.log_search_open {
             match key.code {
@@ -55,29 +56,7 @@ impl App {
                     self.log_filter.pop();
                 }
                 KeyCode::Char(c) => self.log_filter.push(c),
-                KeyCode::Left
-                | KeyCode::Right
-                | KeyCode::Up
-                | KeyCode::Down
-                | KeyCode::Home
-                | KeyCode::End
-                | KeyCode::PageUp
-                | KeyCode::PageDown
-                | KeyCode::Tab
-                | KeyCode::BackTab
-                | KeyCode::Delete
-                | KeyCode::Insert
-                | KeyCode::F(_)
-                | KeyCode::Null
-                | KeyCode::CapsLock
-                | KeyCode::ScrollLock
-                | KeyCode::NumLock
-                | KeyCode::PrintScreen
-                | KeyCode::Pause
-                | KeyCode::Menu
-                | KeyCode::KeypadBegin
-                | KeyCode::Media(_)
-                | KeyCode::Modifier(_) => {}
+                _ => {}
             }
             self.log_scroll = 0;
             self.log_follow = false;

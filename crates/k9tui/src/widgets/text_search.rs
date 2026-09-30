@@ -1,38 +1,44 @@
+use std::borrow::Cow;
+
 use ratatui::text::{Line, Span};
 
 use crate::theme;
 
 /// Lines matching `query` (case-insensitive substring), with the match
-/// highlighted. Empty query returns everything unfiltered.
+/// highlighted. Empty query returns `lines` unchanged, with no copy.
+///
+/// Matching is ASCII-only: `to_ascii_lowercase` keeps byte offsets aligned
+/// between the original and folded text, which a full Unicode
+/// `to_lowercase` cannot guarantee (case folding can change byte length).
 #[must_use]
-pub fn filter_and_highlight<'a>(
-    lines: &[Line<'a>],
+pub fn filter_and_highlight<'a, 'b>(
+    lines: &'b [Line<'a>],
     query: &str,
-) -> Vec<Line<'a>> {
+) -> Cow<'b, [Line<'a>]> {
     if query.is_empty() {
-        return lines.to_vec();
+        return Cow::Borrowed(lines);
     }
-    let needle = query.to_lowercase();
-    lines
-        .iter()
-        .filter(|line| {
-            line.spans
-                .iter()
-                .any(|s| s.content.to_lowercase().contains(&needle))
-        })
-        .map(|line| highlight_line(line, &needle))
-        .collect()
+    let needle = query.to_ascii_lowercase();
+    Cow::Owned(
+        lines
+            .iter()
+            .filter_map(|line| highlight_line(line, &needle))
+            .collect(),
+    )
 }
 
-fn highlight_line<'a>(line: &Line<'a>, needle: &str) -> Line<'a> {
+/// Returns `None` if no span in `line` contains `needle`.
+fn highlight_line<'a>(line: &Line<'a>, needle: &str) -> Option<Line<'a>> {
     let mut spans = Vec::new();
+    let mut matched_any = false;
     for span in &line.spans {
         let text = span.content.as_ref();
-        let lower = text.to_lowercase();
+        let lower = text.to_ascii_lowercase();
         let mut rest = text;
         let mut lower_rest = lower.as_str();
         let mut offset = 0;
         while let Some(pos) = lower_rest.find(needle) {
+            matched_any = true;
             let byte_pos = offset + pos;
             let before = &text[offset..byte_pos];
             if !before.is_empty() {
@@ -48,5 +54,5 @@ fn highlight_line<'a>(line: &Line<'a>, needle: &str) -> Line<'a> {
             spans.push(Span::styled(rest.to_string(), span.style));
         }
     }
-    Line::from(spans)
+    matched_any.then(|| Line::from(spans))
 }
