@@ -514,7 +514,29 @@ impl App<'_> {
             .set_selected_statement(statement);
         self.execute_sql_query().await;
     }
+
+    /// `A`: show currently-running Postgres backends via `pg_stat_activity`.
+    /// SQLite is an embedded/file engine with no server process to inspect,
+    /// so there's nothing equivalent to show there.
+    pub(crate) async fn open_activity_view(&mut self) {
+        if self.database_explorer.connection.r#type
+            == crate::db::connection::ConnectionType::Sqlite
+        {
+            self.set_status(
+                "Activity view not applicable for SQLite (no server process to inspect).",
+            );
+            return;
+        }
+        self.execute_sql_statement_now(ACTIVITY_QUERY.to_string()).await;
+    }
 }
+
+/// `pg_stat_activity` columns worth showing at a glance. Permission-denied
+/// (non-superusers without `pg_read_all_stats` may only see their own rows,
+/// or be refused entirely) surfaces as a normal SQL error via the existing
+/// error path rather than crashing.
+const ACTIVITY_QUERY: &str = "SELECT pid, query, state, wait_event, query_start \
+FROM pg_stat_activity ORDER BY query_start DESC NULLS LAST";
 
 /// Info related to the program
 fn build_info() -> Result<String> {
