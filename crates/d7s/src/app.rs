@@ -330,26 +330,33 @@ impl App<'_> {
                     DescribeRow::new("Schema", &table.schema),
                 ];
                 if let Some(db) = explorer.database.as_ref() {
-                    if let Ok(count) = db
-                        .get_table_row_count(&table.schema, &table.name)
-                        .await
-                    {
+                    let (count_res, cols_res, pk_res, indexes_res, size_res) =
+                        tokio::join!(
+                            db.get_table_row_count(&table.schema, &table.name),
+                            db.get_columns(&table.schema, &table.name),
+                            db.get_primary_key_columns(
+                                &table.schema,
+                                &table.name
+                            ),
+                            db.get_table_index_names(
+                                &table.schema,
+                                &table.name
+                            ),
+                            db.get_table_size(&table.schema, &table.name),
+                        );
+                    if let Ok(count) = count_res {
                         rows.push(DescribeRow::new(
                             "Row count",
                             count.to_string(),
                         ));
                     }
-                    if let Ok(cols) =
-                        db.get_columns(&table.schema, &table.name).await
-                    {
+                    if let Ok(cols) = cols_res {
                         rows.push(DescribeRow::new(
                             "Columns",
                             cols.len().to_string(),
                         ));
                     }
-                    if let Ok(pk) = db
-                        .get_primary_key_columns(&table.schema, &table.name)
-                        .await
+                    if let Ok(pk) = pk_res
                         && !pk.is_empty()
                     {
                         rows.push(DescribeRow::new(
@@ -357,9 +364,7 @@ impl App<'_> {
                             pk.join(", "),
                         ));
                     }
-                    if let Ok(indexes) = db
-                        .get_table_index_names(&table.schema, &table.name)
-                        .await
+                    if let Ok(indexes) = indexes_res
                         && !indexes.is_empty()
                     {
                         rows.push(DescribeRow::new(
@@ -367,11 +372,8 @@ impl App<'_> {
                             indexes.join(", "),
                         ));
                     }
-                    if let Ok(Some(size)) =
-                        db.get_table_size(&table.schema, &table.name).await
-                    {
-                        rows.push(DescribeRow::new("Size", size));
-                    } else if let Some(size) = table.size.clone() {
+                    let size = size_res.ok().flatten().or_else(|| table.size.clone());
+                    if let Some(size) = size {
                         rows.push(DescribeRow::new("Size", size));
                     }
                 } else if let Some(size) = table.size.clone() {
