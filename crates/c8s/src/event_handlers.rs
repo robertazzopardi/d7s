@@ -49,13 +49,15 @@ impl App {
                 self.describe_scroll = self.describe_scroll.saturating_sub(1);
             }
             (_, KeyCode::Char('j') | KeyCode::Down) => {
-                self.describe_scroll = (self.describe_scroll + 1).min(max_start);
+                self.describe_scroll =
+                    (self.describe_scroll + 1).min(max_start);
             }
             (_, KeyCode::PageUp) => {
                 self.describe_scroll = self.describe_scroll.saturating_sub(10);
             }
             (_, KeyCode::PageDown) => {
-                self.describe_scroll = (self.describe_scroll + 10).min(max_start);
+                self.describe_scroll =
+                    (self.describe_scroll + 10).min(max_start);
             }
             (_, KeyCode::Char('g') | KeyCode::Home) => self.describe_scroll = 0,
             (_, KeyCode::Char('G') | KeyCode::End) => {

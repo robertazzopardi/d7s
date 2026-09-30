@@ -26,10 +26,8 @@ use crate::{
     services::{ConnectionService, PasswordService, PreferencesService},
     sql::safety::{StatementSafety, classify_statement, split_statements},
     ui::widgets::{
-        connection_modal::ModalManager,
-        describe_content::DescribeRow,
-        help_content::HelpRow,
-        hotkeys::CONNECTION_HOTKEYS,
+        connection_modal::ModalManager, describe_content::DescribeRow,
+        help_content::HelpRow, hotkeys::CONNECTION_HOTKEYS,
     },
     virtual_table::VIRTUAL_TABLE_PAGE_SIZE,
 };
@@ -125,6 +123,7 @@ impl App<'_> {
     }
 
     /// Run the application's main loop.
+    #[allow(clippy::future_not_send)]
     pub async fn run(&mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
         while self.running {
@@ -304,6 +303,10 @@ impl App<'_> {
 
     /// Build the field/value rows describing whatever object is currently
     /// selected (connection, table, column, or table-data row).
+    ///
+    /// Never spawned onto another task, so the returned future not being
+    /// `Send` (due to interior-mutability fields on `App`) is harmless.
+    #[allow(clippy::future_not_send, clippy::too_many_lines)]
     pub(crate) async fn build_describe_rows(&self) -> Vec<DescribeRow> {
         let explorer = &self.database_explorer;
         match &explorer.state {
@@ -314,9 +317,7 @@ impl App<'_> {
                 .state
                 .selected()
                 .and_then(|i| explorer.connections.table.model.items.get(i))
-                .map_or_else(Vec::new, |conn| {
-                    connection_describe_rows(conn)
-                }),
+                .map_or_else(Vec::new, connection_describe_rows),
             DatabaseExplorerState::Tables(_) => {
                 let Some(table) = explorer.tables.as_ref().and_then(|t| {
                     let i = t.table.view.state.selected()?;
@@ -330,20 +331,13 @@ impl App<'_> {
                     DescribeRow::new("Schema", &table.schema),
                 ];
                 if let Some(db) = explorer.database.as_ref() {
-                    let (count_res, cols_res, pk_res, indexes_res, size_res) =
-                        tokio::join!(
-                            db.get_table_row_count(&table.schema, &table.name),
-                            db.get_columns(&table.schema, &table.name),
-                            db.get_primary_key_columns(
-                                &table.schema,
-                                &table.name
-                            ),
-                            db.get_table_index_names(
-                                &table.schema,
-                                &table.name
-                            ),
-                            db.get_table_size(&table.schema, &table.name),
-                        );
+                    let (count_res, cols_res, pk_res, indexes_res, size_res) = tokio::join!(
+                        db.get_table_row_count(&table.schema, &table.name),
+                        db.get_columns(&table.schema, &table.name),
+                        db.get_primary_key_columns(&table.schema, &table.name),
+                        db.get_table_index_names(&table.schema, &table.name),
+                        db.get_table_size(&table.schema, &table.name),
+                    );
                     if let Ok(count) = count_res {
                         rows.push(DescribeRow::new(
                             "Row count",
@@ -372,7 +366,8 @@ impl App<'_> {
                             indexes.join(", "),
                         ));
                     }
-                    let size = size_res.ok().flatten().or_else(|| table.size.clone());
+                    let size =
+                        size_res.ok().flatten().or_else(|| table.size.clone());
                     if let Some(size) = size {
                         rows.push(DescribeRow::new("Size", size));
                     }

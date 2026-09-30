@@ -2,9 +2,8 @@
 //! (connection, table, column, or row) is currently selected.
 
 use k9tui::theme;
-use ratatui::style::Style;
-
 pub use k9tui::widgets::table::TableData;
+use ratatui::style::Style;
 
 /// One row in the describe table: a field label and its value.
 #[derive(Clone, Debug)]
