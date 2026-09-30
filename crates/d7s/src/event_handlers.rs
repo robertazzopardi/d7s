@@ -319,7 +319,9 @@ impl App<'_> {
                 self.toggle_watch();
                 Ok(true)
             }
-            (_, KeyCode::Char('A')) if self.state == AppState::DatabaseConnected => {
+            (_, KeyCode::Char('A'))
+                if self.state == AppState::DatabaseConnected =>
+            {
                 self.open_activity_view().await;
                 Ok(true)
             }

@@ -668,9 +668,10 @@ impl App<'_> {
                 let data = results.into_iter().map(|r| r.values).collect();
                 self.database_explorer.sql_executor.set_results(data, &cols);
                 if record_history {
-                    let _ = crate::services::PreferencesService::push_sql_history(
-                        &sql,
-                    );
+                    let _ =
+                        crate::services::PreferencesService::push_sql_history(
+                            &sql,
+                        );
                 }
             }
             Err(e) => self.set_status(format!("SQL error: {e}")),
