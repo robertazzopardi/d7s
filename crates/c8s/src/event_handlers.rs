@@ -235,7 +235,7 @@ impl App {
                     self.open_logs(&row.id, &row.name);
                 }
             }
-            (_, KeyCode::Enter) if self.view == ResourceKind::Containers => {
+            (_, KeyCode::Char('d') | KeyCode::Enter) if self.view == ResourceKind::Containers => {
                 if let Some(row) = self.selected_container().cloned() {
                     self.open_describe(&row.id, &row.name).await;
                 }
@@ -247,7 +247,10 @@ impl App {
                     self.exec_shell(terminal, &row.id)?;
                 }
             }
-            (_, KeyCode::Char('d') | KeyCode::Delete) => {
+            (_, KeyCode::Char('d')) => {
+                self.set_status("Describe is only available for containers");
+            }
+            (_, KeyCode::Char('D') | KeyCode::Delete) => {
                 self.prompt_remove_selected();
             }
             _ => {}

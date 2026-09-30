@@ -104,10 +104,10 @@ Connections:
 |-----|--------|
 | `n` | New connection |
 | `e` | Edit connection |
-| `d` | Delete connection |
+| `D` | Delete connection |
 | `o` / Enter | Open connection |
 | `O` | Reconnect last connection |
-| `i` | Describe selected connection |
+| `d` | Describe selected connection |
 
 Connected:
 
@@ -116,7 +116,7 @@ Connected:
 | `e` | SQL editor |
 | `E` | Run SQL |
 | `t` | Toggle table structure |
-| `i` | Describe selected table/column/row |
+| `d` | Describe selected table/column/row |
 | `/` | Search |
 | `1`–`5` | Jump to recent table |
 
@@ -128,7 +128,7 @@ Table data:
 | `a` | New row |
 | `c` | Duplicate row as draft |
 | `s` | Commit draft row |
-| `d` | Delete row |
+| `D` | Delete row |
 | Space | Toggle multi-select |
 | Enter | Edit cell |
 | `:` / `#` | Jump to row number |

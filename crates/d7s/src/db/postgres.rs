@@ -784,6 +784,35 @@ impl Database for Postgres {
         Ok(count.cast_unsigned())
     }
 
+    async fn get_table_index_names(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+        let q = "SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND tablename = $2 ORDER BY indexname";
+        let rows = client.query(q, &[&schema_name, &table_name]).await?;
+        Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect())
+    }
+
+    async fn get_table_size(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+        let q = "SELECT pg_size_pretty(pg_total_relation_size($1::regclass))";
+        let ident = format!(
+            "{}.{}",
+            pg_quote_ident(schema_name),
+            pg_quote_ident(table_name)
+        );
+        match client.query_one(q, &[&ident]).await {
+            Ok(row) => Ok(Some(row.get::<_, String>(0))),
+            Err(_) => Ok(None),
+        }
+    }
+
     async fn get_databases(
         &self,
     ) -> Result<Vec<DatabaseInfo>, Box<dyn std::error::Error>> {

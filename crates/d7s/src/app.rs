@@ -304,7 +304,7 @@ impl App<'_> {
 
     /// Build the field/value rows describing whatever object is currently
     /// selected (connection, table, column, or table-data row).
-    pub(crate) fn build_describe_rows(&self) -> Vec<DescribeRow> {
+    pub(crate) async fn build_describe_rows(&self) -> Vec<DescribeRow> {
         let explorer = &self.database_explorer;
         match &explorer.state {
             DatabaseExplorerState::Connections => explorer
@@ -317,51 +317,108 @@ impl App<'_> {
                 .map_or_else(Vec::new, |conn| {
                     connection_describe_rows(conn)
                 }),
-            DatabaseExplorerState::Tables(_) => explorer
-                .tables
-                .as_ref()
-                .and_then(|t| {
+            DatabaseExplorerState::Tables(_) => {
+                let Some(table) = explorer.tables.as_ref().and_then(|t| {
                     let i = t.table.view.state.selected()?;
-                    t.table.model.items.get(i)
-                })
-                .map_or_else(Vec::new, |table| {
-                    vec![
-                        DescribeRow::section("Table"),
-                        DescribeRow::new("Name", &table.name),
-                        DescribeRow::new("Schema", &table.schema),
-                        DescribeRow::new(
-                            "Size",
-                            table.size.clone().unwrap_or_default(),
-                        ),
-                    ]
-                }),
-            DatabaseExplorerState::Columns(schema, table_name) => explorer
-                .columns
-                .as_ref()
-                .and_then(|c| {
+                    t.table.model.items.get(i).cloned()
+                }) else {
+                    return Vec::new();
+                };
+                let mut rows = vec![
+                    DescribeRow::section("Table"),
+                    DescribeRow::new("Name", &table.name),
+                    DescribeRow::new("Schema", &table.schema),
+                ];
+                if let Some(db) = explorer.database.as_ref() {
+                    if let Ok(count) = db
+                        .get_table_row_count(&table.schema, &table.name)
+                        .await
+                    {
+                        rows.push(DescribeRow::new(
+                            "Row count",
+                            count.to_string(),
+                        ));
+                    }
+                    if let Ok(cols) =
+                        db.get_columns(&table.schema, &table.name).await
+                    {
+                        rows.push(DescribeRow::new(
+                            "Columns",
+                            cols.len().to_string(),
+                        ));
+                    }
+                    if let Ok(pk) = db
+                        .get_primary_key_columns(&table.schema, &table.name)
+                        .await
+                        && !pk.is_empty()
+                    {
+                        rows.push(DescribeRow::new(
+                            "Primary key",
+                            pk.join(", "),
+                        ));
+                    }
+                    if let Ok(indexes) = db
+                        .get_table_index_names(&table.schema, &table.name)
+                        .await
+                        && !indexes.is_empty()
+                    {
+                        rows.push(DescribeRow::new(
+                            "Indexes",
+                            indexes.join(", "),
+                        ));
+                    }
+                    if let Ok(Some(size)) =
+                        db.get_table_size(&table.schema, &table.name).await
+                    {
+                        rows.push(DescribeRow::new("Size", size));
+                    } else if let Some(size) = table.size.clone() {
+                        rows.push(DescribeRow::new("Size", size));
+                    }
+                } else if let Some(size) = table.size.clone() {
+                    rows.push(DescribeRow::new("Size", size));
+                }
+                rows
+            }
+            DatabaseExplorerState::Columns(schema, table_name) => {
+                let Some(col) = explorer.columns.as_ref().and_then(|c| {
                     let i = c.table.view.state.selected()?;
-                    c.table.model.items.get(i)
-                })
-                .map_or_else(Vec::new, |col| {
-                    vec![
-                        DescribeRow::section("Column"),
-                        DescribeRow::new("Table", format!("{schema}.{table_name}")),
-                        DescribeRow::new("Name", &col.name),
-                        DescribeRow::new("Type", &col.data_type),
-                        DescribeRow::new(
-                            "Nullable",
-                            if col.is_nullable { "YES" } else { "NO" },
-                        ),
-                        DescribeRow::new(
-                            "Default",
-                            col.default_value.clone().unwrap_or_default(),
-                        ),
-                        DescribeRow::new(
-                            "Description",
-                            col.description.clone().unwrap_or_default(),
-                        ),
-                    ]
-                }),
+                    c.table.model.items.get(i).cloned()
+                }) else {
+                    return Vec::new();
+                };
+                let mut rows = vec![
+                    DescribeRow::section("Column"),
+                    DescribeRow::new("Table", format!("{schema}.{table_name}")),
+                    DescribeRow::new("Name", &col.name),
+                    DescribeRow::new("Type", &col.data_type),
+                    DescribeRow::new(
+                        "Nullable",
+                        if col.is_nullable { "YES" } else { "NO" },
+                    ),
+                    DescribeRow::new(
+                        "Default",
+                        col.default_value.clone().unwrap_or_default(),
+                    ),
+                ];
+                if let Some(db) = explorer.database.as_ref()
+                    && let Ok(pk) =
+                        db.get_primary_key_columns(schema, table_name).await
+                {
+                    rows.push(DescribeRow::new(
+                        "Part of key",
+                        if pk.iter().any(|k| k == &col.name) {
+                            "YES"
+                        } else {
+                            "NO"
+                        },
+                    ));
+                }
+                rows.push(DescribeRow::new(
+                    "Description",
+                    col.description.clone().unwrap_or_default(),
+                ));
+                rows
+            }
             DatabaseExplorerState::TableData(schema, table_name) => explorer
                 .table_data
                 .as_ref()

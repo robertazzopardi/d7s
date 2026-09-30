@@ -6,8 +6,8 @@ pub const LIST_HOTKEYS: [Hotkey; 6] = [
     Hotkey::new('r', "restart"),
     Hotkey::new('l', "logs"),
     Hotkey::new('e', "exec shell"),
-    Hotkey::new('d', "remove"),
-    Hotkey::code(KeyCode::Enter, "describe"),
+    Hotkey::new('d', "describe"),
+    Hotkey::new('D', "remove"),
 ];
 
 /// Hotkeys shown for the image/volume/network list views, which only

@@ -528,7 +528,7 @@ impl App<'_> {
                 self.table_data_commit_draft().await?;
                 Ok(true)
             }
-            KeyCode::Char('d' | 'D') => {
+            KeyCode::Char('D') => {
                 self.table_data_request_delete().await?;
                 Ok(true)
             }

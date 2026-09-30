@@ -493,6 +493,29 @@ impl Database for Sqlite {
         Ok(count.cast_unsigned())
     }
 
+    async fn get_table_index_names(
+        &self,
+        _schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let conn = self.open_conn()?;
+        let mut stmt =
+            conn.prepare(&format!("PRAGMA index_list('{table_name}')"))?;
+        let names: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(names)
+    }
+
+    async fn get_table_size(
+        &self,
+        _schema_name: &str,
+        _table_name: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        // No cheap per-table size query in SQLite; skip rather than fabricate.
+        Ok(None)
+    }
+
     async fn get_databases(
         &self,
     ) -> Result<Vec<DatabaseInfo>, Box<dyn std::error::Error>> {

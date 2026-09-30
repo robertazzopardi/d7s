@@ -25,7 +25,7 @@ const GLOBAL_HELP: &[HelpEntry] = &[
         desc: "Copy cell value",
     },
     HelpEntry {
-        key: "i",
+        key: "d",
         desc: "Describe selected object",
     },
     HelpEntry {
@@ -83,7 +83,7 @@ const CONNECTION_HELP: &[HelpEntry] = &[
         desc: "Edit connection",
     },
     HelpEntry {
-        key: "d",
+        key: "D",
         desc: "Delete connection",
     },
     HelpEntry {
@@ -108,6 +108,10 @@ const DATABASE_HELP: &[HelpEntry] = &[
     HelpEntry {
         key: "t",
         desc: "Table structure",
+    },
+    HelpEntry {
+        key: "d",
+        desc: "Describe selected table/column/row",
     },
     HelpEntry {
         key: "E",
@@ -141,7 +145,7 @@ const TABLE_DATA_HELP: &[HelpEntry] = &[
         desc: "Commit draft row",
     },
     HelpEntry {
-        key: "d",
+        key: "D",
         desc: "Delete row(s)",
     },
     HelpEntry {
