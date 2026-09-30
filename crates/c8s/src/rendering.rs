@@ -135,28 +135,29 @@ impl App {
             top_area,
         );
 
-        let content_area = if self.log_search_open || !self.log_filter.is_empty() {
-            let search_layout = Layout::vertical([
-                Constraint::Length(SEARCH_BAR_HEIGHT),
-                Constraint::Min(0),
-            ])
-            .split(content_area);
-            let search_area =
-                search_layout.first().copied().unwrap_or_default();
-            let search_block = Block::default()
-                .borders(Borders::ALL)
-                .border_style(theme::border())
-                .title(" Search ")
-                .title_style(theme::title());
-            let inner = search_block.inner(search_area);
-            frame.render_widget(search_block, search_area);
-            let cursor = if self.log_search_open { "_" } else { "" };
-            Paragraph::new(format!("/{}{cursor}", self.log_filter))
-                .render(inner, frame.buffer_mut());
-            search_layout.get(1).copied().unwrap_or_default()
-        } else {
-            content_area
-        };
+        let content_area =
+            if self.log_search_open || !self.log_filter.is_empty() {
+                let search_layout = Layout::vertical([
+                    Constraint::Length(SEARCH_BAR_HEIGHT),
+                    Constraint::Min(0),
+                ])
+                .split(content_area);
+                let search_area =
+                    search_layout.first().copied().unwrap_or_default();
+                let search_block = Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(theme::border())
+                    .title(" Search ")
+                    .title_style(theme::title());
+                let inner = search_block.inner(search_area);
+                frame.render_widget(search_block, search_area);
+                let cursor = if self.log_search_open { "_" } else { "" };
+                Paragraph::new(format!("/{}{cursor}", self.log_filter))
+                    .render(inner, frame.buffer_mut());
+                search_layout.get(1).copied().unwrap_or_default()
+            } else {
+                content_area
+            };
 
         let filtered = filter_and_highlight(&self.log_lines, &self.log_filter);
 

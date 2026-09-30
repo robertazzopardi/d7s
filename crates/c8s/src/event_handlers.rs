@@ -68,7 +68,9 @@ impl App {
             .len()
             .saturating_sub(self.log_viewport_height);
         match (key.modifiers, key.code) {
-            (_, KeyCode::Char('q') | KeyCode::Esc) if self.log_filter.is_empty() => {
+            (_, KeyCode::Char('q') | KeyCode::Esc)
+                if self.log_filter.is_empty() =>
+            {
                 self.close_logs();
             }
             (_, KeyCode::Char('q') | KeyCode::Esc) => self.log_filter.clear(),
