@@ -46,8 +46,21 @@ cargo build --release -p c8s
 | `l` | Tail logs for the selected container |
 | `e` | Exec an interactive shell in the selected container |
 | `d` / `Delete` | Remove the selected container (confirm) |
+| `/` | Filter the container list by name/image substring |
 | `Enter` | Container details (stub, not yet implemented) |
 | `q` / `Ctrl-C` | Quit |
+
+### Key semantics vs k9s
+
+- `d` removes the selected container here (with confirmation), same
+  "destructive delete" semantic as k9s's `d`, though k9s's `d` describes a
+  resource rather than deleting it — there's no separate describe view in
+  c8s (see d7s/c8s bucket 2 for that work).
+- There's no `y` binding: k9s's `y` shows the resource's YAML manifest, but
+  containers here have no manifest concept to show.
+- `/` filters the container list by name/image substring, matching k9s's
+  filter key (and d7s's `/`), rather than k9s's fuzzy match across the whole
+  resource list.
 
 ## Scope
 

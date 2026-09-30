@@ -93,27 +93,32 @@ impl<T: TableData + Clone> TableDataState<T> {
     /// Filter items based on query
     #[must_use]
     pub fn filter(&self, query: &str) -> Vec<T> {
-        if query.is_empty() {
-            return self.model.items.clone();
-        }
-
-        let query_lower = query.to_lowercase();
-        self.model
-            .items
-            .iter()
-            .filter(|item| {
-                // Check if any column contains the query
-                for col_idx in 0..item.num_columns() {
-                    let col_value = item.col(col_idx);
-                    if col_value.to_lowercase().contains(&query_lower) {
-                        return true;
-                    }
-                }
-                false
-            })
-            .cloned()
-            .collect()
+        filter_rows(&self.model.items, query)
     }
+}
+
+/// Case-insensitive substring filter shared by every k9tui table.
+///
+/// Keeps rows where any column contains `query`. Empty query keeps
+/// everything. This is the one place the "does this row match the filter"
+/// logic lives — apps filter their own row lists by calling this directly
+/// (see `TableDataState::filter` above, or `c8s`'s container filter).
+#[must_use]
+pub fn filter_rows<T: TableData + Clone>(items: &[T], query: &str) -> Vec<T> {
+    if query.is_empty() {
+        return items.to_vec();
+    }
+
+    let query_lower = query.to_lowercase();
+    items
+        .iter()
+        .filter(|item| {
+            (0..item.num_columns()).any(|col_idx| {
+                item.col(col_idx).to_lowercase().contains(&query_lower)
+            })
+        })
+        .cloned()
+        .collect()
 }
 
 const fn col_width(len: usize) -> usize {
