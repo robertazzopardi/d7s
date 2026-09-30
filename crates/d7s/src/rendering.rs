@@ -36,14 +36,12 @@ const FILTER_BAR_HEIGHT: u16 = 3;
 impl App<'_> {
     #[allow(clippy::too_many_lines)]
     pub fn render(&mut self, frame: &mut Frame) {
-        self.status_line
-            .set_idle_hint(default_idle_hint(self.state));
-        if self.watch_active {
-            self.status_line.set_idle_hint(format!(
-                "● WATCHING · {}",
-                default_idle_hint(self.state)
-            ));
-        }
+        let idle_hint = default_idle_hint(self.state);
+        self.status_line.set_idle_hint(if self.watch_active {
+            format!("● WATCHING · {idle_hint}")
+        } else {
+            idle_hint
+        });
 
         let layout = Layout::default()
             .direction(Direction::Vertical)
