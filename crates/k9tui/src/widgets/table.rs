@@ -97,11 +97,12 @@ impl<T: TableData + Clone> TableDataState<T> {
     }
 }
 
-/// Case-insensitive substring filter shared by every k9tui table: keeps
-/// rows where any column contains `query`. Empty query keeps everything.
-/// This is the one place the "does this row match the filter" logic lives —
-/// apps filter their own row lists by calling this directly (see
-/// `TableDataState::filter` above, or `c8s`'s container filter).
+/// Case-insensitive substring filter shared by every k9tui table.
+///
+/// Keeps rows where any column contains `query`. Empty query keeps
+/// everything. This is the one place the "does this row match the filter"
+/// logic lives — apps filter their own row lists by calling this directly
+/// (see `TableDataState::filter` above, or `c8s`'s container filter).
 #[must_use]
 pub fn filter_rows<T: TableData + Clone>(items: &[T], query: &str) -> Vec<T> {
     if query.is_empty() {
@@ -112,8 +113,9 @@ pub fn filter_rows<T: TableData + Clone>(items: &[T], query: &str) -> Vec<T> {
     items
         .iter()
         .filter(|item| {
-            (0..item.num_columns())
-                .any(|col_idx| item.col(col_idx).to_lowercase().contains(&query_lower))
+            (0..item.num_columns()).any(|col_idx| {
+                item.col(col_idx).to_lowercase().contains(&query_lower)
+            })
         })
         .cloned()
         .collect()

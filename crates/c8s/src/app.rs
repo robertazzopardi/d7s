@@ -44,6 +44,7 @@ pub enum BackgroundEvent {
     LogLine(String),
 }
 
+#[allow(clippy::struct_excessive_bools)]
 pub struct App {
     pub(crate) running: bool,
     pub(crate) state: AppState,
@@ -190,10 +191,11 @@ impl App {
         let idx = selected_id.and_then(|id| {
             self.containers.model.items.iter().position(|c| c.id == id)
         });
-        self.containers
-            .view
-            .state
-            .select(idx.or(if len == 0 { None } else { Some(0) }));
+        self.containers.view.state.select(idx.or(if len == 0 {
+            None
+        } else {
+            Some(0)
+        }));
     }
 
     pub(crate) fn selected_container(&self) -> Option<&ContainerRow> {

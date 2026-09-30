@@ -105,41 +105,36 @@ impl App {
         }
     }
 
-    async fn on_key_list(
-        &mut self,
-        key: KeyEvent,
-        terminal: &mut DefaultTerminal,
-    ) -> Result<()> {
-        if self.filtering {
-            #[allow(clippy::wildcard_enum_match_arm)]
-            match (key.modifiers, key.code) {
-                (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
-                    self.quit();
-                }
-                (_, KeyCode::Esc) => {
-                    self.filtering = false;
-                    self.filter_query.clear();
-                    self.recompute_filtered();
-                    self.set_status("Filter cleared");
-                }
-                (_, KeyCode::Enter) => {
-                    self.filtering = false;
-                }
-                (_, KeyCode::Backspace) => {
-                    self.filter_query.pop();
-                    self.recompute_filtered();
-                    self.set_status(format!("/{}", self.filter_query));
-                }
-                (_, KeyCode::Char(c)) => {
-                    self.filter_query.push(c);
-                    self.recompute_filtered();
-                    self.set_status(format!("/{}", self.filter_query));
-                }
-                _ => {}
+    #[allow(clippy::wildcard_enum_match_arm)]
+    fn on_key_list_filtering(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
+                self.quit();
             }
-            return Ok(());
+            (_, KeyCode::Esc) => {
+                self.filtering = false;
+                self.filter_query.clear();
+                self.recompute_filtered();
+                self.set_status("Filter cleared");
+            }
+            (_, KeyCode::Enter) => {
+                self.filtering = false;
+            }
+            (_, KeyCode::Backspace) => {
+                self.filter_query.pop();
+                self.recompute_filtered();
+                self.set_status(format!("/{}", self.filter_query));
+            }
+            (_, KeyCode::Char(c)) => {
+                self.filter_query.push(c);
+                self.recompute_filtered();
+                self.set_status(format!("/{}", self.filter_query));
+            }
+            _ => {}
         }
+    }
 
+    async fn on_key_list_confirm_dialog(&mut self, key: KeyEvent) {
         if let Some(dialog) = self.confirm_dialog.as_mut() {
             match dialog.handle_key_events(key) {
                 DialogAction::Submit => {
@@ -154,6 +149,21 @@ impl App {
                 }
                 DialogAction::None => {}
             }
+        }
+    }
+
+    async fn on_key_list(
+        &mut self,
+        key: KeyEvent,
+        terminal: &mut DefaultTerminal,
+    ) -> Result<()> {
+        if self.filtering {
+            self.on_key_list_filtering(key);
+            return Ok(());
+        }
+
+        if self.confirm_dialog.is_some() {
+            self.on_key_list_confirm_dialog(key).await;
             return Ok(());
         }
 
