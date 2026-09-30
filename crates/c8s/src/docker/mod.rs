@@ -1,5 +1,7 @@
 pub mod client;
 
+use std::fmt::Write as _;
+
 use k9tui::widgets::table::TableData;
 
 /// One row in the container list table.
@@ -46,6 +48,111 @@ impl ContainerRow {
             uptime,
         }
     }
+}
+
+/// Render a k9s-style "describe" text block from a full container inspect
+/// response — whatever bollard already gives us, no extra API calls.
+#[must_use]
+pub fn describe_text(
+    inspect: &bollard::models::ContainerInspectResponse,
+) -> String {
+    let mut out = String::new();
+    let mut line = |label: &str, value: &str| {
+        let _ = writeln!(out, "{label:<14}{value}");
+    };
+
+    line("ID:", inspect.id.as_deref().unwrap_or(""));
+    line(
+        "Name:",
+        inspect
+            .name
+            .as_deref()
+            .unwrap_or("")
+            .trim_start_matches('/'),
+    );
+    line(
+        "Image:",
+        inspect
+            .config
+            .as_ref()
+            .and_then(|c| c.image.as_deref())
+            .unwrap_or(""),
+    );
+    if let Some(created) = &inspect.created {
+        line("Created:", created);
+    }
+    if let Some(state) = &inspect.state {
+        line(
+            "Status:",
+            &state.status.map(|s| s.to_string()).unwrap_or_default(),
+        );
+        if let Some(pid) = state.pid {
+            line("PID:", &pid.to_string());
+        }
+        if let Some(started) = &state.started_at {
+            line("Started:", started);
+        }
+        if let Some(code) = state.exit_code {
+            line("ExitCode:", &code.to_string());
+        }
+    }
+
+    out.push('\n');
+    out.push_str("Ports:\n");
+    let ports = inspect
+        .network_settings
+        .as_ref()
+        .and_then(|ns| ns.ports.as_ref());
+    match ports {
+        Some(ports) if !ports.is_empty() => {
+            for (container_port, bindings) in ports {
+                match bindings {
+                    Some(bindings) if !bindings.is_empty() => {
+                        for binding in bindings {
+                            let ip = binding.host_ip.as_deref().unwrap_or("");
+                            let port =
+                                binding.host_port.as_deref().unwrap_or("");
+                            let _ = writeln!(
+                                out,
+                                "  {container_port} -> {ip}:{port}"
+                            );
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(out, "  {container_port}");
+                    }
+                }
+            }
+        }
+        _ => out.push_str("  (none)\n"),
+    }
+
+    out.push('\n');
+    out.push_str("Mounts:\n");
+    match &inspect.mounts {
+        Some(mounts) if !mounts.is_empty() => {
+            for mount in mounts {
+                let src = mount.source.as_deref().unwrap_or("");
+                let dst = mount.destination.as_deref().unwrap_or("");
+                let mode = mount.mode.as_deref().unwrap_or("");
+                let _ = writeln!(out, "  {src} -> {dst} ({mode})");
+            }
+        }
+        _ => out.push_str("  (none)\n"),
+    }
+
+    out.push('\n');
+    out.push_str("Env:\n");
+    match inspect.config.as_ref().and_then(|c| c.env.as_ref()) {
+        Some(env) if !env.is_empty() => {
+            for e in env {
+                let _ = writeln!(out, "  {e}");
+            }
+        }
+        _ => out.push_str("  (none)\n"),
+    }
+
+    out
 }
 
 fn short_id(id: &str) -> String {

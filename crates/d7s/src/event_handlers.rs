@@ -46,6 +46,7 @@ impl App<'_> {
     ///
     /// If your application needs to perform work in between handling events, you can use the
     /// [`event::poll`] function to check if there are any events available with a timeout.
+    #[allow(clippy::future_not_send)]
     pub async fn handle_crossterm_events(&mut self) -> Result<()> {
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
@@ -85,6 +86,7 @@ impl App<'_> {
     }
 
     /// Handles the key events and updates the state of [`App`].
+    #[allow(clippy::future_not_send)]
     pub async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Help view: only toggle/close and quit
         if self.show_help {
@@ -100,6 +102,27 @@ impl App<'_> {
                     TableNavigationHandler::navigate_table(
                         &self.help_table.model,
                         &mut self.help_table.view,
+                        key.code,
+                    );
+                }
+            }
+            return Ok(());
+        }
+
+        // Describe view: only toggle/close, quit, and scroll
+        if self.show_describe {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('i') | KeyCode::Esc) => {
+                    self.show_describe = false;
+                }
+                (_, KeyCode::Char('q'))
+                | (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
+                    self.quit();
+                }
+                _ => {
+                    TableNavigationHandler::navigate_table(
+                        &self.describe_table.model,
+                        &mut self.describe_table.view,
                         key.code,
                     );
                 }
@@ -162,7 +185,7 @@ impl App<'_> {
 
     /// Handle application shortcuts (q, n, d, e, E, t, Esc, Enter)
     /// Returns true if the key was handled and should stop processing
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::future_not_send)]
     async fn handle_hotkeys(&mut self, key: KeyEvent) -> Result<bool> {
         match (key.modifiers, key.code) {
             (_, KeyCode::Char('q'))
@@ -244,7 +267,7 @@ impl App<'_> {
                 }
                 Ok(true)
             }
-            (_, KeyCode::Char('d')) => {
+            (_, KeyCode::Char('D')) => {
                 if matches!(
                     self.database_explorer.state,
                     DatabaseExplorerState::Connections
@@ -275,6 +298,16 @@ impl App<'_> {
                     self.open_editor_requested = true;
                 }
                 Ok(true)
+            }
+            (_, KeyCode::Char('d')) => {
+                let rows = self.build_describe_rows().await;
+                if rows.is_empty() {
+                    Ok(false)
+                } else {
+                    self.describe_table = TableDataState::new(rows);
+                    self.show_describe = true;
+                    Ok(true)
+                }
             }
             (_, KeyCode::Char('t')) => {
                 if self.state == AppState::DatabaseConnected {

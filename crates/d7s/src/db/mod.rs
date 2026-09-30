@@ -106,6 +106,21 @@ pub trait Database: Send + Sync {
         table_name: &str,
     ) -> Result<u64, Box<dyn std::error::Error>>;
 
+    /// Index names defined on the table, for the describe view. Cheap metadata lookup only.
+    async fn get_table_index_names(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>>;
+
+    /// On-disk size of the table, formatted for display, when cheaply available
+    /// (e.g. Postgres `pg_total_relation_size`). `None` when not supported.
+    async fn get_table_size(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>>;
+
     async fn get_databases(
         &self,
     ) -> Result<Vec<DatabaseInfo>, Box<dyn std::error::Error>>;

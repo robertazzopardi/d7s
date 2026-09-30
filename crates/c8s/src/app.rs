@@ -65,6 +65,10 @@ pub struct App {
     pub(crate) log_filter: String,
     /// True while the `/` search bar is open for editing.
     pub(crate) log_search_open: bool,
+    /// Absolute index of the first visible line in the describe view.
+    pub(crate) describe_scroll: usize,
+    /// Height of the last-rendered describe viewport, used to clamp scrolling.
+    pub(crate) describe_viewport_height: usize,
     pub(crate) build_info: String,
 
     pub(crate) bg_tx: UnboundedSender<BackgroundEvent>,
@@ -93,6 +97,8 @@ impl App {
             log_viewport_height: 0,
             log_filter: String::new(),
             log_search_open: false,
+            describe_scroll: 0,
+            describe_viewport_height: 0,
             build_info: format!("Name: {PKG_NAME}\nVersion: {PKG_VERSION}"),
             bg_tx,
             bg_rx,
@@ -315,6 +321,28 @@ impl App {
         if let Some(handle) = self.log_task.take() {
             handle.abort();
         }
+        self.state = AppState::List;
+    }
+
+    /// Fetch and show full inspect details for a container.
+    pub(crate) async fn open_describe(&mut self, id: &str, name: &str) {
+        let Some(docker) = self.docker.clone() else {
+            return;
+        };
+        match docker.inspect(id).await {
+            Ok(inspect) => {
+                self.describe_scroll = 0;
+                self.state = AppState::Describe {
+                    name: name.to_string(),
+                    text: crate::docker::describe_text(&inspect),
+                };
+            }
+            Err(e) => self.set_status(format!("Inspect failed: {e}")),
+        }
+    }
+
+    /// Leave the describe view.
+    pub(crate) fn close_describe(&mut self) {
         self.state = AppState::List;
     }
 }

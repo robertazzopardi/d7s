@@ -25,6 +25,42 @@ impl App {
                 self.on_key_logs(key);
                 Ok(())
             }
+            AppState::Describe { .. } => {
+                self.on_key_describe(key);
+                Ok(())
+            }
+        }
+    }
+
+    fn on_key_describe(&mut self, key: KeyEvent) {
+        let AppState::Describe { text, .. } = &self.state else {
+            return;
+        };
+        let total_lines = text.lines().count();
+        let max_start =
+            total_lines.saturating_sub(self.describe_viewport_height);
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Char('q') | KeyCode::Esc) => self.close_describe(),
+            (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
+            (_, KeyCode::Char('k') | KeyCode::Up) => {
+                self.describe_scroll = self.describe_scroll.saturating_sub(1);
+            }
+            (_, KeyCode::Char('j') | KeyCode::Down) => {
+                self.describe_scroll =
+                    (self.describe_scroll + 1).min(max_start);
+            }
+            (_, KeyCode::PageUp) => {
+                self.describe_scroll = self.describe_scroll.saturating_sub(10);
+            }
+            (_, KeyCode::PageDown) => {
+                self.describe_scroll =
+                    (self.describe_scroll + 10).min(max_start);
+            }
+            (_, KeyCode::Char('g') | KeyCode::Home) => self.describe_scroll = 0,
+            (_, KeyCode::Char('G') | KeyCode::End) => {
+                self.describe_scroll = max_start;
+            }
+            _ => {}
         }
     }
 
@@ -179,12 +215,17 @@ impl App {
                     self.open_logs(&row.id, &row.name);
                 }
             }
+            (_, KeyCode::Char('d') | KeyCode::Enter) => {
+                if let Some(row) = self.selected_container().cloned() {
+                    self.open_describe(&row.id, &row.name).await;
+                }
+            }
             (_, KeyCode::Char('e')) => {
                 if let Some(row) = self.selected_container().cloned() {
                     self.exec_shell(terminal, &row.id)?;
                 }
             }
-            (_, KeyCode::Char('d') | KeyCode::Delete) => {
+            (_, KeyCode::Char('D') | KeyCode::Delete) => {
                 if let Some(row) = self.selected_container().cloned() {
                     self.pending_remove = Some(row.id);
                     self.confirm_dialog = Some(ConfirmDialog::new(
