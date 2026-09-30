@@ -1,5 +1,7 @@
 pub mod client;
 
+use std::fmt::Write as _;
+
 use k9tui::widgets::table::TableData;
 
 /// One row in the container list table.
@@ -51,16 +53,22 @@ impl ContainerRow {
 /// Render a k9s-style "describe" text block from a full container inspect
 /// response — whatever bollard already gives us, no extra API calls.
 #[must_use]
-pub fn describe_text(inspect: &bollard::models::ContainerInspectResponse) -> String {
+pub fn describe_text(
+    inspect: &bollard::models::ContainerInspectResponse,
+) -> String {
     let mut out = String::new();
     let mut line = |label: &str, value: &str| {
-        out.push_str(&format!("{label:<14}{value}\n"));
+        let _ = writeln!(out, "{label:<14}{value}");
     };
 
     line("ID:", inspect.id.as_deref().unwrap_or(""));
     line(
         "Name:",
-        inspect.name.as_deref().unwrap_or("").trim_start_matches('/'),
+        inspect
+            .name
+            .as_deref()
+            .unwrap_or("")
+            .trim_start_matches('/'),
     );
     line(
         "Image:",
@@ -71,7 +79,7 @@ pub fn describe_text(inspect: &bollard::models::ContainerInspectResponse) -> Str
             .unwrap_or(""),
     );
     if let Some(created) = &inspect.created {
-        line("Created:", &created.to_string());
+        line("Created:", created);
     }
     if let Some(state) = &inspect.state {
         line(
@@ -82,7 +90,7 @@ pub fn describe_text(inspect: &bollard::models::ContainerInspectResponse) -> Str
             line("PID:", &pid.to_string());
         }
         if let Some(started) = &state.started_at {
-            line("Started:", &started.to_string());
+            line("Started:", started);
         }
         if let Some(code) = state.exit_code {
             line("ExitCode:", &code.to_string());
@@ -102,13 +110,17 @@ pub fn describe_text(inspect: &bollard::models::ContainerInspectResponse) -> Str
                     Some(bindings) if !bindings.is_empty() => {
                         for binding in bindings {
                             let ip = binding.host_ip.as_deref().unwrap_or("");
-                            let port = binding.host_port.as_deref().unwrap_or("");
-                            out.push_str(&format!(
-                                "  {container_port} -> {ip}:{port}\n"
-                            ));
+                            let port =
+                                binding.host_port.as_deref().unwrap_or("");
+                            let _ = writeln!(
+                                out,
+                                "  {container_port} -> {ip}:{port}"
+                            );
                         }
                     }
-                    _ => out.push_str(&format!("  {container_port}\n")),
+                    _ => {
+                        let _ = writeln!(out, "  {container_port}");
+                    }
                 }
             }
         }
@@ -123,7 +135,7 @@ pub fn describe_text(inspect: &bollard::models::ContainerInspectResponse) -> Str
                 let src = mount.source.as_deref().unwrap_or("");
                 let dst = mount.destination.as_deref().unwrap_or("");
                 let mode = mount.mode.as_deref().unwrap_or("");
-                out.push_str(&format!("  {src} -> {dst} ({mode})\n"));
+                let _ = writeln!(out, "  {src} -> {dst} ({mode})");
             }
         }
         _ => out.push_str("  (none)\n"),
@@ -134,7 +146,7 @@ pub fn describe_text(inspect: &bollard::models::ContainerInspectResponse) -> Str
     match inspect.config.as_ref().and_then(|c| c.env.as_ref()) {
         Some(env) if !env.is_empty() => {
             for e in env {
-                out.push_str(&format!("  {e}\n"));
+                let _ = writeln!(out, "  {e}");
             }
         }
         _ => out.push_str("  (none)\n"),

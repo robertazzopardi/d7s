@@ -1,10 +1,10 @@
 use bollard::{
     Docker,
-    query_parameters::{
-        InspectContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions,
-        RestartContainerOptions, StopContainerOptions,
-    },
     models::ContainerInspectResponse,
+    query_parameters::{
+        InspectContainerOptions, ListContainersOptions, LogsOptions,
+        RemoveContainerOptions, RestartContainerOptions, StopContainerOptions,
+    },
 };
 use color_eyre::Result;
 use futures_util::StreamExt;
@@ -74,7 +74,10 @@ impl DockerClient {
 
     /// Fetch full inspect details for `id` (id, image, status, ports, mounts, env, created time).
     pub async fn inspect(&self, id: &str) -> Result<ContainerInspectResponse> {
-        Ok(self.docker.inspect_container(id, None::<InspectContainerOptions>).await?)
+        Ok(self
+            .docker
+            .inspect_container(id, None::<InspectContainerOptions>)
+            .await?)
     }
 
     /// Stream log lines for `id` into `tx` until the stream ends or the
