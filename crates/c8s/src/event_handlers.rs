@@ -111,49 +111,31 @@ impl App {
         terminal: &mut DefaultTerminal,
     ) -> Result<()> {
         if self.filtering {
-            match key.code {
-                KeyCode::Esc => {
+            #[allow(clippy::wildcard_enum_match_arm)]
+            match (key.modifiers, key.code) {
+                (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
+                    self.quit();
+                }
+                (_, KeyCode::Esc) => {
                     self.filtering = false;
                     self.filter_query.clear();
                     self.recompute_filtered();
                     self.set_status("Filter cleared");
                 }
-                KeyCode::Enter => {
+                (_, KeyCode::Enter) => {
                     self.filtering = false;
                 }
-                KeyCode::Backspace => {
+                (_, KeyCode::Backspace) => {
                     self.filter_query.pop();
                     self.recompute_filtered();
                     self.set_status(format!("/{}", self.filter_query));
                 }
-                KeyCode::Char(c) => {
+                (_, KeyCode::Char(c)) => {
                     self.filter_query.push(c);
                     self.recompute_filtered();
                     self.set_status(format!("/{}", self.filter_query));
                 }
-                KeyCode::Left
-                | KeyCode::Right
-                | KeyCode::Up
-                | KeyCode::Down
-                | KeyCode::Home
-                | KeyCode::End
-                | KeyCode::PageUp
-                | KeyCode::PageDown
-                | KeyCode::Tab
-                | KeyCode::BackTab
-                | KeyCode::Delete
-                | KeyCode::Insert
-                | KeyCode::F(_)
-                | KeyCode::Null
-                | KeyCode::CapsLock
-                | KeyCode::ScrollLock
-                | KeyCode::NumLock
-                | KeyCode::PrintScreen
-                | KeyCode::Pause
-                | KeyCode::Menu
-                | KeyCode::KeypadBegin
-                | KeyCode::Media(_)
-                | KeyCode::Modifier(_) => {}
+                _ => {}
             }
             return Ok(());
         }
