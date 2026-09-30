@@ -177,19 +177,10 @@ impl App {
     pub(crate) fn recompute_filtered(&mut self) {
         let selected_id = self.selected_container().map(|c| c.id.clone());
 
-        let items = if self.filter_query.is_empty() {
-            self.all_containers.clone()
-        } else {
-            let query = self.filter_query.to_lowercase();
-            self.all_containers
-                .iter()
-                .filter(|c| {
-                    c.name.to_lowercase().contains(&query)
-                        || c.image.to_lowercase().contains(&query)
-                })
-                .cloned()
-                .collect()
-        };
+        let items = k9tui::widgets::table::filter_rows(
+            &self.all_containers,
+            &self.filter_query,
+        );
 
         self.containers.model.longest_item_lens =
             k9tui::widgets::constraint_len_calculator(&items);
