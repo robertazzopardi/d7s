@@ -8,10 +8,11 @@ use crossterm::{
     execute,
 };
 use k9tui::widgets::{
-    hotkey::Hotkey, modal::ConfirmDialog, status_line::StatusLine,
+    hotkey::Hotkey,
+    modal::ConfirmDialog,
+    status_line::StatusLine,
     table::{TableData, TableDataState, filter_rows},
 };
-
 use ratatui::{DefaultTerminal, text::Line};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
@@ -19,7 +20,9 @@ use tokio::sync::mpsc::{
 
 use crate::{
     app_state::{AppState, ResourceKind},
-    docker::{ContainerRow, ImageRow, NetworkRow, VolumeRow, client::DockerClient},
+    docker::{
+        ContainerRow, ImageRow, NetworkRow, VolumeRow, client::DockerClient,
+    },
 };
 
 pub const APP_NAME: &str = r"         ______
@@ -51,6 +54,7 @@ pub enum BackgroundEvent {
     LogLine(String),
 }
 
+#[allow(clippy::struct_excessive_bools)]
 pub struct App {
     pub(crate) running: bool,
     pub(crate) state: AppState,
@@ -201,7 +205,8 @@ impl App {
                         let _ = tx.send(BackgroundEvent::Images(rows));
                     }
                     Err(e) => {
-                        let _ = tx.send(BackgroundEvent::PollError(e.to_string()));
+                        let _ =
+                            tx.send(BackgroundEvent::PollError(e.to_string()));
                     }
                 }
                 match volumes {
@@ -209,7 +214,8 @@ impl App {
                         let _ = tx.send(BackgroundEvent::Volumes(rows));
                     }
                     Err(e) => {
-                        let _ = tx.send(BackgroundEvent::PollError(e.to_string()));
+                        let _ =
+                            tx.send(BackgroundEvent::PollError(e.to_string()));
                     }
                 }
                 match networks {
@@ -217,7 +223,8 @@ impl App {
                         let _ = tx.send(BackgroundEvent::Networks(rows));
                     }
                     Err(e) => {
-                        let _ = tx.send(BackgroundEvent::PollError(e.to_string()));
+                        let _ =
+                            tx.send(BackgroundEvent::PollError(e.to_string()));
                     }
                 }
                 tokio::time::sleep(POLL_INTERVAL).await;
@@ -272,25 +279,29 @@ impl App {
                 BackgroundEvent::Containers(mut rows) => {
                     rows.sort_by_key(|r| r.name.to_lowercase());
                     self.containers_all = rows;
-                    let filtered = filter_rows(&self.containers_all, &self.list_filter);
+                    let filtered =
+                        filter_rows(&self.containers_all, &self.list_filter);
                     apply_table_update(&mut self.containers, filtered);
                 }
                 BackgroundEvent::Images(mut rows) => {
                     rows.sort_by_key(|r| r.repo_tags.to_lowercase());
                     self.images_all = rows;
-                    let filtered = filter_rows(&self.images_all, &self.list_filter);
+                    let filtered =
+                        filter_rows(&self.images_all, &self.list_filter);
                     apply_table_update(&mut self.images, filtered);
                 }
                 BackgroundEvent::Volumes(mut rows) => {
                     rows.sort_by_key(|r| r.name.to_lowercase());
                     self.volumes_all = rows;
-                    let filtered = filter_rows(&self.volumes_all, &self.list_filter);
+                    let filtered =
+                        filter_rows(&self.volumes_all, &self.list_filter);
                     apply_table_update(&mut self.volumes, filtered);
                 }
                 BackgroundEvent::Networks(mut rows) => {
                     rows.sort_by_key(|r| r.name.to_lowercase());
                     self.networks_all = rows;
-                    let filtered = filter_rows(&self.networks_all, &self.list_filter);
+                    let filtered =
+                        filter_rows(&self.networks_all, &self.list_filter);
                     apply_table_update(&mut self.networks, filtered);
                 }
                 BackgroundEvent::PollError(e) => {
@@ -431,16 +442,18 @@ fn apply_table_update<T: TableData + Clone>(
     rows: Vec<T>,
 ) {
     let selected = table.view.state.selected();
-    table.model.longest_item_lens = k9tui::widgets::constraint_len_calculator(&rows);
+    table.model.longest_item_lens =
+        k9tui::widgets::constraint_len_calculator(&rows);
     table.model.items = rows;
 
     let len = table.model.items.len();
     match selected {
         Some(sel) if sel >= len => {
-            table
-                .view
-                .state
-                .select(if len == 0 { None } else { Some(len - 1) });
+            table.view.state.select(if len == 0 {
+                None
+            } else {
+                Some(len - 1)
+            });
         }
         None if len > 0 => table.view.state.select(Some(0)),
         _ => {}

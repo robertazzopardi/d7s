@@ -164,11 +164,15 @@ impl App {
                 self.quit();
             }
             (_, KeyCode::Char('/')) => self.list_search_open = true,
-            (_, KeyCode::Char('1')) => self.switch_view(ResourceKind::Containers),
+            (_, KeyCode::Char('1')) => {
+                self.switch_view(ResourceKind::Containers);
+            }
             (_, KeyCode::Char('2')) => self.switch_view(ResourceKind::Images),
             (_, KeyCode::Char('3')) => self.switch_view(ResourceKind::Volumes),
             (_, KeyCode::Char('4')) => self.switch_view(ResourceKind::Networks),
-            (_, KeyCode::Char('j') | KeyCode::Down) => self.navigate(KeyCode::Down),
+            (_, KeyCode::Char('j') | KeyCode::Down) => {
+                self.navigate(KeyCode::Down);
+            }
             (_, KeyCode::Char('k') | KeyCode::Up) => self.navigate(KeyCode::Up),
             (_, KeyCode::Char('g')) => self.navigate(KeyCode::Char('g')),
             (_, KeyCode::Char('G')) => self.navigate(KeyCode::Char('G')),
@@ -183,17 +187,23 @@ impl App {
                     }
                 }
             }
-            (_, KeyCode::Char('r')) if self.view == ResourceKind::Containers => {
+            (_, KeyCode::Char('r'))
+                if self.view == ResourceKind::Containers =>
+            {
                 if let Some(row) = self.selected_container().cloned() {
                     self.restart_container(&row.id).await;
                 }
             }
-            (_, KeyCode::Char('l')) if self.view == ResourceKind::Containers => {
+            (_, KeyCode::Char('l'))
+                if self.view == ResourceKind::Containers =>
+            {
                 if let Some(row) = self.selected_container().cloned() {
                     self.open_logs(&row.id, &row.name);
                 }
             }
-            (_, KeyCode::Char('e')) if self.view == ResourceKind::Containers => {
+            (_, KeyCode::Char('e'))
+                if self.view == ResourceKind::Containers =>
+            {
                 if let Some(row) = self.selected_container().cloned() {
                     self.exec_shell(terminal, &row.id)?;
                 }
@@ -214,7 +224,9 @@ impl App {
             ResourceKind::Containers => {
                 crate::ui::widgets::hotkeys::LIST_HOTKEYS.to_vec()
             }
-            ResourceKind::Images | ResourceKind::Volumes | ResourceKind::Networks => {
+            ResourceKind::Images
+            | ResourceKind::Volumes
+            | ResourceKind::Networks => {
                 crate::ui::widgets::hotkeys::RESOURCE_HOTKEYS.to_vec()
             }
         };
@@ -329,7 +341,7 @@ fn modal_border() -> Style {
 }
 
 /// Human-readable singular label for a resource kind, for status/dialog text.
-fn singular(kind: ResourceKind) -> &'static str {
+const fn singular(kind: ResourceKind) -> &'static str {
     match kind {
         ResourceKind::Containers => "Container",
         ResourceKind::Images => "Image",

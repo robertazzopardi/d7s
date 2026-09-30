@@ -169,7 +169,11 @@ impl TableData for VolumeRow {
     }
 
     fn ref_array(&self) -> Vec<String> {
-        vec![self.name.clone(), self.driver.clone(), self.mountpoint.clone()]
+        vec![
+            self.name.clone(),
+            self.driver.clone(),
+            self.mountpoint.clone(),
+        ]
     }
 
     fn num_columns(&self) -> usize {
@@ -224,6 +228,7 @@ impl TableData for NetworkRow {
 
 fn format_size(bytes: i64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    #[allow(clippy::cast_precision_loss)]
     let mut size = bytes.max(0) as f64;
     let mut unit = 0;
     while size >= 1024.0 && unit < UNITS.len() - 1 {
@@ -237,8 +242,7 @@ fn format_size(bytes: i64) -> String {
 fn format_timestamp(secs: i64) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     let created = secs.max(0).unsigned_abs();
     let elapsed = now.saturating_sub(created);
     match elapsed {

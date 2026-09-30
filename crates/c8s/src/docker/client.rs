@@ -1,9 +1,10 @@
 use bollard::{
     Docker,
     query_parameters::{
-        ListContainersOptions, ListImagesOptions, ListNetworksOptions, ListVolumesOptions,
-        LogsOptions, RemoveContainerOptions, RemoveImageOptions, RemoveVolumeOptions,
-        RestartContainerOptions, StopContainerOptions,
+        ListContainersOptions, ListImagesOptions, ListNetworksOptions,
+        ListVolumesOptions, LogsOptions, RemoveContainerOptions,
+        RemoveImageOptions, RemoveVolumeOptions, RestartContainerOptions,
+        StopContainerOptions,
     },
 };
 use color_eyre::Result;
@@ -96,10 +97,8 @@ impl DockerClient {
     }
 
     pub async fn list_volumes(&self) -> Result<Vec<VolumeRow>> {
-        let response = self
-            .docker
-            .list_volumes(None::<ListVolumesOptions>)
-            .await?;
+        let response =
+            self.docker.list_volumes(None::<ListVolumesOptions>).await?;
         Ok(response
             .volumes
             .unwrap_or_default()

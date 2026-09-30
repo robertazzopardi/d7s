@@ -54,6 +54,7 @@ impl App {
             .render(centered(area), frame.buffer_mut());
     }
 
+    #[allow(clippy::too_many_lines)]
     fn render_list(&mut self, frame: &mut Frame) {
         let layout = Layout::vertical([
             Constraint::Length(TOPBAR_HEIGHT),
