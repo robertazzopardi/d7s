@@ -519,11 +519,10 @@ impl App<'_> {
     /// SQLite is an embedded/file engine with no server process to inspect,
     /// so there's nothing equivalent to show there.
     pub(crate) async fn open_activity_view(&mut self) {
-        if self.database_explorer.connection.r#type
-            == crate::db::connection::ConnectionType::Sqlite
+        if self.database_explorer.connection.r#type != crate::db::connection::ConnectionType::Postgres
         {
             self.set_status(
-                "Activity view not applicable for SQLite (no server process to inspect).",
+                "Activity view is Postgres-only (pg_stat_activity has no equivalent here).",
             );
             return;
         }
