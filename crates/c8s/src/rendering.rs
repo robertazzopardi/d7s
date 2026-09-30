@@ -68,6 +68,16 @@ impl App {
 
         let mut global: Vec<Hotkey> = VIEW_SWITCH_HOTKEYS.to_vec();
         global.extend(GLOBAL_HOTKEYS);
+        if !self.list_filter.is_empty() {
+            // `q` clears the active filter instead of quitting while one is
+            // set (see event_handlers.rs); keep the hint truthful.
+            if let Some(q) = global
+                .iter_mut()
+                .find(|h| h.keycode == crossterm::event::KeyCode::Char('q'))
+            {
+                *q = Hotkey::new('q', "clear filter");
+            }
+        }
         let label = self.view.label();
         let n = match self.view {
             ResourceKind::Containers => self.containers.model.items.len(),

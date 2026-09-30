@@ -9,7 +9,7 @@ use crossterm::{
 };
 use k9tui::widgets::{
     hotkey::Hotkey, modal::ConfirmDialog, status_line::StatusLine,
-    table::{TableData, TableDataState},
+    table::{TableData, TableDataState, filter_rows},
 };
 
 use ratatui::{DefaultTerminal, text::Line};
@@ -166,7 +166,24 @@ impl App {
         let tx = self.bg_tx.clone();
         self.poll_task = Some(tokio::spawn(async move {
             loop {
-                match docker.list_containers().await {
+                // Stop polling once the app has quit and dropped its
+                // receiver, instead of hammering the Docker daemon forever
+                // in the background.
+                if tx.is_closed() {
+                    return;
+                }
+
+                // Run the four list calls concurrently instead of awaiting
+                // them one at a time, so a poll cycle costs the slowest
+                // single call rather than the sum of all four.
+                let (containers, images, volumes, networks) = tokio::join!(
+                    docker.list_containers(),
+                    docker.list_images(),
+                    docker.list_volumes(),
+                    docker.list_networks(),
+                );
+
+                match containers {
                     Ok(rows) => {
                         let _ = tx.send(BackgroundEvent::Containers(rows));
                     }
@@ -179,7 +196,7 @@ impl App {
                         }
                     }
                 }
-                match docker.list_images().await {
+                match images {
                     Ok(rows) => {
                         let _ = tx.send(BackgroundEvent::Images(rows));
                     }
@@ -187,7 +204,7 @@ impl App {
                         let _ = tx.send(BackgroundEvent::PollError(e.to_string()));
                     }
                 }
-                match docker.list_volumes().await {
+                match volumes {
                     Ok(rows) => {
                         let _ = tx.send(BackgroundEvent::Volumes(rows));
                     }
@@ -195,7 +212,7 @@ impl App {
                         let _ = tx.send(BackgroundEvent::PollError(e.to_string()));
                     }
                 }
-                match docker.list_networks().await {
+                match networks {
                     Ok(rows) => {
                         let _ = tx.send(BackgroundEvent::Networks(rows));
                     }
@@ -399,15 +416,6 @@ impl App {
         let filtered = filter_rows(&self.networks_all, &self.list_filter);
         apply_table_update(&mut self.networks, filtered);
     }
-}
-
-/// Case-insensitive substring filter over every column, reusing
-/// `TableDataState`'s own filter so the matching logic stays in one place.
-fn filter_rows<T: TableData + Clone>(rows: &[T], query: &str) -> Vec<T> {
-    if query.is_empty() {
-        return rows.to_vec();
-    }
-    TableDataState::new(rows.to_vec()).filter(query)
 }
 
 impl Default for App {

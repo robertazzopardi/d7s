@@ -93,27 +93,35 @@ impl<T: TableData + Clone> TableDataState<T> {
     /// Filter items based on query
     #[must_use]
     pub fn filter(&self, query: &str) -> Vec<T> {
-        if query.is_empty() {
-            return self.model.items.clone();
-        }
-
-        let query_lower = query.to_lowercase();
-        self.model
-            .items
-            .iter()
-            .filter(|item| {
-                // Check if any column contains the query
-                for col_idx in 0..item.num_columns() {
-                    let col_value = item.col(col_idx);
-                    if col_value.to_lowercase().contains(&query_lower) {
-                        return true;
-                    }
-                }
-                false
-            })
-            .cloned()
-            .collect()
+        filter_rows(&self.model.items, query)
     }
+}
+
+/// Case-insensitive substring filter over every column of `rows`.
+///
+/// Free function (rather than a `TableDataState` method) so callers that
+/// only have a row slice — not a full table state — can reuse the same
+/// matching logic instead of reimplementing it.
+#[must_use]
+pub fn filter_rows<T: TableData + Clone>(rows: &[T], query: &str) -> Vec<T> {
+    if query.is_empty() {
+        return rows.to_vec();
+    }
+
+    let query_lower = query.to_lowercase();
+    rows.iter()
+        .filter(|item| {
+            // Check if any column contains the query
+            for col_idx in 0..item.num_columns() {
+                let col_value = item.col(col_idx);
+                if col_value.to_lowercase().contains(&query_lower) {
+                    return true;
+                }
+            }
+            false
+        })
+        .cloned()
+        .collect()
 }
 
 const fn col_width(len: usize) -> usize {
