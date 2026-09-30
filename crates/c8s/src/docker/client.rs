@@ -1,12 +1,10 @@
 use bollard::{
     Docker,
     query_parameters::{
-        ListContainersOptions, LogsOptions, RemoveContainerOptions,
+        ListContainersOptions, ListImagesOptions, ListNetworksOptions, ListVolumesOptions,
+        LogsOptions, RemoveContainerOptions, RemoveImageOptions, RemoveVolumeOptions,
         RestartContainerOptions, StopContainerOptions,
     },
-    image::{ListImagesOptions, RemoveImageOptions},
-    network::ListNetworksOptions,
-    volume::{ListVolumesOptions, RemoveVolumeOptions},
 };
 use color_eyre::Result;
 use futures_util::StreamExt;
@@ -75,7 +73,7 @@ impl DockerClient {
     }
 
     pub async fn list_images(&self) -> Result<Vec<ImageRow>> {
-        let options = ListImagesOptions::<String> {
+        let options = ListImagesOptions {
             all: false,
             ..Default::default()
         };
@@ -100,7 +98,7 @@ impl DockerClient {
     pub async fn list_volumes(&self) -> Result<Vec<VolumeRow>> {
         let response = self
             .docker
-            .list_volumes(None::<ListVolumesOptions<String>>)
+            .list_volumes(None::<ListVolumesOptions>)
             .await?;
         Ok(response
             .volumes
@@ -120,7 +118,7 @@ impl DockerClient {
     pub async fn list_networks(&self) -> Result<Vec<NetworkRow>> {
         let networks = self
             .docker
-            .list_networks(None::<ListNetworksOptions<String>>)
+            .list_networks(None::<ListNetworksOptions>)
             .await?;
         Ok(networks.iter().map(NetworkRow::from_network).collect())
     }
