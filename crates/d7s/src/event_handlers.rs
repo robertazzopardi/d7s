@@ -265,7 +265,7 @@ impl App<'_> {
                 }
                 Ok(true)
             }
-            (_, KeyCode::Char('d')) => {
+            (_, KeyCode::Char('D')) => {
                 if matches!(
                     self.database_explorer.state,
                     DatabaseExplorerState::Connections
@@ -297,8 +297,8 @@ impl App<'_> {
                 }
                 Ok(true)
             }
-            (_, KeyCode::Char('i')) => {
-                let rows = self.build_describe_rows();
+            (_, KeyCode::Char('d')) => {
+                let rows = self.build_describe_rows().await;
                 if rows.is_empty() {
                     Ok(false)
                 } else {

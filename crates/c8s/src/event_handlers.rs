@@ -213,7 +213,7 @@ impl App {
                     self.open_logs(&row.id, &row.name);
                 }
             }
-            (_, KeyCode::Enter) => {
+            (_, KeyCode::Char('d') | KeyCode::Enter) => {
                 if let Some(row) = self.selected_container().cloned() {
                     self.open_describe(&row.id, &row.name).await;
                 }
@@ -223,7 +223,7 @@ impl App {
                     self.exec_shell(terminal, &row.id)?;
                 }
             }
-            (_, KeyCode::Char('d') | KeyCode::Delete) => {
+            (_, KeyCode::Char('D') | KeyCode::Delete) => {
                 if let Some(row) = self.selected_container().cloned() {
                     self.pending_remove = Some(row.id);
                     self.confirm_dialog = Some(ConfirmDialog::new(
