@@ -1,4 +1,8 @@
-use std::{path::Path, process::Command};
+use std::{
+    path::Path,
+    process::Command,
+    time::{Duration, Instant},
+};
 
 use color_eyre::Result;
 use crossterm::{
@@ -44,6 +48,10 @@ pub const APP_NAME: &str = r"_________________
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 pub const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Re-run interval for SQL "watch" mode (`w` on SQL results), matching
+/// c8s's container-list poll cadence.
+const WATCH_INTERVAL: Duration = Duration::from_secs(2);
+
 /// The main application which holds the state and logic of the application.
 #[allow(clippy::struct_excessive_bools)] // session flags; not worth a state machine
 pub struct App<'a> {
@@ -76,6 +84,10 @@ pub struct App<'a> {
     pub(crate) draft_discard_pending: bool,
     /// One-shot hint after first connect in a session.
     pub(crate) showed_help_hint: bool,
+    /// SQL results: when true, the current statement re-runs on
+    /// [`WATCH_INTERVAL`] until toggled off or the view changes.
+    pub(crate) watch_active: bool,
+    pub(crate) watch_last_tick: Instant,
 }
 
 impl Default for App<'_> {
@@ -97,6 +109,8 @@ impl Default for App<'_> {
             page_size: VIRTUAL_TABLE_PAGE_SIZE,
             draft_discard_pending: false,
             showed_help_hint: false,
+            watch_active: false,
+            watch_last_tick: Instant::now(),
         }
     }
 }
@@ -122,12 +136,48 @@ impl App<'_> {
         self.running = true;
         while self.running {
             terminal.draw(|frame| self.render(frame))?;
+            self.tick_watch().await;
             self.handle_crossterm_events().await?;
 
             self.handle_external_terminal(&mut terminal).await?;
         }
         self.save_session_preferences();
         Ok(())
+    }
+
+    /// Re-run the SQL results query if watch mode is on and the interval
+    /// has elapsed. Turns itself off if the view has moved away from
+    /// SQL results (e.g. the user pressed Esc back to the connection tree).
+    async fn tick_watch(&mut self) {
+        if !self.watch_active {
+            return;
+        }
+        if !matches!(
+            self.database_explorer.state,
+            DatabaseExplorerState::SqlResults(_)
+        ) {
+            self.watch_active = false;
+            return;
+        }
+        if self.watch_last_tick.elapsed() < WATCH_INTERVAL {
+            return;
+        }
+        self.watch_last_tick = Instant::now();
+        self.execute_sql_query_watch_tick().await;
+    }
+
+    /// Toggle SQL-results watch mode (`w`).
+    pub(crate) fn toggle_watch(&mut self) {
+        self.watch_active = !self.watch_active;
+        if self.watch_active {
+            self.watch_last_tick = Instant::now();
+            self.set_status(format!(
+                "Watching (every {}s) — press w to stop",
+                WATCH_INTERVAL.as_secs()
+            ));
+        } else {
+            self.set_status("Watch stopped");
+        }
     }
 
     fn save_session_preferences(&self) {
@@ -433,6 +483,9 @@ impl App<'_> {
             let current_state = self.database_explorer.state.clone();
             self.database_explorer.previous_state = Some(current_state);
         }
+        // A newly selected/edited statement is a view change: stop watching
+        // the old one rather than silently watching the new query.
+        self.watch_active = false;
         self.database_explorer.state =
             DatabaseExplorerState::SqlResults(statement);
     }
@@ -461,7 +514,30 @@ impl App<'_> {
             .set_selected_statement(statement);
         self.execute_sql_query().await;
     }
+
+    /// `A`: show currently-running Postgres backends via `pg_stat_activity`.
+    /// SQLite is an embedded/file engine with no server process to inspect,
+    /// so there's nothing equivalent to show there.
+    pub(crate) async fn open_activity_view(&mut self) {
+        if self.database_explorer.connection.r#type
+            != crate::db::connection::ConnectionType::Postgres
+        {
+            self.set_status(
+                "Activity view is Postgres-only (pg_stat_activity has no equivalent here).",
+            );
+            return;
+        }
+        self.execute_sql_statement_now(ACTIVITY_QUERY.to_string())
+            .await;
+    }
 }
+
+/// `pg_stat_activity` columns worth showing at a glance. Permission-denied
+/// (non-superusers without `pg_read_all_stats` may only see their own rows,
+/// or be refused entirely) surfaces as a normal SQL error via the existing
+/// error path rather than crashing.
+const ACTIVITY_QUERY: &str = "SELECT pid, query, state, wait_event, query_start \
+FROM pg_stat_activity ORDER BY query_start DESC NULLS LAST";
 
 /// Info related to the program
 fn build_info() -> Result<String> {

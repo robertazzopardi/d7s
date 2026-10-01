@@ -626,6 +626,16 @@ impl App<'_> {
 
     /// Execute SQL query from the SQL executor
     pub(crate) async fn execute_sql_query(&mut self) {
+        self.execute_sql_query_inner(true).await;
+    }
+
+    /// Re-run the currently selected statement without touching SQL history.
+    /// Used by watch mode's periodic refresh.
+    pub(crate) async fn execute_sql_query_watch_tick(&mut self) {
+        self.execute_sql_query_inner(false).await;
+    }
+
+    async fn execute_sql_query_inner(&mut self, record_history: bool) {
         let sql = self
             .database_explorer
             .sql_executor
@@ -657,8 +667,12 @@ impl App<'_> {
                 let cols = first.column_names.clone();
                 let data = results.into_iter().map(|r| r.values).collect();
                 self.database_explorer.sql_executor.set_results(data, &cols);
-                let _ =
-                    crate::services::PreferencesService::push_sql_history(&sql);
+                if record_history {
+                    let _ =
+                        crate::services::PreferencesService::push_sql_history(
+                            &sql,
+                        );
+                }
             }
             Err(e) => self.set_status(format!("SQL error: {e}")),
         }

@@ -47,6 +47,11 @@ impl App<'_> {
     /// If your application needs to perform work in between handling events, you can use the
     /// [`event::poll`] function to check if there are any events available with a timeout.
     pub async fn handle_crossterm_events(&mut self) -> Result<()> {
+        // Short timeout (rather than a blocking read) so the run loop keeps
+        // spinning to pick up watch-mode ticks between keypresses.
+        if !event::poll(std::time::Duration::from_millis(200))? {
+            return Ok(());
+        }
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
                 if should_clear_status_on_key(key) {
@@ -304,6 +309,21 @@ impl App<'_> {
                     return Ok(true);
                 }
                 Ok(false)
+            }
+            (_, KeyCode::Char('w'))
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::SqlResults(_)
+                ) =>
+            {
+                self.toggle_watch();
+                Ok(true)
+            }
+            (_, KeyCode::Char('A'))
+                if self.state == AppState::DatabaseConnected =>
+            {
+                self.open_activity_view().await;
+                Ok(true)
             }
             (KeyModifiers::CONTROL, KeyCode::Char('s' | 'S'))
             | (_, KeyCode::Char('x'))
