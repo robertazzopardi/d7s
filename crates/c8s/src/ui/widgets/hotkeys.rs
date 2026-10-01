@@ -9,7 +9,19 @@ pub const LIST_HOTKEYS: [Hotkey; 5] = [
     Hotkey::new('d', "remove"),
 ];
 
-pub const GLOBAL_HOTKEYS: [Hotkey; 1] = [Hotkey::new('q', "quit")];
+/// Hotkeys shown for the image/volume/network list views, which only
+/// support navigation and removal (no start/stop/restart/logs/exec).
+pub const RESOURCE_HOTKEYS: [Hotkey; 1] = [Hotkey::new('d', "remove")];
+
+pub const VIEW_SWITCH_HOTKEYS: [Hotkey; 4] = [
+    Hotkey::new('1', "containers"),
+    Hotkey::new('2', "images"),
+    Hotkey::new('3', "volumes"),
+    Hotkey::new('4', "networks"),
+];
+
+pub const GLOBAL_HOTKEYS: [Hotkey; 2] =
+    [Hotkey::new('/', "search"), Hotkey::new('q', "quit")];
 
 pub fn log_hotkeys() -> Vec<Hotkey> {
     vec![
