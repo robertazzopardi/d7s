@@ -1,11 +1,11 @@
 use bollard::{
     Docker,
-    models::ContainerInspectResponse,
+    models::{ContainerInspectResponse, ImageInspect, NetworkInspect, Volume},
     query_parameters::{
-        InspectContainerOptions, ListContainersOptions, ListImagesOptions,
-        ListNetworksOptions, ListVolumesOptions, LogsOptions,
-        RemoveContainerOptions, RemoveImageOptions, RemoveVolumeOptions,
-        RestartContainerOptions, StopContainerOptions,
+        InspectContainerOptions, InspectNetworkOptions, ListContainersOptions,
+        ListImagesOptions, ListNetworksOptions, ListVolumesOptions,
+        LogsOptions, RemoveContainerOptions, RemoveImageOptions,
+        RemoveVolumeOptions, RestartContainerOptions, StopContainerOptions,
     },
 };
 use color_eyre::Result;
@@ -25,6 +25,19 @@ impl DockerClient {
     pub fn connect() -> Result<Self> {
         let docker = Docker::connect_with_local_defaults()?;
         Ok(Self { docker })
+    }
+
+    /// A client pointed at a path that is not a socket: every call fails
+    /// fast. Lets key-handler tests reach the docker layer without a daemon.
+    #[cfg(test)]
+    pub fn unreachable() -> Self {
+        let docker = Docker::connect_with_unix(
+            "/dev/null",
+            1,
+            bollard::API_DEFAULT_VERSION,
+        )
+        .expect("lazy connect");
+        Self { docker }
     }
 
     /// Verify the daemon is actually reachable (connect succeeds lazily otherwise).
@@ -133,6 +146,21 @@ impl DockerClient {
         Ok(self
             .docker
             .inspect_container(id, None::<InspectContainerOptions>)
+            .await?)
+    }
+
+    pub async fn inspect_image(&self, id: &str) -> Result<ImageInspect> {
+        Ok(self.docker.inspect_image(id).await?)
+    }
+
+    pub async fn inspect_volume(&self, name: &str) -> Result<Volume> {
+        Ok(self.docker.inspect_volume(name).await?)
+    }
+
+    pub async fn inspect_network(&self, id: &str) -> Result<NetworkInspect> {
+        Ok(self
+            .docker
+            .inspect_network(id, None::<InspectNetworkOptions>)
             .await?)
     }
 

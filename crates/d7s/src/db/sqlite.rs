@@ -749,3 +749,26 @@ fn convert_sqlite_value_to_string(row: &rusqlite::Row, index: usize) -> String {
     // Fallback for unknown types
     "<unprintable>".to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pragma_for_table_escapes_single_quotes() {
+        assert_eq!(
+            pragma_for_table("table_info", "it's"),
+            "PRAGMA table_info('it''s')"
+        );
+    }
+
+    #[test]
+    fn decltypes_work_for_table_name_with_quote() {
+        let conn = SqliteConnection::open_in_memory().unwrap();
+        conn.execute_batch(r#"CREATE TABLE "it's" (id INTEGER, name TEXT);"#)
+            .unwrap();
+        let decls = sqlite_table_decltypes(&conn, "it's").unwrap();
+        assert_eq!(decls.get("id").map(String::as_str), Some("INTEGER"));
+        assert_eq!(decls.get("name").map(String::as_str), Some("TEXT"));
+    }
+}

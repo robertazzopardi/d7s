@@ -12,7 +12,8 @@ pub const LIST_HOTKEYS: [Hotkey; 6] = [
 
 /// Hotkeys shown for the image/volume/network list views, which only
 /// support navigation and removal (no start/stop/restart/logs/exec).
-pub const RESOURCE_HOTKEYS: [Hotkey; 1] = [Hotkey::new('d', "remove")];
+pub const RESOURCE_HOTKEYS: [Hotkey; 2] =
+    [Hotkey::new('d', "describe"), Hotkey::new('D', "remove")];
 
 pub const VIEW_SWITCH_HOTKEYS: [Hotkey; 4] = [
     Hotkey::new('1', "containers"),

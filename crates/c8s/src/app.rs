@@ -13,7 +13,7 @@ use k9tui::widgets::{
     status_line::StatusLine,
     table::{TableData, TableDataState, filter_rows},
 };
-use ratatui::{DefaultTerminal, text::Line};
+use ratatui::{DefaultTerminal, Terminal, backend::Backend, text::Line};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
@@ -354,9 +354,9 @@ impl App {
     }
 
     /// Suspend the TUI, spawn an interactive `docker exec` shell, and resume.
-    pub(crate) fn exec_shell(
+    pub(crate) fn exec_shell<B: Backend>(
         &mut self,
-        terminal: &mut DefaultTerminal,
+        terminal: &mut Terminal<B>,
         id: &str,
     ) -> Result<()> {
         execute!(std::io::stdout(), DisableBracketedPaste)?;
@@ -370,7 +370,9 @@ impl App {
         std::io::stdout().execute(crossterm::terminal::EnterAlternateScreen)?;
         crossterm::terminal::enable_raw_mode()?;
         execute!(std::io::stdout(), EnableBracketedPaste)?;
-        terminal.clear()?;
+        terminal
+            .clear()
+            .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
         match status {
             Ok(s) if s.success() => self.set_status("Exec session ended"),
@@ -434,17 +436,43 @@ impl App {
         apply_table_update(&mut self.networks, filtered);
     }
 
-    /// Fetch and show full inspect details for a container.
-    pub(crate) async fn open_describe(&mut self, id: &str, name: &str) {
+    /// Fetch and show full inspect details for a resource of any kind.
+    pub(crate) async fn open_describe(
+        &mut self,
+        kind: ResourceKind,
+        id: &str,
+        name: &str,
+    ) {
+        use crate::docker::{
+            describe_image_text, describe_network_text, describe_text,
+            describe_volume_text,
+        };
         let Some(docker) = self.docker.clone() else {
             return;
         };
-        match docker.inspect(id).await {
-            Ok(inspect) => {
+        let text = match kind {
+            ResourceKind::Containers => {
+                docker.inspect(id).await.map(|i| describe_text(&i))
+            }
+            ResourceKind::Images => docker
+                .inspect_image(id)
+                .await
+                .map(|i| describe_image_text(&i)),
+            ResourceKind::Volumes => docker
+                .inspect_volume(id)
+                .await
+                .map(|v| describe_volume_text(&v)),
+            ResourceKind::Networks => docker
+                .inspect_network(id)
+                .await
+                .map(|n| describe_network_text(&n)),
+        };
+        match text {
+            Ok(text) => {
                 self.describe_scroll = 0;
                 self.state = AppState::Describe {
                     name: name.to_string(),
-                    text: crate::docker::describe_text(&inspect),
+                    text,
                 };
             }
             Err(e) => self.set_status(format!("Inspect failed: {e}")),

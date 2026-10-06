@@ -7,7 +7,7 @@ use k9tui::{
         navigation::TableNavigationHandler,
     },
 };
-use ratatui::{DefaultTerminal, style::Style};
+use ratatui::{Terminal, backend::Backend, style::Style};
 
 use crate::{
     app::App,
@@ -15,10 +15,10 @@ use crate::{
 };
 
 impl App {
-    pub async fn on_key_event(
+    pub async fn on_key_event<B: Backend>(
         &mut self,
         key: KeyEvent,
-        terminal: &mut DefaultTerminal,
+        terminal: &mut Terminal<B>,
     ) -> Result<()> {
         match &self.state {
             AppState::ConnectError(_) => self.on_key_connect_error(key).await,
@@ -146,10 +146,10 @@ impl App {
 
     #[allow(clippy::wildcard_enum_match_arm)]
     #[allow(clippy::too_many_lines)] // flat key-dispatch match
-    async fn on_key_list(
+    async fn on_key_list<B: Backend>(
         &mut self,
         key: KeyEvent,
-        terminal: &mut DefaultTerminal,
+        terminal: &mut Terminal<B>,
     ) -> Result<()> {
         if let Some(dialog) = self.confirm_dialog.as_mut() {
             match dialog.handle_key_events(key) {
@@ -297,32 +297,36 @@ impl App {
         }
     }
 
-    /// Open the remove-confirmation dialog for whatever's selected in the
-    /// active view, if anything is selected.
-    /// `d`/`Enter`: describe the selected container (other views: status hint).
+    /// `d`/`Enter`: describe whatever is selected in the active view.
     async fn describe_selected(&mut self) {
-        if self.view != ResourceKind::Containers {
-            self.set_status("Describe is only available for containers");
-        } else if let Some(row) = self.selected_container().cloned() {
-            self.open_describe(&row.id, &row.name).await;
+        let Some((id, name)) = self.selected_target() else {
+            return;
+        };
+        self.open_describe(self.view, &id, &name).await;
+    }
+
+    /// (docker id-or-name, display label) of the selection in the active view.
+    fn selected_target(&self) -> Option<(String, String)> {
+        match self.view {
+            ResourceKind::Containers => self
+                .selected_container()
+                .map(|r| (r.id.clone(), r.name.clone())),
+            ResourceKind::Images => self
+                .selected_image()
+                .map(|r| (r.id.clone(), r.repo_tags.clone())),
+            ResourceKind::Volumes => self
+                .selected_volume()
+                .map(|r| (r.name.clone(), r.name.clone())),
+            ResourceKind::Networks => self
+                .selected_network()
+                .map(|r| (r.id.clone(), r.name.clone())),
         }
     }
 
+    /// Open the remove-confirmation dialog for the selection, if any.
     fn prompt_remove_selected(&mut self) {
-        let Some((kind, id, label)) = (match self.view {
-            ResourceKind::Containers => self
-                .selected_container()
-                .map(|r| (self.view, r.id.clone(), r.name.clone())),
-            ResourceKind::Images => self
-                .selected_image()
-                .map(|r| (self.view, r.id.clone(), r.repo_tags.clone())),
-            ResourceKind::Volumes => self
-                .selected_volume()
-                .map(|r| (self.view, r.name.clone(), r.name.clone())),
-            ResourceKind::Networks => self
-                .selected_network()
-                .map(|r| (self.view, r.id.clone(), r.name.clone())),
-        }) else {
+        let kind = self.view;
+        let Some((id, label)) = self.selected_target() else {
             return;
         };
 
@@ -334,7 +338,7 @@ impl App {
                 singular(kind)
             ),
             modal_border(),
-            1,
+            0,
         ));
     }
 
@@ -396,5 +400,188 @@ const fn singular(kind: ResourceKind) -> &'static str {
         ResourceKind::Images => "Image",
         ResourceKind::Volumes => "Volume",
         ResourceKind::Networks => "Network",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use k9tui::widgets::table::TableDataState;
+    use ratatui::backend::TestBackend;
+
+    use super::*;
+    use crate::docker::{
+        ContainerRow, ImageRow, NetworkRow, VolumeRow, client::DockerClient,
+    };
+
+    type Term = Terminal<TestBackend>;
+
+    fn term() -> Term {
+        Terminal::new(TestBackend::new(120, 30)).unwrap()
+    }
+
+    /// App with one row selected in every view and a daemon that is always
+    /// unreachable, so docker calls fail fast and surface in the status line.
+    fn app() -> App {
+        let mut app = App::new();
+        app.state = AppState::List;
+        app.docker = Some(DockerClient::unreachable());
+        app.containers = TableDataState::new(vec![ContainerRow {
+            id: "c1".into(),
+            name: "web".into(),
+            ..Default::default()
+        }]);
+        app.images = TableDataState::new(vec![ImageRow {
+            id: "i1".into(),
+            repo_tags: "nginx:latest".into(),
+            ..Default::default()
+        }]);
+        app.volumes = TableDataState::new(vec![VolumeRow {
+            name: "data".into(),
+            ..Default::default()
+        }]);
+        app.networks = TableDataState::new(vec![NetworkRow {
+            id: "n1".into(),
+            name: "backend".into(),
+            ..Default::default()
+        }]);
+        app.containers.view.state.select(Some(0));
+        app.images.view.state.select(Some(0));
+        app.volumes.view.state.select(Some(0));
+        app.networks.view.state.select(Some(0));
+        app
+    }
+
+    /// Real terminals report `D` as Char('D') + SHIFT.
+    fn shift_d() -> KeyEvent {
+        KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT)
+    }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn screen(app: &mut App, term: &mut Term) -> String {
+        term.draw(|f| app.render(f)).unwrap();
+        let buf = term.backend().buffer();
+        buf.content
+            .chunks(usize::from(buf.area.width))
+            .map(|row| {
+                row.iter()
+                    .map(ratatui::buffer::Cell::symbol)
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    const KINDS: [ResourceKind; 4] = [
+        ResourceKind::Containers,
+        ResourceKind::Images,
+        ResourceKind::Volumes,
+        ResourceKind::Networks,
+    ];
+
+    #[tokio::test]
+    async fn d_and_enter_describe_every_kind() {
+        for kind in KINDS {
+            for code in [KeyCode::Char('d'), KeyCode::Enter] {
+                let mut app = app();
+                let mut t = term();
+                app.switch_view(kind);
+                app.on_key_event(key(code), &mut t).await.unwrap();
+                // Reached the inspect call (daemon unreachable) rather than
+                // the old "only available for containers" refusal.
+                let out = screen(&mut app, &mut t);
+                assert!(out.contains("Inspect failed"), "{kind:?}: {out}");
+                assert!(!out.contains("only available"), "{kind:?}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn shift_d_opens_confirm_for_every_kind_and_enter_removes() {
+        for kind in KINDS {
+            let mut app = app();
+            let mut t = term();
+            app.switch_view(kind);
+            app.on_key_event(shift_d(), &mut t).await.unwrap();
+            assert!(app.confirm_dialog.is_some(), "{kind:?}");
+            assert_eq!(app.pending_remove.as_ref().map(|p| p.0), Some(kind));
+            assert_eq!(app.state, AppState::List, "D must not describe");
+
+            // Enter confirms (Yes is the default) and attempts the removal.
+            app.on_key_event(key(KeyCode::Enter), &mut t).await.unwrap();
+            assert!(app.confirm_dialog.is_none());
+            assert!(app.pending_remove.is_none());
+            let out = screen(&mut app, &mut t);
+            assert!(out.contains("Remove failed"), "{kind:?}: {out}");
+        }
+    }
+
+    #[tokio::test]
+    async fn pending_remove_targets_selected_id() {
+        let mut app = app();
+        let mut t = term();
+        app.switch_view(ResourceKind::Volumes);
+        app.on_key_event(key(KeyCode::Delete), &mut t)
+            .await
+            .unwrap();
+        assert_eq!(
+            app.pending_remove,
+            Some((ResourceKind::Volumes, "data".to_string()))
+        );
+        app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
+        assert!(app.confirm_dialog.is_none() && app.pending_remove.is_none());
+    }
+
+    #[tokio::test]
+    async fn esc_cancels_confirm_without_removing() {
+        let mut app = app();
+        let mut t = term();
+        app.on_key_event(shift_d(), &mut t).await.unwrap();
+        app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
+        let out = screen(&mut app, &mut t);
+        assert!(!out.contains("Remove failed"));
+        assert!(app.pending_remove.is_none());
+    }
+
+    #[tokio::test]
+    async fn confirm_dialog_renders_in_buffer() {
+        let mut app = app();
+        let mut t = term();
+        app.switch_view(ResourceKind::Networks);
+        app.on_key_event(shift_d(), &mut t).await.unwrap();
+        let out = screen(&mut app, &mut t);
+        assert!(out.contains("Remove Network?"), "{out}");
+        assert!(out.contains("Remove Network 'backend'?"));
+        assert!(out.contains("Yes") && out.contains("No"));
+    }
+
+    #[tokio::test]
+    async fn describe_view_renders_and_scrolls() {
+        let mut app = app();
+        let mut t = term();
+        let text = (0..100)
+            .map(|i| format!("line-{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        app.state = AppState::Describe {
+            name: "web".into(),
+            text,
+        };
+        let out = screen(&mut app, &mut t);
+        assert!(out.contains("Describe: web"));
+        assert!(out.contains("line-0"));
+        assert!(!out.contains("line-99"));
+
+        app.on_key_event(key(KeyCode::Char('G')), &mut t)
+            .await
+            .unwrap();
+        let out = screen(&mut app, &mut t);
+        assert!(out.contains("line-99"));
+        assert!(!out.contains("line-0\n") || app.describe_scroll > 0);
+
+        app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
+        assert_eq!(app.state, AppState::List);
     }
 }
