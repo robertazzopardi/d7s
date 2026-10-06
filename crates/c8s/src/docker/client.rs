@@ -27,12 +27,13 @@ impl DockerClient {
         Ok(Self { docker })
     }
 
-    /// A client pointed at a path that is not a socket: every call fails
-    /// fast. Lets key-handler tests reach the docker layer without a daemon.
+    /// A client pointed at a closed loopback port: every call fails fast.
+    /// Lets key-handler tests reach the docker layer without a daemon, on
+    /// every platform (unix sockets don't exist on Windows).
     #[cfg(test)]
     pub fn unreachable() -> Self {
-        let docker = Docker::connect_with_unix(
-            "/dev/null",
+        let docker = Docker::connect_with_http(
+            "http://127.0.0.1:1",
             1,
             bollard::API_DEFAULT_VERSION,
         )
