@@ -126,30 +126,26 @@ impl Database for Sqlite {
             .map(|s| (*s).to_string())
             .collect();
 
+        // Statements without result columns (INSERT/UPDATE/DELETE/DDL) are
+        // executed once on the prepared statement; never re-run.
+        if stmt.column_count() == 0 {
+            let affected_rows = stmt.execute([])?;
+            return Ok(vec![TableRow {
+                values: vec![format!("Affected rows: {affected_rows}")],
+                column_names: vec!["Result".to_string()],
+            }]);
+        }
+
         let mut result = Vec::new();
-
         let mut rows_iter = stmt.query([])?;
-
-        let mut found_row = false;
         while let Some(row) = rows_iter.next()? {
-            found_row = true;
             let mut values = Vec::new();
             for i in 0..column_names.len() {
-                let value = convert_sqlite_value_to_string(row, i);
-                values.push(value);
+                values.push(convert_sqlite_value_to_string(row, i));
             }
             result.push(TableRow {
                 values,
                 column_names: column_names.clone(),
-            });
-        }
-
-        // If no rows, treat as an execute (e.g. INSERT/UPDATE/DELETE)
-        if !found_row {
-            let affected_rows = client.execute(sql, [])?;
-            result.push(TableRow {
-                values: vec![format!("Affected rows: {}", affected_rows)],
-                column_names: vec!["Result".to_string()],
             });
         }
 
@@ -721,4 +717,74 @@ fn convert_sqlite_value_to_string(row: &rusqlite::Row, index: usize) -> String {
 
     // Fallback for unknown types
     "<unprintable>".to_string()
+}
+
+#[cfg(test)]
+#[allow(clippy::indexing_slicing)]
+mod tests {
+    use super::*;
+
+    fn db() -> ((), Sqlite) {
+        static N: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let path = std::env::temp_dir()
+            .join(format!("d7s-test-{}-{n}.sqlite", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        (
+            (),
+            Sqlite {
+                name: "t".into(),
+                path: path.to_string_lossy().to_string(),
+            },
+        )
+    }
+
+    fn first(r: &[TableRow]) -> String {
+        r[0].values[0].clone()
+    }
+
+    #[tokio::test]
+    async fn non_row_statements_run_exactly_once() {
+        let (_d, db) = db();
+        let r = db
+            .execute_sql("CREATE TABLE t (id INTEGER, v TEXT)")
+            .await
+            .unwrap();
+        assert_eq!(first(&r), "Affected rows: 0");
+
+        let r = db
+            .execute_sql("INSERT INTO t VALUES (1, 'a')")
+            .await
+            .unwrap();
+        assert_eq!((r.len(), first(&r).as_str()), (1, "Affected rows: 1"));
+        let r = db.execute_sql("SELECT count(*) FROM t").await.unwrap();
+        assert_eq!(first(&r), "1");
+
+        db.execute_sql("INSERT INTO t VALUES (2, 'b')")
+            .await
+            .unwrap();
+        let r = db.execute_sql("UPDATE t SET v = 'z'").await.unwrap();
+        assert_eq!(first(&r), "Affected rows: 2");
+        let r = db.execute_sql("DELETE FROM t WHERE id = 1").await.unwrap();
+        assert_eq!(first(&r), "Affected rows: 1");
+        let r = db.execute_sql("SELECT count(*) FROM t").await.unwrap();
+        assert_eq!(first(&r), "1");
+    }
+
+    #[tokio::test]
+    async fn empty_select_is_empty_and_returning_runs_once() {
+        let (_d, db) = db();
+        db.execute_sql("CREATE TABLE t (id INTEGER)").await.unwrap();
+        let r = db.execute_sql("SELECT * FROM t").await.unwrap();
+        assert!(r.is_empty());
+
+        let r = db
+            .execute_sql("INSERT INTO t VALUES (7) RETURNING id")
+            .await
+            .unwrap();
+        assert_eq!(r.len(), 1);
+        let r = db.execute_sql("SELECT count(*) FROM t").await.unwrap();
+        assert_eq!(first(&r), "1");
+    }
 }
