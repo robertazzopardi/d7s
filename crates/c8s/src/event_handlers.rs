@@ -145,6 +145,28 @@ impl App {
     }
 
     #[allow(clippy::wildcard_enum_match_arm)]
+    fn on_key_list_search(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                self.list_filter.clear();
+                self.list_search_open = false;
+                self.reapply_list_filter();
+            }
+            (_, KeyCode::Enter) => self.list_search_open = false,
+            (_, KeyCode::Backspace) => {
+                self.list_filter.pop();
+                self.reapply_list_filter();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
+            (_, KeyCode::Char(c)) => {
+                self.list_filter.push(c);
+                self.reapply_list_filter();
+            }
+            _ => {}
+        }
+    }
+
+    #[allow(clippy::wildcard_enum_match_arm)]
     #[allow(clippy::too_many_lines)] // flat key-dispatch match
     async fn on_key_list<B: Backend>(
         &mut self,
@@ -169,23 +191,7 @@ impl App {
         }
 
         if self.list_search_open {
-            match key.code {
-                KeyCode::Esc => {
-                    self.list_filter.clear();
-                    self.list_search_open = false;
-                    self.reapply_list_filter();
-                }
-                KeyCode::Enter => self.list_search_open = false,
-                KeyCode::Backspace => {
-                    self.list_filter.pop();
-                    self.reapply_list_filter();
-                }
-                KeyCode::Char(c) => {
-                    self.list_filter.push(c);
-                    self.reapply_list_filter();
-                }
-                _ => {}
-            }
+            self.on_key_list_search(key);
             return Ok(());
         }
 

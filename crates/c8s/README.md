@@ -58,6 +58,17 @@ cargo build --release -p c8s
 | `d` / `Enter` | Describe the selected container, image, volume or network (`q`/`Esc` to return) |
 | `q` / `Ctrl-C` | Quit |
 
+### Key semantics vs k9s
+
+- `d` removes the selected item here (with confirmation), the same
+  "destructive delete" semantic as k9s's `d`, though k9s's `d` describes a
+  resource rather than deleting it. There is no separate describe view in c8s.
+- There is no `y` binding: k9s's `y` shows the resource's YAML manifest, but
+  containers, images, volumes, and networks have no manifest to show here.
+- `/` filters whichever list is shown (containers, images, volumes, or
+  networks) by substring, matching k9s's filter key (and d7s's `/`), rather
+  than k9s's fuzzy match across the whole resource list.
+
 ## Scope
 
 v1 covers containers, images, volumes, and networks as separate list views — no compose grouping or stats/CPU graphs.
