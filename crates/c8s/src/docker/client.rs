@@ -1,12 +1,12 @@
 use bollard::{
     Docker,
-    query_parameters::{
-        InspectContainerOptions, ListContainersOptions, ListImagesOptions, ListNetworksOptions,
-        ListVolumesOptions, LogsOptions, RemoveContainerOptions,
-        RemoveImageOptions, RemoveVolumeOptions, RestartContainerOptions,
-        StopContainerOptions,
-    },
     models::ContainerInspectResponse,
+    query_parameters::{
+        InspectContainerOptions, ListContainersOptions, ListImagesOptions,
+        ListNetworksOptions, ListVolumesOptions, LogsOptions,
+        RemoveContainerOptions, RemoveImageOptions, RemoveVolumeOptions,
+        RestartContainerOptions, StopContainerOptions,
+    },
 };
 use color_eyre::Result;
 use futures_util::StreamExt;

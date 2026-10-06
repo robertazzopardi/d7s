@@ -145,6 +145,7 @@ impl App {
     }
 
     #[allow(clippy::wildcard_enum_match_arm)]
+    #[allow(clippy::too_many_lines)] // flat key-dispatch match
     async fn on_key_list(
         &mut self,
         key: KeyEvent,
@@ -237,10 +238,8 @@ impl App {
                     self.open_logs(&row.id, &row.name);
                 }
             }
-            (_, KeyCode::Char('d') | KeyCode::Enter) if self.view == ResourceKind::Containers => {
-                if let Some(row) = self.selected_container().cloned() {
-                    self.open_describe(&row.id, &row.name).await;
-                }
+            (_, KeyCode::Char('d') | KeyCode::Enter) => {
+                self.describe_selected().await;
             }
             (_, KeyCode::Char('e'))
                 if self.view == ResourceKind::Containers =>
@@ -248,9 +247,6 @@ impl App {
                 if let Some(row) = self.selected_container().cloned() {
                     self.exec_shell(terminal, &row.id)?;
                 }
-            }
-            (_, KeyCode::Char('d')) => {
-                self.set_status("Describe is only available for containers");
             }
             (_, KeyCode::Char('D') | KeyCode::Delete) => {
                 self.prompt_remove_selected();
@@ -303,6 +299,15 @@ impl App {
 
     /// Open the remove-confirmation dialog for whatever's selected in the
     /// active view, if anything is selected.
+    /// `d`/`Enter`: describe the selected container (other views: status hint).
+    async fn describe_selected(&mut self) {
+        if self.view != ResourceKind::Containers {
+            self.set_status("Describe is only available for containers");
+        } else if let Some(row) = self.selected_container().cloned() {
+            self.open_describe(&row.id, &row.name).await;
+        }
+    }
+
     fn prompt_remove_selected(&mut self) {
         let Some((kind, id, label)) = (match self.view {
             ResourceKind::Containers => self

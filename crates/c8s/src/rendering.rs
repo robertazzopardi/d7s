@@ -14,7 +14,9 @@ use ratatui::{
 use crate::{
     app::{APP_NAME, App},
     app_state::{AppState, ResourceKind},
-    ui::widgets::hotkeys::{GLOBAL_HOTKEYS, VIEW_SWITCH_HOTKEYS, describe_hotkeys, log_hotkeys},
+    ui::widgets::hotkeys::{
+        GLOBAL_HOTKEYS, VIEW_SWITCH_HOTKEYS, describe_hotkeys, log_hotkeys,
+    },
 };
 
 const TOPBAR_HEIGHT: u16 = 7;
