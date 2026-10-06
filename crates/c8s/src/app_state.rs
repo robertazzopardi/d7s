@@ -10,6 +10,8 @@ pub enum AppState {
     List,
     /// Full-screen log tail for one container.
     Logs { id: String, name: String },
+    /// Full-screen `docker inspect`-style details for one container.
+    Describe { name: String, text: String },
 }
 
 /// Which resource-type table the list view is currently showing.

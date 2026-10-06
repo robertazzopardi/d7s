@@ -34,8 +34,8 @@ use crate::{
     services::{ConnectionService, PasswordService, PreferencesService},
     sql::safety::{StatementSafety, classify_statement, split_statements},
     ui::widgets::{
-        connection_modal::ModalManager, help_content::HelpRow,
-        hotkeys::CONNECTION_HOTKEYS,
+        connection_modal::ModalManager, describe_content::DescribeRow,
+        help_content::HelpRow, hotkeys::CONNECTION_HOTKEYS,
     },
     virtual_table::VIRTUAL_TABLE_PAGE_SIZE,
 };
@@ -82,6 +82,9 @@ pub struct App<'a> {
     /// k9s-style help panel in main content area (`?` toggles).
     pub(crate) show_help: bool,
     pub(crate) help_table: TableDataState<HelpRow>,
+    /// k9s-style describe panel for the currently selected object (`i` toggles).
+    pub(crate) show_describe: bool,
+    pub(crate) describe_table: TableDataState<DescribeRow>,
     /// Rows per virtual table page (from prefs / `D7S_PAGE_SIZE`).
     pub(crate) page_size: u32,
     /// First Esc warns before dropping draft rows; second Esc discards.
@@ -115,6 +118,8 @@ impl Default for App<'_> {
             pending_row_deletes: None,
             show_help: false,
             help_table: TableDataState::new(Vec::new()),
+            show_describe: false,
+            describe_table: TableDataState::new(Vec::new()),
             page_size: VIRTUAL_TABLE_PAGE_SIZE,
             draft_discard_pending: false,
             showed_help_hint: false,
@@ -144,6 +149,7 @@ impl App<'_> {
     }
 
     /// Run the application's main loop.
+    #[allow(clippy::future_not_send)]
     pub async fn run(&mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
         while self.running {
@@ -357,6 +363,153 @@ impl App<'_> {
         }
     }
 
+    /// Build the field/value rows describing whatever object is currently
+    /// selected (connection, table, column, or table-data row).
+    ///
+    /// Never spawned onto another task, so the returned future not being
+    /// `Send` (due to interior-mutability fields on `App`) is harmless.
+    #[allow(clippy::future_not_send, clippy::too_many_lines)]
+    pub(crate) async fn build_describe_rows(&self) -> Vec<DescribeRow> {
+        let explorer = &self.database_explorer;
+        match &explorer.state {
+            DatabaseExplorerState::Connections => explorer
+                .connections
+                .table
+                .view
+                .state
+                .selected()
+                .and_then(|i| explorer.connections.table.model.items.get(i))
+                .map_or_else(Vec::new, connection_describe_rows),
+            DatabaseExplorerState::Tables(_) => {
+                let Some(table) = explorer.tables.as_ref().and_then(|t| {
+                    let i = t.table.view.state.selected()?;
+                    t.table.model.items.get(i).cloned()
+                }) else {
+                    return Vec::new();
+                };
+                let mut rows = vec![
+                    DescribeRow::section("Table"),
+                    DescribeRow::new("Name", &table.name),
+                    DescribeRow::new("Schema", &table.schema),
+                ];
+                if let Some(db) = explorer.database.as_ref() {
+                    let (count_res, cols_res, pk_res, indexes_res, size_res) = tokio::join!(
+                        db.get_table_row_count(&table.schema, &table.name),
+                        db.get_columns(&table.schema, &table.name),
+                        db.get_primary_key_columns(&table.schema, &table.name),
+                        db.get_table_index_names(&table.schema, &table.name),
+                        db.get_table_size(&table.schema, &table.name),
+                    );
+                    if let Ok(count) = count_res {
+                        rows.push(DescribeRow::new(
+                            "Row count",
+                            count.to_string(),
+                        ));
+                    }
+                    if let Ok(cols) = cols_res {
+                        rows.push(DescribeRow::new(
+                            "Columns",
+                            cols.len().to_string(),
+                        ));
+                    }
+                    if let Ok(pk) = pk_res
+                        && !pk.is_empty()
+                    {
+                        rows.push(DescribeRow::new(
+                            "Primary key",
+                            pk.join(", "),
+                        ));
+                    }
+                    if let Ok(indexes) = indexes_res
+                        && !indexes.is_empty()
+                    {
+                        rows.push(DescribeRow::new(
+                            "Indexes",
+                            indexes.join(", "),
+                        ));
+                    }
+                    let size =
+                        size_res.ok().flatten().or_else(|| table.size.clone());
+                    if let Some(size) = size {
+                        rows.push(DescribeRow::new("Size", size));
+                    }
+                } else if let Some(size) = table.size.clone() {
+                    rows.push(DescribeRow::new("Size", size));
+                }
+                rows
+            }
+            DatabaseExplorerState::Columns(schema, table_name) => {
+                let Some(col) = explorer.columns.as_ref().and_then(|c| {
+                    let i = c.table.view.state.selected()?;
+                    c.table.model.items.get(i).cloned()
+                }) else {
+                    return Vec::new();
+                };
+                let mut rows = vec![
+                    DescribeRow::section("Column"),
+                    DescribeRow::new("Table", format!("{schema}.{table_name}")),
+                    DescribeRow::new("Name", &col.name),
+                    DescribeRow::new("Type", &col.data_type),
+                    DescribeRow::new(
+                        "Nullable",
+                        if col.is_nullable { "YES" } else { "NO" },
+                    ),
+                    DescribeRow::new(
+                        "Default",
+                        col.default_value.clone().unwrap_or_default(),
+                    ),
+                ];
+                if let Some(db) = explorer.database.as_ref()
+                    && let Ok(pk) =
+                        db.get_primary_key_columns(schema, table_name).await
+                {
+                    rows.push(DescribeRow::new(
+                        "Part of key",
+                        if pk.iter().any(|k| k == &col.name) {
+                            "YES"
+                        } else {
+                            "NO"
+                        },
+                    ));
+                }
+                rows.push(DescribeRow::new(
+                    "Description",
+                    col.description.clone().unwrap_or_default(),
+                ));
+                rows
+            }
+            DatabaseExplorerState::TableData(schema, table_name) => explorer
+                .table_data
+                .as_ref()
+                .and_then(|t| {
+                    let i = t.table.view.state.selected()?;
+                    let row = t.table.model.items.get(i)?;
+                    let names = t.table.model.dynamic_column_names.as_ref();
+                    Some((row, names))
+                })
+                .map_or_else(Vec::new, |(row, names)| {
+                    let mut rows = vec![
+                        DescribeRow::section("Row"),
+                        DescribeRow::new(
+                            "Table",
+                            format!("{schema}.{table_name}"),
+                        ),
+                    ];
+                    for (idx, value) in row.values.iter().enumerate() {
+                        let field = names
+                            .and_then(|n| n.get(idx))
+                            .cloned()
+                            .unwrap_or_else(|| format!("col{idx}"));
+                        rows.push(DescribeRow::new(field, value.clone()));
+                    }
+                    rows
+                }),
+            DatabaseExplorerState::Databases
+            | DatabaseExplorerState::Schemas
+            | DatabaseExplorerState::SqlResults(_) => Vec::new(),
+        }
+    }
+
     /// Copy the full selected row as tab-separated values.
     pub(crate) fn copy_row_tsv(&mut self) {
         let explorer = &self.database_explorer;
@@ -548,6 +701,24 @@ impl App<'_> {
         self.execute_sql_statement_now(ACTIVITY_QUERY.to_string())
             .await;
     }
+}
+
+/// Turn a connection's existing `Display` output ("` Field: value`" per line)
+/// into describe rows, reusing the formatting already defined for it.
+fn connection_describe_rows(
+    conn: &crate::db::connection::Connection,
+) -> Vec<DescribeRow> {
+    let mut rows = vec![DescribeRow::section("Connection")];
+    for line in conn.to_string().lines() {
+        if let Some((field, value)) = line.trim().split_once(':') {
+            rows.push(DescribeRow::new(field.trim(), value.trim()));
+        }
+    }
+    rows.push(DescribeRow::new(
+        "Environment",
+        conn.environment.to_string(),
+    ));
+    rows
 }
 
 /// `pg_stat_activity` columns worth showing at a glance. Permission-denied

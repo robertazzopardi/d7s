@@ -23,8 +23,9 @@ use crate::{
         theme as d7s_theme,
         widgets::{
             connection_modal::ConnectionModalWidget,
-            global_hotkeys::global_hotkeys, help_content::HelpRow,
-            hotkeys::TABLE_DATA_VIEW_HOTKEYS, idle_hint::default_idle_hint,
+            describe_content::DescribeRow, global_hotkeys::global_hotkeys,
+            help_content::HelpRow, hotkeys::TABLE_DATA_VIEW_HOTKEYS,
+            idle_hint::default_idle_hint,
         },
     },
 };
@@ -168,6 +169,10 @@ impl App<'_> {
             return Line::from(Span::styled(" Query log ", theme::title()));
         }
 
+        if self.show_describe {
+            return Line::from(Span::styled(" Describe ", theme::title()));
+        }
+
         if matches!(
             self.database_explorer.state,
             DatabaseExplorerState::Connections
@@ -250,7 +255,7 @@ impl App<'_> {
     }
 
     fn empty_state_hint(&self) -> Option<&'static str> {
-        if self.show_help || self.show_query_log {
+        if self.show_help || self.show_describe || self.show_query_log {
             return None;
         }
 
@@ -355,6 +360,15 @@ impl App<'_> {
                 DataTable::<HelpRow>::default(),
                 area,
                 &mut self.help_table,
+            );
+            return;
+        }
+
+        if self.show_describe {
+            frame.render_stateful_widget(
+                DataTable::<DescribeRow>::default(),
+                area,
+                &mut self.describe_table,
             );
             return;
         }

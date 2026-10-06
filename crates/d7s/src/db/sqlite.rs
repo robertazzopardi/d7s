@@ -15,12 +15,16 @@ fn sqlite_quote_ident(ident: &str) -> String {
     format!(r#""{}""#, ident.replace('"', "\"\""))
 }
 
+/// Build `PRAGMA <pragma>('<table>')` with `'` escaped in the table name.
+fn pragma_for_table(pragma: &str, table_name: &str) -> String {
+    format!("PRAGMA {pragma}('{}')", table_name.replace('\'', "''"))
+}
+
 fn sqlite_table_decltypes(
     conn: &SqliteConnection,
     table_name: &str,
 ) -> Result<HashMap<String, String>, rusqlite::Error> {
-    let mut stmt =
-        conn.prepare(&format!("PRAGMA table_info('{table_name}')"))?;
+    let mut stmt = conn.prepare(&pragma_for_table("table_info", table_name))?;
     let mut m = HashMap::new();
     let mut rows = stmt.query([])?;
     while let Some(row) = rows.next()? {
@@ -204,7 +208,7 @@ impl Database for Sqlite {
         let conn = self.open_conn()?;
 
         let mut stmt =
-            conn.prepare(&format!("PRAGMA table_info('{table_name}')"))?;
+            conn.prepare(&pragma_for_table("table_info", table_name))?;
         let columns = stmt
             .query_map([], |row| {
                 let name: String = row.get(1)?;
@@ -294,7 +298,7 @@ impl Database for Sqlite {
     ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let conn = self.open_conn()?;
         let mut stmt =
-            conn.prepare(&format!("PRAGMA table_info('{table_name}')"))?;
+            conn.prepare(&pragma_for_table("table_info", table_name))?;
         let mut pk_cols: Vec<(i64, String)> = stmt
             .query_map([], |row| {
                 let name: String = row.get(1)?;
@@ -487,6 +491,29 @@ impl Database for Sqlite {
             |row| row.get(0),
         )?;
         Ok(count.cast_unsigned())
+    }
+
+    async fn get_table_index_names(
+        &self,
+        _schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let conn = self.open_conn()?;
+        let mut stmt =
+            conn.prepare(&pragma_for_table("index_list", table_name))?;
+        let names: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(names)
+    }
+
+    async fn get_table_size(
+        &self,
+        _schema_name: &str,
+        _table_name: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        // No cheap per-table size query in SQLite; skip rather than fabricate.
+        Ok(None)
     }
 
     async fn get_databases(
@@ -717,6 +744,29 @@ fn convert_sqlite_value_to_string(row: &rusqlite::Row, index: usize) -> String {
 
     // Fallback for unknown types
     "<unprintable>".to_string()
+}
+
+#[cfg(test)]
+mod pragma_tests {
+    use super::*;
+
+    #[test]
+    fn pragma_for_table_escapes_single_quotes() {
+        assert_eq!(
+            pragma_for_table("table_info", "it's"),
+            "PRAGMA table_info('it''s')"
+        );
+    }
+
+    #[test]
+    fn decltypes_work_for_table_name_with_quote() {
+        let conn = SqliteConnection::open_in_memory().unwrap();
+        conn.execute_batch(r#"CREATE TABLE "it's" (id INTEGER, name TEXT);"#)
+            .unwrap();
+        let decls = sqlite_table_decltypes(&conn, "it's").unwrap();
+        assert_eq!(decls.get("id").map(String::as_str), Some("INTEGER"));
+        assert_eq!(decls.get("name").map(String::as_str), Some("TEXT"));
+    }
 }
 
 #[cfg(test)]

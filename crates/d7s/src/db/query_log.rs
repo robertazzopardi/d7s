@@ -352,6 +352,34 @@ impl Database for LoggedDatabase {
         .await
     }
 
+    async fn get_table_index_names(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        self.record(
+            QueryOrigin::Metadata,
+            format!("get_table_index_names {schema_name}.{table_name}"),
+            Vec::len,
+            self.inner.get_table_index_names(schema_name, table_name),
+        )
+        .await
+    }
+
+    async fn get_table_size(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        self.record(
+            QueryOrigin::Metadata,
+            format!("get_table_size {schema_name}.{table_name}"),
+            |size: &Option<String>| usize::from(size.is_some()),
+            self.inner.get_table_size(schema_name, table_name),
+        )
+        .await
+    }
+
     async fn get_databases(
         &self,
     ) -> Result<Vec<DatabaseInfo>, Box<dyn std::error::Error>> {

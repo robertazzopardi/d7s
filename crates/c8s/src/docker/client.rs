@@ -1,10 +1,11 @@
 use bollard::{
     Docker,
+    models::{ContainerInspectResponse, ImageInspect, NetworkInspect, Volume},
     query_parameters::{
-        ListContainersOptions, ListImagesOptions, ListNetworksOptions,
-        ListVolumesOptions, LogsOptions, RemoveContainerOptions,
-        RemoveImageOptions, RemoveVolumeOptions, RestartContainerOptions,
-        StopContainerOptions,
+        InspectContainerOptions, InspectNetworkOptions, ListContainersOptions,
+        ListImagesOptions, ListNetworksOptions, ListVolumesOptions,
+        LogsOptions, RemoveContainerOptions, RemoveImageOptions,
+        RemoveVolumeOptions, RestartContainerOptions, StopContainerOptions,
     },
 };
 use color_eyre::Result;
@@ -24,6 +25,20 @@ impl DockerClient {
     pub fn connect() -> Result<Self> {
         let docker = Docker::connect_with_local_defaults()?;
         Ok(Self { docker })
+    }
+
+    /// A client pointed at a closed loopback port: every call fails fast.
+    /// Lets key-handler tests reach the docker layer without a daemon, on
+    /// every platform (unix sockets don't exist on Windows).
+    #[cfg(test)]
+    pub fn unreachable() -> Self {
+        let docker = Docker::connect_with_http(
+            "http://127.0.0.1:1",
+            1,
+            bollard::API_DEFAULT_VERSION,
+        )
+        .expect("lazy connect");
+        Self { docker }
     }
 
     /// Verify the daemon is actually reachable (connect succeeds lazily otherwise).
@@ -125,6 +140,29 @@ impl DockerClient {
     pub async fn remove_network(&self, name: &str) -> Result<()> {
         self.docker.remove_network(name).await?;
         Ok(())
+    }
+
+    /// Fetch full inspect details for `id` (id, image, status, ports, mounts, env, created time).
+    pub async fn inspect(&self, id: &str) -> Result<ContainerInspectResponse> {
+        Ok(self
+            .docker
+            .inspect_container(id, None::<InspectContainerOptions>)
+            .await?)
+    }
+
+    pub async fn inspect_image(&self, id: &str) -> Result<ImageInspect> {
+        Ok(self.docker.inspect_image(id).await?)
+    }
+
+    pub async fn inspect_volume(&self, name: &str) -> Result<Volume> {
+        Ok(self.docker.inspect_volume(name).await?)
+    }
+
+    pub async fn inspect_network(&self, id: &str) -> Result<NetworkInspect> {
+        Ok(self
+            .docker
+            .inspect_network(id, None::<InspectNetworkOptions>)
+            .await?)
     }
 
     /// Stream log lines for `id` into `tx` until the stream ends or the

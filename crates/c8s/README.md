@@ -13,14 +13,15 @@ Requires [vhs](https://github.com/charmbracelet/vhs) and Docker. Starts fake `de
 ## Features
 
 - **Container list** — name, image, status, ports, and uptime, polled from the Docker daemon every ~2 seconds.
-- **Container actions** — start/stop (`s`), restart (`r`), remove with confirmation (`d`/`Delete`).
-- **Image list** — repo:tag, id, size, and created-ago, with remove (confirm).
-- **Volume list** — name, driver, and mountpoint, with remove (confirm).
-- **Network list** — name, driver, and scope, with remove (confirm).
+- **Container actions** — start/stop (`s`), restart (`r`), remove with confirmation, defaulting to No (`D`/`Delete`).
+- **Image list** — repo:tag, id, size, and created-ago, with remove (`D`, confirm).
+- **Volume list** — name, driver, and mountpoint, with remove (`D`, confirm).
+- **Network list** — name, driver, and scope, with remove (`D`, confirm).
 - **View switching** — jump between the container/image/volume/network lists with `1`/`2`/`3`/`4`.
 - **Sorted lists** — all four resource lists sort alphabetically by name (images by repo:tag) so ordering stays stable between polls.
 - **Search** — `/` opens a live substring filter across all columns in the active list view (works for containers, images, volumes, and networks); `Enter` commits, `Esc` clears and closes.
 - **Live log tail** — full-screen streamed logs for the selected container (`l`, `q`/`Esc` to return).
+- **Describe view** — full-screen `docker inspect`-style details (id, image, status, PID, ports, mounts, env, created time) for the selected container, image, volume or network (`d` or `Enter`, `q`/`Esc` to return).
 - **Exec shell** — suspends the TUI and hands the real terminal to `docker exec -it <id> sh` (`e`), resuming the TUI on exit.
 - **Connection error screen** — if the Docker daemon is unreachable at startup, shows an error with a retry action instead of panicking.
 
@@ -53,8 +54,8 @@ cargo build --release -p c8s
 | `r` | Restart the selected container (containers view) |
 | `l` | Tail logs for the selected container (containers view) |
 | `e` | Exec an interactive shell in the selected container (containers view) |
-| `d` / `Delete` | Remove the selected item in the active view (confirm) |
-| `Enter` | Container details (stub, not yet implemented) |
+| `D` / `Delete` | Remove the selected item in the active view (confirm) |
+| `d` / `Enter` | Describe the selected container, image, volume or network (`q`/`Esc` to return) |
 | `q` / `Ctrl-C` | Quit |
 
 ## Scope
