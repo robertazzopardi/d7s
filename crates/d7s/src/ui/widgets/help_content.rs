@@ -117,6 +117,10 @@ const DATABASE_HELP: &[HelpEntry] = &[
         key: "1–5",
         desc: "Open recent table",
     },
+    HelpEntry {
+        key: "L",
+        desc: "Query log (everything d7s ran this session)",
+    },
 ];
 
 const TABLE_DATA_HELP: &[HelpEntry] = &[

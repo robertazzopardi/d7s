@@ -8,12 +8,14 @@ pub const CONNECTION_HOTKEYS: [Hotkey; 5] = [
     Hotkey::new('/', "Search"),
 ];
 
-pub const DATABASE_HOTKEYS: [Hotkey; 5] = [
+pub const DATABASE_HOTKEYS: [Hotkey; 7] = [
     Hotkey::new('e', "SQL Editor"),
     Hotkey::new('t', "Table structure"),
     Hotkey::new('E', "Run SQL"),
     Hotkey::new('/', "Search"),
     Hotkey::new('y', "Copy value"),
+    Hotkey::new('A', "Activity (Postgres)"),
+    Hotkey::new('L', "Query log"),
 ];
 
 /// Shown in addition to [`DATABASE_HOTKEYS`] while viewing table row data.
