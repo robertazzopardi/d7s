@@ -600,6 +600,6 @@ mod filter_rows_tests {
     #[test]
     fn substring_across_rows_and_no_match() {
         assert_eq!(filter_rows(&rows(), "a").len(), 3);
-        assert!(filter_rows(&rows(), "zzz").is_empty());
+        assert_eq!(filter_rows(&rows(), "zzz").len(), 0);
     }
 }
