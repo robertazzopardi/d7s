@@ -555,3 +555,51 @@ mod tests {
         assert!(content.contains("beta"));
     }
 }
+
+#[cfg(test)]
+mod filter_rows_tests {
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Row(&'static str, &'static str);
+
+    impl TableData for Row {
+        fn title() -> &'static str {
+            "rows"
+        }
+        fn ref_array(&self) -> Vec<String> {
+            vec![self.0.to_string(), self.1.to_string()]
+        }
+        fn num_columns(&self) -> usize {
+            2
+        }
+        fn cols() -> Vec<&'static str> {
+            vec!["a", "b"]
+        }
+    }
+
+    fn rows() -> Vec<Row> {
+        vec![
+            Row("Alpha", "one"),
+            Row("beta", "TWO"),
+            Row("gamma", "three"),
+        ]
+    }
+
+    #[test]
+    fn empty_query_returns_all() {
+        assert_eq!(filter_rows(&rows(), ""), rows());
+    }
+
+    #[test]
+    fn matches_case_insensitively_in_any_column() {
+        assert_eq!(filter_rows(&rows(), "ALPHA"), vec![Row("Alpha", "one")]);
+        assert_eq!(filter_rows(&rows(), "two"), vec![Row("beta", "TWO")]);
+    }
+
+    #[test]
+    fn substring_across_rows_and_no_match() {
+        assert_eq!(filter_rows(&rows(), "a").len(), 3);
+        assert!(filter_rows(&rows(), "zzz").is_empty());
+    }
+}

@@ -324,3 +324,85 @@ fn centered(area: Rect) -> Rect {
         .split(vertical.first().copied().unwrap_or(area));
     horizontal.first().copied().unwrap_or(area)
 }
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{
+        Terminal,
+        backend::TestBackend,
+        buffer::{Buffer, Cell},
+    };
+
+    use crate::{app::App, app_state::AppState, docker::ContainerRow};
+
+    fn render(app: &mut App) -> Buffer {
+        let mut terminal =
+            Terminal::new(TestBackend::new(160, 24)).expect("test terminal");
+        terminal.draw(|f| app.render(f)).expect("draw");
+        terminal.backend().buffer().clone()
+    }
+
+    fn text(buf: &Buffer) -> String {
+        let width = usize::from(buf.area.width);
+        buf.content()
+            .chunks(width)
+            .map(|row| row.iter().map(Cell::symbol).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.state = AppState::List;
+        app.containers_all = vec![
+            ContainerRow {
+                name: "web".into(),
+                image: "nginx".into(),
+                ..Default::default()
+            },
+            ContainerRow {
+                name: "db".into(),
+                image: "postgres".into(),
+                ..Default::default()
+            },
+        ];
+        app.reapply_list_filter();
+        app
+    }
+
+    #[test]
+    fn no_filter_shows_quit_hint_and_no_search_bar() {
+        let mut app = app();
+        let out = text(&render(&mut app));
+        assert!(!out.contains(" Search "));
+        assert!(out.contains("quit"));
+        assert!(!out.contains("clear filter"));
+        assert!(out.contains("[2]"));
+    }
+
+    #[test]
+    fn open_search_shows_bar_with_cursor() {
+        let mut app = app();
+        app.list_search_open = true;
+        app.list_filter = "ngi".into();
+        app.reapply_list_filter();
+        let out = text(&render(&mut app));
+        assert!(out.contains(" Search "));
+        assert!(out.contains("/ngi_"));
+    }
+
+    #[test]
+    fn active_filter_shows_bar_matches_and_clear_hint() {
+        let mut app = app();
+        app.list_filter = "ngi".into();
+        app.reapply_list_filter();
+        let out = text(&render(&mut app));
+        assert!(out.contains(" Search "));
+        assert!(out.contains("/ngi"));
+        assert!(!out.contains("/ngi_"));
+        assert!(out.contains("clear filter"));
+        assert!(out.contains("[1 matches]"));
+        assert!(out.contains("nginx"));
+        assert!(!out.contains("postgres"));
+    }
+}
