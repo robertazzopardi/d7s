@@ -152,9 +152,9 @@ Paste works in connection/cell/password modals and the search bar (bracketed pas
 - `y` copies the selected cell value (and `Y` the row as TSV) here, unlike
   k9s where `y` shows the resource's YAML manifest. There is no manifest
   concept in a relational-table client.
-- `d` deletes the selected row here, the same "destructive delete" semantic as
-  k9s's `d`, though k9s's `d` describes a resource rather than deleting it.
-  d7s has no separate describe view.
+- `d` describes the selected connection, table, column or row, as in k9s.
+  Destructive actions sit behind Shift: `D` deletes the selected connection
+  or row (confirm dialog).
 - `/` filters the current view's rows by substring, matching k9s's filter key
   and UX intent, scoped to whichever table/list is on screen rather than a
   single global resource list.
