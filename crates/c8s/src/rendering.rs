@@ -13,8 +13,8 @@ use ratatui::{
 
 use crate::{
     app::{APP_NAME, App},
-    app_state::AppState,
-    ui::widgets::hotkeys::{GLOBAL_HOTKEYS, log_hotkeys},
+    app_state::{AppState, ResourceKind},
+    ui::widgets::hotkeys::{GLOBAL_HOTKEYS, VIEW_SWITCH_HOTKEYS, log_hotkeys},
 };
 
 const TOPBAR_HEIGHT: u16 = 7;
@@ -54,6 +54,7 @@ impl App {
             .render(centered(area), frame.buffer_mut());
     }
 
+    #[allow(clippy::too_many_lines)]
     fn render_list(&mut self, frame: &mut Frame) {
         let layout = Layout::vertical([
             Constraint::Length(TOPBAR_HEIGHT),
@@ -66,9 +67,26 @@ impl App {
         let content_area = layout.get(1).copied().unwrap_or_default();
         let footer_area = layout.get(2).copied().unwrap_or_default();
 
-        let global: Vec<Hotkey> = GLOBAL_HOTKEYS.to_vec();
-        let n = self.containers.model.items.len();
-        let summary = format!("Containers: {n}");
+        let mut global: Vec<Hotkey> = VIEW_SWITCH_HOTKEYS.to_vec();
+        global.extend(GLOBAL_HOTKEYS);
+        if !self.list_filter.is_empty() {
+            // `q` clears the active filter instead of quitting while one is
+            // set (see event_handlers.rs); keep the hint truthful.
+            if let Some(q) = global
+                .iter_mut()
+                .find(|h| h.keycode == crossterm::event::KeyCode::Char('q'))
+            {
+                *q = Hotkey::new('q', "clear filter");
+            }
+        }
+        let label = self.view.label();
+        let n = match self.view {
+            ResourceKind::Containers => self.containers.model.items.len(),
+            ResourceKind::Images => self.images.model.items.len(),
+            ResourceKind::Volumes => self.volumes.model.items.len(),
+            ResourceKind::Networks => self.networks.model.items.len(),
+        };
+        let summary = format!("{label}: {n}");
 
         frame.render_widget(
             TopBarView {
@@ -82,25 +100,71 @@ impl App {
             top_area,
         );
 
+        let content_area =
+            if self.list_search_open || !self.list_filter.is_empty() {
+                let search_layout = Layout::vertical([
+                    Constraint::Length(SEARCH_BAR_HEIGHT),
+                    Constraint::Min(0),
+                ])
+                .split(content_area);
+                let search_area =
+                    search_layout.first().copied().unwrap_or_default();
+                let search_block = Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(theme::border())
+                    .title(" Search ")
+                    .title_style(theme::title());
+                let inner = search_block.inner(search_area);
+                frame.render_widget(search_block, search_area);
+                let cursor = if self.list_search_open { "_" } else { "" };
+                Paragraph::new(format!("/{}{cursor}", self.list_filter))
+                    .render(inner, frame.buffer_mut());
+                search_layout.get(1).copied().unwrap_or_default()
+            } else {
+                content_area
+            };
+
+        let title = if self.list_filter.is_empty() {
+            format!(" {label} [{n}] ")
+        } else {
+            format!(" {label} [{n} matches] ")
+        };
         let block = Block::new()
             .borders(Borders::ALL)
             .border_style(theme::border())
-            .title(format!(" Containers [{n}] "))
+            .title(title)
             .title_alignment(Alignment::Center);
         let inner = block.inner(content_area);
         frame.render_widget(block, content_area);
 
         if n == 0 {
-            Paragraph::new("No containers found")
+            Paragraph::new(format!("No {} found", label.to_lowercase()))
                 .style(theme::muted())
                 .alignment(Alignment::Center)
                 .render(inner, frame.buffer_mut());
         } else {
-            frame.render_stateful_widget(
-                DataTable::default(),
-                inner,
-                &mut self.containers,
-            );
+            match self.view {
+                ResourceKind::Containers => frame.render_stateful_widget(
+                    DataTable::default(),
+                    inner,
+                    &mut self.containers,
+                ),
+                ResourceKind::Images => frame.render_stateful_widget(
+                    DataTable::default(),
+                    inner,
+                    &mut self.images,
+                ),
+                ResourceKind::Volumes => frame.render_stateful_widget(
+                    DataTable::default(),
+                    inner,
+                    &mut self.volumes,
+                ),
+                ResourceKind::Networks => frame.render_stateful_widget(
+                    DataTable::default(),
+                    inner,
+                    &mut self.networks,
+                ),
+            }
         }
 
         frame.render_widget(self.status_line.clone(), footer_area);
