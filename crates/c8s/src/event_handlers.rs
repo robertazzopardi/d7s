@@ -338,7 +338,7 @@ impl App {
                 singular(kind)
             ),
             modal_border(),
-            0,
+            1, // default to No (k9s-style)
         ));
     }
 
@@ -509,13 +509,25 @@ mod tests {
             assert_eq!(app.pending_remove.as_ref().map(|p| p.0), Some(kind));
             assert_eq!(app.state, AppState::List, "D must not describe");
 
-            // Enter confirms (Yes is the default) and attempts the removal.
+            // Default is No: move to Yes, then Enter attempts the removal.
+            app.on_key_event(key(KeyCode::Left), &mut t).await.unwrap();
             app.on_key_event(key(KeyCode::Enter), &mut t).await.unwrap();
             assert!(app.confirm_dialog.is_none());
             assert!(app.pending_remove.is_none());
             let out = screen(&mut app, &mut t);
             assert!(out.contains("Remove failed"), "{kind:?}: {out}");
         }
+    }
+
+    #[tokio::test]
+    async fn enter_on_default_no_does_not_remove() {
+        let mut app = app();
+        let mut t = term();
+        app.on_key_event(shift_d(), &mut t).await.unwrap();
+        app.on_key_event(key(KeyCode::Enter), &mut t).await.unwrap();
+        assert!(app.confirm_dialog.is_none() && app.pending_remove.is_none());
+        let out = screen(&mut app, &mut t);
+        assert!(!out.contains("Remove failed"), "{out}");
     }
 
     #[tokio::test]

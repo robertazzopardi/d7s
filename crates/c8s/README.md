@@ -13,7 +13,7 @@ Requires [vhs](https://github.com/charmbracelet/vhs) and Docker. Starts fake `de
 ## Features
 
 - **Container list** — name, image, status, ports, and uptime, polled from the Docker daemon every ~2 seconds.
-- **Container actions** — start/stop (`s`), restart (`r`), remove with confirmation (`D`/`Delete`).
+- **Container actions** — start/stop (`s`), restart (`r`), remove with confirmation, defaulting to No (`D`/`Delete`).
 - **Image list** — repo:tag, id, size, and created-ago, with remove (`D`, confirm).
 - **Volume list** — name, driver, and mountpoint, with remove (`D`, confirm).
 - **Network list** — name, driver, and scope, with remove (`D`, confirm).
