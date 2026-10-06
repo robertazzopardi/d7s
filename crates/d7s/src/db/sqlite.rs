@@ -15,12 +15,16 @@ fn sqlite_quote_ident(ident: &str) -> String {
     format!(r#""{}""#, ident.replace('"', "\"\""))
 }
 
+/// Build `PRAGMA <pragma>('<table>')` with `'` escaped in the table name.
+fn pragma_for_table(pragma: &str, table_name: &str) -> String {
+    format!("PRAGMA {pragma}('{}')", table_name.replace('\'', "''"))
+}
+
 fn sqlite_table_decltypes(
     conn: &SqliteConnection,
     table_name: &str,
 ) -> Result<HashMap<String, String>, rusqlite::Error> {
-    let mut stmt =
-        conn.prepare(&format!("PRAGMA table_info('{table_name}')"))?;
+    let mut stmt = conn.prepare(&pragma_for_table("table_info", table_name))?;
     let mut m = HashMap::new();
     let mut rows = stmt.query([])?;
     while let Some(row) = rows.next()? {
@@ -208,7 +212,7 @@ impl Database for Sqlite {
         let conn = self.open_conn()?;
 
         let mut stmt =
-            conn.prepare(&format!("PRAGMA table_info('{table_name}')"))?;
+            conn.prepare(&pragma_for_table("table_info", table_name))?;
         let columns = stmt
             .query_map([], |row| {
                 let name: String = row.get(1)?;
@@ -298,7 +302,7 @@ impl Database for Sqlite {
     ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let conn = self.open_conn()?;
         let mut stmt =
-            conn.prepare(&format!("PRAGMA table_info('{table_name}')"))?;
+            conn.prepare(&pragma_for_table("table_info", table_name))?;
         let mut pk_cols: Vec<(i64, String)> = stmt
             .query_map([], |row| {
                 let name: String = row.get(1)?;
@@ -500,7 +504,7 @@ impl Database for Sqlite {
     ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let conn = self.open_conn()?;
         let mut stmt =
-            conn.prepare(&format!("PRAGMA index_list('{table_name}')"))?;
+            conn.prepare(&pragma_for_table("index_list", table_name))?;
         let names: Vec<String> = stmt
             .query_map([], |row| row.get::<_, String>(1))?
             .collect::<Result<Vec<_>, _>>()?;

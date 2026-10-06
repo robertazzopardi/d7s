@@ -801,7 +801,8 @@ impl Database for Postgres {
         table_name: &str,
     ) -> Result<Option<String>, Box<dyn std::error::Error>> {
         let client = self.get_connection().await?;
-        let q = "SELECT pg_size_pretty(pg_total_relation_size($1::regclass))";
+        let q =
+            "SELECT pg_size_pretty(pg_total_relation_size($1::text::regclass))";
         let ident = format!(
             "{}.{}",
             pg_quote_ident(schema_name),
