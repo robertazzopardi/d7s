@@ -25,7 +25,11 @@ use ratatui_textarea::TextArea;
 use crate::{
     app_state::{AppState, DatabaseExplorerState},
     database_explorer_state::DatabaseExplorer,
-    db::{RowDeleteSpec, sqlite::init_db},
+    db::{
+        RowDeleteSpec,
+        query_log::{QueryLog, QueryLogEntry},
+        sqlite::init_db,
+    },
     filtered_data::FilteredData,
     services::{ConnectionService, PasswordService, PreferencesService},
     sql::safety::{StatementSafety, classify_statement, split_statements},
@@ -88,6 +92,11 @@ pub struct App<'a> {
     /// [`WATCH_INTERVAL`] until toggled off or the view changes.
     pub(crate) watch_active: bool,
     pub(crate) watch_last_tick: Instant,
+    /// Every query d7s ran this session (bounded ring buffer).
+    pub(crate) query_log: QueryLog,
+    /// `L`: query log view in the main content area.
+    pub(crate) show_query_log: bool,
+    pub(crate) query_log_table: TableDataState<QueryLogEntry>,
 }
 
 impl Default for App<'_> {
@@ -111,6 +120,9 @@ impl Default for App<'_> {
             showed_help_hint: false,
             watch_active: false,
             watch_last_tick: Instant::now(),
+            query_log: QueryLog::default(),
+            show_query_log: false,
+            query_log_table: TableDataState::new(Vec::new()),
         }
     }
 }
@@ -515,6 +527,12 @@ impl App<'_> {
         self.execute_sql_query().await;
     }
 
+    /// `L`: show every query d7s ran this session, newest first.
+    pub(crate) fn open_query_log_view(&mut self) {
+        self.query_log_table = TableDataState::new(self.query_log.snapshot());
+        self.show_query_log = true;
+    }
+
     /// `A`: show currently-running Postgres backends via `pg_stat_activity`.
     /// SQLite is an embedded/file engine with no server process to inspect,
     /// so there's nothing equivalent to show there.
@@ -536,7 +554,7 @@ impl App<'_> {
 /// (non-superusers without `pg_read_all_stats` may only see their own rows,
 /// or be refused entirely) surfaces as a normal SQL error via the existing
 /// error path rather than crashing.
-const ACTIVITY_QUERY: &str = "SELECT pid, query, state, wait_event, query_start \
+pub const ACTIVITY_QUERY: &str = "SELECT pid, query, state, wait_event, query_start \
 FROM pg_stat_activity ORDER BY query_start DESC NULLS LAST";
 
 /// Info related to the program
@@ -554,4 +572,183 @@ fn build_info() -> Result<String> {
         ));
     }
     Ok(lines.join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::SystemTime;
+
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::{Terminal, backend::TestBackend};
+
+    use super::*;
+    use crate::db::{
+        connection::{Connection, ConnectionType},
+        query_log::{QueryLogEntry, QueryOrigin, tests::temp_sqlite},
+    };
+
+    fn key(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+
+    /// App connected to a throwaway `SQLite` file, wired through the log.
+    fn sqlite_app<'a>(tag: &str) -> App<'a> {
+        let sqlite = temp_sqlite(tag);
+        rusqlite::Connection::open(&sqlite.path)
+            .unwrap()
+            .execute_batch("CREATE TABLE t(a); INSERT INTO t VALUES (7);")
+            .unwrap();
+        let mut app = App::default();
+        let conn = Connection {
+            name: tag.to_string(),
+            r#type: ConnectionType::Sqlite,
+            url: sqlite.path.clone(),
+            ..Connection::default()
+        };
+        let db = app.query_log.wrap(Box::new(sqlite));
+        app.database_explorer = DatabaseExplorer::new(conn, Some(db));
+        app.state = AppState::DatabaseConnected;
+        app.database_explorer.state =
+            DatabaseExplorerState::Tables("sqlite_schema".into());
+        app
+    }
+
+    fn render_text(app: &mut App<'_>) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(140, 30)).unwrap();
+        terminal.draw(|f| app.render(f)).unwrap();
+        let buf = terminal.backend().buffer();
+        buf.content()
+            .chunks(usize::from(buf.area.width))
+            .map(|row| {
+                row.iter()
+                    .map(ratatui::buffer::Cell::symbol)
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn entry(origin: QueryOrigin, sql: &str, ok: bool) -> QueryLogEntry {
+        QueryLogEntry {
+            at: SystemTime::UNIX_EPOCH,
+            origin,
+            duration: Duration::from_millis(12),
+            sql: sql.to_string(),
+            outcome: if ok { Ok(3) } else { Err("boom".into()) },
+        }
+    }
+
+    #[tokio::test]
+    async fn l_opens_query_log_view_newest_first_and_esc_returns() {
+        let mut app = sqlite_app("qlview");
+        app.query_log
+            .push(entry(QueryOrigin::User, "SELECT older", true));
+        app.query_log
+            .push(entry(QueryOrigin::Watch, "SELECT newer", false));
+
+        app.on_key_event(key('L')).await.unwrap();
+        assert!(app.show_query_log);
+        let text = render_text(&mut app);
+        for want in [
+            "Query log",
+            "Origin",
+            "Duration",
+            "watch",
+            "user",
+            "ERR boom",
+            "3 rows",
+        ] {
+            assert!(text.contains(want), "missing {want:?} in:\n{text}");
+        }
+        let newer = text.find("SELECT newer").expect("newer row");
+        let older = text.find("SELECT older").expect("older row");
+        assert!(newer < older, "newest entry must be listed first");
+
+        app.on_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert!(!app.show_query_log);
+        assert!(!render_text(&mut app).contains("Origin"));
+
+        // `q` also returns (and does not quit)
+        app.running = true;
+        app.on_key_event(key('L')).await.unwrap();
+        app.on_key_event(key('q')).await.unwrap();
+        assert!(!app.show_query_log && app.running);
+    }
+
+    #[tokio::test]
+    async fn activity_is_refused_on_sqlite() {
+        let mut app = sqlite_app("noact");
+        app.on_key_event(key('A')).await.unwrap();
+        assert!(app.query_log.snapshot().is_empty(), "nothing may run");
+        assert!(matches!(
+            app.database_explorer.state,
+            DatabaseExplorerState::Tables(_)
+        ));
+        assert!(render_text(&mut app).contains("Postgres-only"));
+    }
+
+    #[test]
+    fn activity_view_renders_pg_stat_activity_columns() {
+        let mut app = sqlite_app("actview");
+        app.enter_sql_results_state(ACTIVITY_QUERY.to_string());
+        let cols: Vec<String> =
+            ["pid", "query", "state", "wait_event", "query_start"]
+                .map(String::from)
+                .to_vec();
+        app.database_explorer.sql_executor.set_results(
+            vec![vec![
+                "4242".into(),
+                "select pg_sleep(9)".into(),
+                "active".into(),
+                "PgSleep".into(),
+                "2026-01-01".into(),
+            ]],
+            &cols,
+        );
+        let text = render_text(&mut app);
+        for want in ["pid", "wait_event", "query_start", "4242", "pg_sleep"] {
+            assert!(text.contains(want), "missing {want:?} in:\n{text}");
+        }
+    }
+
+    #[tokio::test]
+    async fn w_toggles_watch_only_on_sql_results_and_shows_indicator() {
+        let mut app = sqlite_app("watchkey");
+        app.on_key_event(key('w')).await.unwrap();
+        assert!(!app.watch_active, "w is inert outside SQL results");
+
+        app.enter_sql_results_state("SELECT a FROM t".into());
+        app.on_key_event(key('w')).await.unwrap();
+        assert!(app.watch_active);
+        // The toggle's own status message temporarily replaces the idle hint.
+        assert!(render_text(&mut app).contains("Watching (every 2s)"));
+        app.clear_status();
+        assert!(render_text(&mut app).contains("WATCHING"));
+
+        app.on_key_event(key('w')).await.unwrap();
+        assert!(!app.watch_active);
+        assert!(!render_text(&mut app).contains("WATCHING"));
+    }
+
+    #[tokio::test]
+    async fn watch_tick_is_logged_but_not_added_to_sql_history() {
+        let mut app = sqlite_app("watchtick");
+        app.enter_sql_results_state("SELECT a FROM t".into());
+        app.database_explorer
+            .sql_executor
+            .set_selected_statement("SELECT a FROM t");
+        let history_before = PreferencesService::load_sql_history();
+
+        app.execute_sql_query_watch_tick().await;
+
+        assert_eq!(PreferencesService::load_sql_history(), history_before);
+        let snap = app.query_log.snapshot();
+        assert_eq!(snap.len(), 1);
+        let e = snap.first().unwrap();
+        assert_eq!(e.origin, QueryOrigin::Watch);
+        assert_eq!(e.sql, "SELECT a FROM t");
+        assert_eq!(e.outcome, Ok(1));
+    }
 }

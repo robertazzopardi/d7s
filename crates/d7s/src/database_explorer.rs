@@ -7,7 +7,10 @@ use k9tui::widgets::{
 use crate::{
     app::App,
     app_state::DatabaseExplorerState,
-    db::{Database, DbRowId, TableDataPage, connection::ConnectionType},
+    db::{
+        Database, DbRowId, TableDataPage, connection::ConnectionType,
+        query_log::QueryOrigin,
+    },
     filtered_data::FilteredData,
     ui::widgets::{
         connection_modal::CellValueApply, raw_table::RawTableStateExt,
@@ -102,6 +105,7 @@ impl App<'_> {
 
     /// Select a database and reconnect to it
     pub async fn select_database(&mut self, database_name: &str) -> Result<()> {
+        let log = self.query_log.clone();
         let explorer = &mut self.database_explorer;
         if explorer.database.is_some() {
             // Update connection with selected database
@@ -114,7 +118,7 @@ impl App<'_> {
             };
 
             if db.test().await {
-                explorer.database = Some(db);
+                explorer.database = Some(log.wrap(db));
                 self.load_schemas().await?;
             } else {
                 self.set_status(STATUS_CONNECT_FAILED);
@@ -655,6 +659,13 @@ impl App<'_> {
 
         // Clear any previous results/errors before executing
         self.database_explorer.sql_executor.clear_results();
+        self.query_log.set_origin(if !record_history {
+            QueryOrigin::Watch
+        } else if sql == crate::app::ACTIVITY_QUERY {
+            QueryOrigin::Activity
+        } else {
+            QueryOrigin::User
+        });
 
         match database.execute_sql(&sql).await {
             Ok(results) => {

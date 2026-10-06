@@ -112,6 +112,26 @@ impl App<'_> {
             return Ok(());
         }
 
+        // Query log view: Esc / q / L return; Ctrl+C quits
+        if self.show_query_log {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc | KeyCode::Char('q' | 'L')) => {
+                    self.show_query_log = false;
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
+                    self.quit();
+                }
+                _ => {
+                    TableNavigationHandler::navigate_table(
+                        &self.query_log_table.model,
+                        &mut self.query_log_table.view,
+                        key.code,
+                    );
+                }
+            }
+            return Ok(());
+        }
+
         // Handle search filter input first
         if let Some(textarea) = &mut self.search_filter {
             if key.code == KeyCode::Esc {
@@ -317,6 +337,12 @@ impl App<'_> {
                 ) =>
             {
                 self.toggle_watch();
+                Ok(true)
+            }
+            (_, KeyCode::Char('L'))
+                if self.state == AppState::DatabaseConnected =>
+            {
+                self.open_query_log_view();
                 Ok(true)
             }
             (_, KeyCode::Char('A'))

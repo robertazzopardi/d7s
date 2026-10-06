@@ -59,7 +59,7 @@ impl App<'_> {
         &mut self,
         connection: Connection,
     ) -> Result<()> {
-        let sqlite = connection.to_sqlite();
+        let sqlite = self.query_log.wrap(connection.to_sqlite());
         if !sqlite.test().await {
             self.set_status(format!(
                 "Failed to connect to database: {}",
@@ -101,6 +101,7 @@ impl App<'_> {
         let mut temp_connection = connection_with_password.clone();
         temp_connection.selected_database = Some(default_db.clone());
         let postgres = temp_connection.to_postgres();
+        let postgres = self.query_log.wrap(postgres);
 
         if postgres.test().await {
             // Connection successful; keep selected_database so explorer is on "postgres"
