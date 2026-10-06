@@ -2,6 +2,7 @@ use k9tui::widgets::table::TableData;
 
 pub mod connection;
 pub mod postgres;
+pub mod query_log;
 pub mod sqlite;
 
 use std::path::PathBuf;

@@ -48,6 +48,11 @@ impl App<'_> {
     /// [`event::poll`] function to check if there are any events available with a timeout.
     #[allow(clippy::future_not_send)]
     pub async fn handle_crossterm_events(&mut self) -> Result<()> {
+        // Short timeout (rather than a blocking read) so the run loop keeps
+        // spinning to pick up watch-mode ticks between keypresses.
+        if !event::poll(std::time::Duration::from_millis(200))? {
+            return Ok(());
+        }
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
                 if should_clear_status_on_key(key) {
@@ -112,7 +117,7 @@ impl App<'_> {
         // Describe view: only toggle/close, quit, and scroll
         if self.show_describe {
             match (key.modifiers, key.code) {
-                (_, KeyCode::Char('i') | KeyCode::Esc) => {
+                (_, KeyCode::Char('d') | KeyCode::Esc) => {
                     self.show_describe = false;
                 }
                 (_, KeyCode::Char('q'))
@@ -123,6 +128,26 @@ impl App<'_> {
                     TableNavigationHandler::navigate_table(
                         &self.describe_table.model,
                         &mut self.describe_table.view,
+                        key.code,
+                    );
+                }
+            }
+            return Ok(());
+        }
+
+        // Query log view: Esc / q / L return; Ctrl+C quits
+        if self.show_query_log {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc | KeyCode::Char('q' | 'L')) => {
+                    self.show_query_log = false;
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
+                    self.quit();
+                }
+                _ => {
+                    TableNavigationHandler::navigate_table(
+                        &self.query_log_table.model,
+                        &mut self.query_log_table.view,
                         key.code,
                     );
                 }
@@ -337,6 +362,27 @@ impl App<'_> {
                     return Ok(true);
                 }
                 Ok(false)
+            }
+            (_, KeyCode::Char('w'))
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::SqlResults(_)
+                ) =>
+            {
+                self.toggle_watch();
+                Ok(true)
+            }
+            (_, KeyCode::Char('L'))
+                if self.state == AppState::DatabaseConnected =>
+            {
+                self.open_query_log_view();
+                Ok(true)
+            }
+            (_, KeyCode::Char('A'))
+                if self.state == AppState::DatabaseConnected =>
+            {
+                self.open_activity_view().await;
+                Ok(true)
             }
             (KeyModifiers::CONTROL, KeyCode::Char('s' | 'S'))
             | (_, KeyCode::Char('x'))

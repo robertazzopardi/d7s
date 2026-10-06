@@ -16,7 +16,7 @@ use ratatui::{
 use crate::{
     app::{APP_NAME, App},
     app_state::DatabaseExplorerState,
-    db::connection::Connection,
+    db::{connection::Connection, query_log::QueryLogEntry},
     filtered_data::FilteredData,
     ui::{
         sql_executor::SqlExecutor,
@@ -37,8 +37,12 @@ const FILTER_BAR_HEIGHT: u16 = 3;
 impl App<'_> {
     #[allow(clippy::too_many_lines)]
     pub fn render(&mut self, frame: &mut Frame) {
-        self.status_line
-            .set_idle_hint(default_idle_hint(self.state));
+        let idle_hint = default_idle_hint(self.state);
+        self.status_line.set_idle_hint(if self.watch_active {
+            format!("● WATCHING · {idle_hint}")
+        } else {
+            idle_hint
+        });
 
         let layout = Layout::default()
             .direction(Direction::Vertical)
@@ -161,6 +165,9 @@ impl App<'_> {
         if self.show_help {
             return Line::from(Span::styled(" Help ", theme::title()));
         }
+        if self.show_query_log {
+            return Line::from(Span::styled(" Query log ", theme::title()));
+        }
 
         if self.show_describe {
             return Line::from(Span::styled(" Describe ", theme::title()));
@@ -248,7 +255,7 @@ impl App<'_> {
     }
 
     fn empty_state_hint(&self) -> Option<&'static str> {
-        if self.show_help || self.show_describe {
+        if self.show_help || self.show_describe || self.show_query_log {
             return None;
         }
 
@@ -362,6 +369,15 @@ impl App<'_> {
                 DataTable::<DescribeRow>::default(),
                 area,
                 &mut self.describe_table,
+            );
+            return;
+        }
+
+        if self.show_query_log {
+            frame.render_stateful_widget(
+                DataTable::<QueryLogEntry>::default(),
+                area,
+                &mut self.query_log_table,
             );
             return;
         }
