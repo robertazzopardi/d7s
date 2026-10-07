@@ -16,8 +16,38 @@ use uuid::Uuid;
 
 use crate::db::{
     Column, Database, DatabaseInfo, DbRowId, Schema, Table, TableData,
-    TableDataPage, TableRow, should_omit_for_insert_default,
+    TableDataPage, TableRow, query_log::report_sql,
+    should_omit_for_insert_default,
 };
+
+// Thin wrappers that report the SQL text (as sent, `$n` placeholders, no
+// bound values) to the session query log before running it.
+async fn pg_query(
+    c: &tokio_postgres::Client,
+    sql: &str,
+    p: &[&(dyn ToSql + Sync)],
+) -> Result<Vec<Row>, tokio_postgres::Error> {
+    report_sql(sql);
+    c.query(sql, p).await
+}
+
+async fn pg_query_one(
+    c: &tokio_postgres::Client,
+    sql: &str,
+    p: &[&(dyn ToSql + Sync)],
+) -> Result<Row, tokio_postgres::Error> {
+    report_sql(sql);
+    c.query_one(sql, p).await
+}
+
+async fn pg_execute(
+    c: &tokio_postgres::Client,
+    sql: &str,
+    p: &[&(dyn ToSql + Sync)],
+) -> Result<u64, tokio_postgres::Error> {
+    report_sql(sql);
+    c.execute(sql, p).await
+}
 
 /// Cache key: one physical Postgres database table (server + db + schema + table).
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -83,7 +113,7 @@ async fn pg_column_format_types(
           AND a.attnum > 0
           AND NOT a.attisdropped
     ";
-    let rows = client.query(q, &[&schema_name, &table_name]).await?;
+    let rows = pg_query(client, q, &[&schema_name, &table_name]).await?;
     let mut m = HashMap::with_capacity(rows.len());
     for row in rows {
         let col: String = row.get(0);
@@ -416,7 +446,7 @@ impl Database for Postgres {
             ORDER BY schema_name
         ";
 
-        let rows = client.query(query, &[]).await?;
+        let rows = pg_query(&client, query, &[]).await?;
         let mut schemas = Vec::new();
 
         for row in rows {
@@ -447,7 +477,7 @@ impl Database for Postgres {
             ORDER BY t.table_name;
         ";
 
-        let rows = client.query(query, &[&schema_name]).await?;
+        let rows = pg_query(&client, query, &[&schema_name]).await?;
         let tables = rows
             .iter()
             .map(|row| Table {
@@ -482,7 +512,8 @@ impl Database for Postgres {
             ORDER BY c.ordinal_position
         ";
 
-        let rows = client.query(query, &[&schema_name, &table_name]).await?;
+        let rows =
+            pg_query(&client, query, &[&schema_name, &table_name]).await?;
         let columns = rows
             .iter()
             .map(|row| Column {
@@ -516,7 +547,7 @@ impl Database for Postgres {
             format!("{} LIMIT $1 OFFSET $2", prepend_ctid_to_select(&base));
         let limit_i: i64 = i64::from(limit);
         let offset_i: i64 = offset.try_into().unwrap_or(i64::MAX);
-        let rows = client.query(&query, &[&limit_i, &offset_i]).await?;
+        let rows = pg_query(&client, &query, &[&limit_i, &offset_i]).await?;
         let mut column_names = Vec::new();
 
         if let Some(first_row) = rows.first() {
@@ -573,7 +604,7 @@ impl Database for Postgres {
                 AND tc.table_name = $2
             ORDER BY kcu.ordinal_position
         ";
-        let rows = client.query(q, &[&schema_name, &table_name]).await?;
+        let rows = pg_query(&client, q, &[&schema_name, &table_name]).await?;
         Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect())
     }
 
@@ -628,7 +659,7 @@ impl Database for Postgres {
             for s in &owned {
                 params.push(s);
             }
-            let n = client.execute(&sql, &params[..]).await?;
+            let n = pg_execute(&client, &sql, &params[..]).await?;
             return Ok(n);
         }
 
@@ -640,7 +671,7 @@ impl Database for Postgres {
                 pg_coerce_typed_text_input(new_value, &set_ty).into_owned();
             let p0: &(dyn ToSql + Sync) = &set_bound;
             let p1: &(dyn ToSql + Sync) = &ctid;
-            let n = client.execute(&sql, &[p0, p1]).await?;
+            let n = pg_execute(&client, &sql, &[p0, p1]).await?;
             return Ok(n);
         }
 
@@ -698,7 +729,7 @@ impl Database for Postgres {
         }
         if col_list.is_empty() {
             let sql = format!("INSERT INTO {tgt} DEFAULT VALUES");
-            return Ok(client.execute(&sql, &[]).await?);
+            return Ok(pg_execute(&client, &sql, &[]).await?);
         }
         let sql = format!(
             "INSERT INTO {tgt} ({}) VALUES ({})",
@@ -710,7 +741,7 @@ impl Database for Postgres {
         for s in &owned {
             params.push(s);
         }
-        let n = client.execute(&sql, &params[..]).await?;
+        let n = pg_execute(&client, &sql, &params[..]).await?;
         Ok(n)
     }
 
@@ -751,14 +782,14 @@ impl Database for Postgres {
             for s in &owned {
                 params.push(s);
             }
-            let n = client.execute(&sql, &params[..]).await?;
+            let n = pg_execute(&client, &sql, &params[..]).await?;
             return Ok(n);
         }
 
         if let Some(DbRowId::PostgresCtid(ctid)) = row_id_fallback {
             let sql = format!("DELETE FROM {tgt} WHERE ctid = $1::text::tid");
             let p: &(dyn ToSql + Sync) = &ctid;
-            let n = client.execute(&sql, &[p]).await?;
+            let n = pg_execute(&client, &sql, &[p]).await?;
             return Ok(n);
         }
 
@@ -779,7 +810,7 @@ impl Database for Postgres {
             pg_quote_ident(schema_name),
             pg_quote_ident(table_name),
         );
-        let row = client.query_one(&q, &[]).await?;
+        let row = pg_query_one(&client, &q, &[]).await?;
         let count: i64 = row.get(0);
         Ok(count.cast_unsigned())
     }
@@ -791,7 +822,7 @@ impl Database for Postgres {
     ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let client = self.get_connection().await?;
         let q = "SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND tablename = $2 ORDER BY indexname";
-        let rows = client.query(q, &[&schema_name, &table_name]).await?;
+        let rows = pg_query(&client, q, &[&schema_name, &table_name]).await?;
         Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect())
     }
 
@@ -808,7 +839,7 @@ impl Database for Postgres {
             pg_quote_ident(schema_name),
             pg_quote_ident(table_name)
         );
-        let row = client.query_one(q, &[&ident]).await?;
+        let row = pg_query_one(&client, q, &[&ident]).await?;
         Ok(Some(row.get::<_, String>(0)))
     }
 
@@ -824,7 +855,7 @@ impl Database for Postgres {
             ORDER BY datname
         ";
 
-        let rows = client.query(query, &[]).await?;
+        let rows = pg_query(&client, query, &[]).await?;
         let databases = rows
             .iter()
             .map(|row| DatabaseInfo { name: row.get(0) })
@@ -866,8 +897,7 @@ impl Postgres {
             ORDER BY ordinal_position
         ";
 
-        let rows = client
-            .query(layout_query, &[&schema_name, &table_name])
+        let rows = pg_query(client, layout_query, &[&schema_name, &table_name])
             .await?;
         let mut ordered_columns = Vec::new();
         let mut udt_columns = HashSet::new();
@@ -935,7 +965,7 @@ impl Postgres {
         let query =
             format!("SELECT * FROM {schema_name}.{table_name} LIMIT $1");
 
-        let rows = client.query(&query, &[&limit]).await?;
+        let rows = pg_query(&client, &query, &[&limit]).await?;
         let data = rows
             .iter()
             .map(|row| {
@@ -1338,5 +1368,47 @@ mod tests {
         assert_eq!(r.unwrap()[0].values[0], "Affected rows: 1");
         assert_eq!(n.unwrap()[0].values[0], "1");
         assert!(e.unwrap().is_empty());
+    }
+
+    /// Needs `just docker-up`. Exercises the real tokio-postgres path of
+    /// `$1::text::regclass` with a quote in the table name.
+    #[tokio::test]
+    #[ignore = "requires docker test database"]
+    async fn table_size_and_indexes_with_odd_names() {
+        let pg = Postgres {
+            name: "test".into(),
+            host: Some("localhost".into()),
+            port: Some("5432".into()),
+            user: "d7s_user".into(),
+            database: "d7s_test".into(),
+            password: "d7s_password".into(),
+        };
+        let pid = std::process::id();
+        let odd = format!("Odd'Tbl_{pid}");
+        let plain = format!("d7s_size_{pid}");
+        for t in [&odd, &plain] {
+            pg.execute_sql(&format!(
+                "CREATE TABLE {} (id int PRIMARY KEY)",
+                pg_quote_ident(t)
+            ))
+            .await
+            .unwrap();
+        }
+        let mut got = Vec::new();
+        for t in [&odd, &plain] {
+            let size = pg.get_table_size("public", t).await;
+            let idx = pg.get_table_index_names("public", t).await;
+            got.push((size, idx));
+        }
+        for t in [&odd, &plain] {
+            pg.execute_sql(&format!("DROP TABLE {}", pg_quote_ident(t)))
+                .await
+                .unwrap();
+        }
+        for ((size, idx), t) in got.into_iter().zip([&odd, &plain]) {
+            let size = size.unwrap().unwrap();
+            assert!(size.ends_with("kB") || size.ends_with("bytes"), "{size}");
+            assert_eq!(idx.unwrap(), vec![format!("{t}_pkey")]);
+        }
     }
 }

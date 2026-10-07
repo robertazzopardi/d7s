@@ -20,6 +20,13 @@ pub trait TableData {
         self.ref_array().get(column).cloned().unwrap_or_default()
     }
 
+    /// Column that absorbs all remaining width (other columns hug their
+    /// content); its text is truncated with `…` when too long.
+    #[must_use]
+    fn fill_column() -> Option<usize> {
+        None
+    }
+
     /// UI draft rows (e.g. pending `INSERT`) use this for styling.
     fn is_draft_row(&self) -> bool {
         false
@@ -122,6 +129,28 @@ pub fn filter_rows<T: TableData + Clone>(rows: &[T], query: &str) -> Vec<T> {
         })
         .cloned()
         .collect()
+}
+
+const FILL_MIN_LEN: usize = 10;
+
+/// Truncate to `width` display columns, ending in `…` when cut.
+fn truncate_ellipsis(s: &str, width: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+    if unicode_width::UnicodeWidthStr::width(s) <= width {
+        return s.to_string();
+    }
+    let mut out = String::new();
+    let mut used = 0;
+    for c in s.chars() {
+        let w = c.width().unwrap_or(0);
+        if used + w + 1 > width {
+            break;
+        }
+        used += w;
+        out.push(c);
+    }
+    out.push('…');
+    out
 }
 
 const fn col_width(len: usize) -> usize {
@@ -281,10 +310,18 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
             return;
         }
 
+        // A fill column only needs a small floor to stay in the visible set;
+        // it then takes whatever width the other columns leave.
+        let fill = T::fill_column();
+        let mut lens = state.model.longest_item_lens.clone();
+        if let Some(f) = fill.and_then(|f| lens.get_mut(f)) {
+            *f = (*f).min(FILL_MIN_LEN);
+        }
+
         let selected_col_opt = state.view.state.selected_column();
         let (visible_cols, relative_selected_col, scroll_start) =
             calculate_visible_columns_for_table(
-                &state.model.longest_item_lens,
+                &lens,
                 state.view.column_offset,
                 selected_col_opt,
                 area.width,
@@ -362,6 +399,17 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
             },
         );
 
+        let fill_width = fill.map_or(0, |f| {
+            let others: usize = visible_cols
+                .iter()
+                .filter(|&&i| i != f)
+                .map(|&i| col_width(lens.get(i).copied().unwrap_or(0)))
+                .sum();
+            // Table puts 1 cell of spacing between each pair of columns.
+            let gaps = visible_cols.len().saturating_sub(1);
+            (area.width as usize).saturating_sub(others + gaps).max(1)
+        });
+
         let rows =
             state.model.items.iter().enumerate().map(|(row_idx, data)| {
                 let row_data = data.ref_array();
@@ -382,6 +430,9 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
                             row_data.get(idx).cloned().unwrap_or_default();
                         let (mut text, cell_style) =
                             format_display_cell(data, idx, value);
+                        if fill == Some(idx) {
+                            text = truncate_ellipsis(&text, fill_width);
+                        }
                         if data.is_draft_row() && vis_idx == 0 {
                             text = format!("~{text}");
                         }
@@ -399,8 +450,10 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
         let constraints = visible_cols
             .iter()
             .map(|&idx| {
-                let width =
-                    state.model.longest_item_lens.get(idx).unwrap_or(&0) + 1;
+                if fill == Some(idx) {
+                    return Constraint::Fill(1);
+                }
+                let width = lens.get(idx).unwrap_or(&0) + 1;
                 Constraint::Length(u16::try_from(width).unwrap_or(u16::MAX))
             })
             .collect::<Vec<_>>();
@@ -553,6 +606,158 @@ mod tests {
         assert!(content.contains("Name"));
         assert!(content.contains("alpha"));
         assert!(content.contains("beta"));
+    }
+
+    fn render_lines<T: TableData + std::fmt::Debug + Clone>(
+        items: Vec<T>,
+        width: u16,
+        height: u16,
+    ) -> Vec<String> {
+        let mut state = TableDataState::new(items);
+        let mut terminal =
+            Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| {
+                frame.render_stateful_widget(
+                    DataTable::<T>::default(),
+                    frame.area(),
+                    &mut state,
+                );
+            })
+            .unwrap();
+        let buf = terminal.backend().buffer();
+        buf.content()
+            .chunks(usize::from(width.max(1)))
+            .map(|row| {
+                row.iter()
+                    .map(ratatui::buffer::Cell::symbol)
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
+    #[derive(Debug, Clone)]
+    struct Filled(String);
+
+    impl TableData for Filled {
+        fn title() -> &'static str {
+            "filled"
+        }
+        fn ref_array(&self) -> Vec<String> {
+            vec!["a".to_string(), self.0.clone()]
+        }
+        fn num_columns(&self) -> usize {
+            2
+        }
+        fn cols() -> Vec<&'static str> {
+            vec!["A", "Fill"]
+        }
+        fn fill_column() -> Option<usize> {
+            Some(1)
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct Five(String);
+
+    impl TableData for Five {
+        fn title() -> &'static str {
+            "five"
+        }
+        fn ref_array(&self) -> Vec<String> {
+            vec![
+                "a".into(),
+                "b".into(),
+                "c".into(),
+                "d".into(),
+                self.0.clone(),
+            ]
+        }
+        fn num_columns(&self) -> usize {
+            5
+        }
+        fn cols() -> Vec<&'static str> {
+            vec!["A", "B", "C", "D", "Fill"]
+        }
+        fn fill_column() -> Option<usize> {
+            Some(4)
+        }
+    }
+
+    #[test]
+    fn fill_ellipsis_lands_at_right_edge_with_many_columns() {
+        let lines = render_lines(vec![Five("x".repeat(200))], 40, 3);
+        let row = lines.get(1).unwrap();
+        assert_eq!(row.chars().count(), 40);
+        assert!(row.ends_with('…'), "{row:?}");
+    }
+
+    #[test]
+    fn truncate_ellipsis_counts_display_width() {
+        assert_eq!(truncate_ellipsis("abc", 3), "abc");
+        assert_eq!(truncate_ellipsis("abcdef", 4), "abc…");
+        assert_eq!(truncate_ellipsis("abcdef", 1), "…");
+        // width 0 still yields the ellipsis (callers clamp to >= 1)
+        assert_eq!(truncate_ellipsis("abc", 0), "…");
+        // wide chars (width 2) never overflow: 2 + 1 for the ellipsis
+        assert_eq!(truncate_ellipsis("日本語日本語", 5), "日本…");
+        assert_eq!(truncate_ellipsis("日本語", 6), "日本語");
+        // emoji
+        assert_eq!(truncate_ellipsis("😀😀😀😀", 4), "😀…");
+        assert_eq!(truncate_ellipsis("😀😀", 1), "…");
+        assert_eq!(truncate_ellipsis("", 0), "");
+    }
+
+    #[test]
+    fn fill_column_default_none_and_other_layout_unchanged() {
+        assert_eq!(Item::fill_column(), None);
+        // Fixed layout for a table without a fill column (matches main).
+        assert_eq!(
+            render_lines(items(), 20, 4),
+            vec![
+                "Name   Value        ",
+                "alpha  1            ",
+                "beta   2            ",
+                "                    ",
+            ]
+        );
+        assert_eq!(
+            render_lines(items(), 8, 3),
+            vec!["Name    ", "alpha   ", "beta    "]
+        );
+        assert_eq!(render_lines(items(), 3, 3), vec!["Nam", "alp", "bet"]);
+    }
+
+    #[test]
+    fn fill_column_takes_remaining_width_and_ellipsizes() {
+        let long = "x".repeat(200);
+        let lines = render_lines(vec![Filled(long)], 40, 3);
+        let row = lines.get(1).unwrap();
+        assert!(row.starts_with("a "), "{row:?}");
+        assert!(row.trim_end().ends_with('…'), "{row:?}");
+        // fills (almost) to the right edge
+        assert!(row.trim_end().chars().count() >= 38, "{row:?}");
+        let short = render_lines(vec![Filled("hi".into())], 40, 3);
+        assert!(short.get(1).unwrap().contains("a  hi"), "{short:?}");
+    }
+
+    #[test]
+    fn fill_column_wide_chars_stay_within_area() {
+        for w in [14u16, 20, 33] {
+            let lines = render_lines(vec![Filled("😀".repeat(50))], w, 3);
+            let row = lines.get(1).unwrap();
+            assert!(row.trim_end().ends_with('…'), "{row:?}");
+        }
+    }
+
+    #[test]
+    fn fill_column_tiny_areas_do_not_panic() {
+        for w in 0u16..=12 {
+            for h in 0u16..=3 {
+                let _ = render_lines(vec![Filled("x".repeat(80))], w, h);
+                let _ = render_lines(vec![Filled(String::new())], w, h);
+            }
+        }
     }
 }
 

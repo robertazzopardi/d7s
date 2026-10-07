@@ -8,8 +8,29 @@ use crate::db::{
     Column, Database, DatabaseInfo, DbRowId, Schema, Table, TableData,
     TableDataPage, TableRow,
     connection::{Connection, ConnectionType, Environment},
-    get_db_path, should_omit_for_insert_default,
+    get_db_path,
+    query_log::report_sql,
+    should_omit_for_insert_default,
 };
+
+/// `prepare` that reports the SQL text (placeholders only) to the query log.
+fn prep<'c>(
+    conn: &'c SqliteConnection,
+    sql: &str,
+) -> rusqlite::Result<rusqlite::Statement<'c>> {
+    report_sql(sql);
+    conn.prepare(sql)
+}
+
+/// `execute` that reports the SQL text (placeholders only) to the query log.
+fn exec(
+    conn: &SqliteConnection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> rusqlite::Result<usize> {
+    report_sql(sql);
+    conn.execute(sql, params)
+}
 
 fn sqlite_quote_ident(ident: &str) -> String {
     format!(r#""{}""#, ident.replace('"', "\"\""))
@@ -24,7 +45,7 @@ fn sqlite_table_decltypes(
     conn: &SqliteConnection,
     table_name: &str,
 ) -> Result<HashMap<String, String>, rusqlite::Error> {
-    let mut stmt = conn.prepare(&pragma_for_table("table_info", table_name))?;
+    let mut stmt = prep(conn, &pragma_for_table("table_info", table_name))?;
     let mut m = HashMap::new();
     let mut rows = stmt.query([])?;
     while let Some(row) = rows.next()? {
@@ -172,7 +193,8 @@ impl Database for Sqlite {
         let conn = self.open_conn()?;
 
         let mut sizes_by_name: HashMap<String, u64> = HashMap::new();
-        let mut stat_stmt = conn.prepare(
+        let mut stat_stmt = prep(
+            &conn,
             r#"SELECT name, SUM("pgsize") FROM "dbstat" GROUP BY name"#,
         )?;
         let mut stat_rows = stat_stmt.query([])?;
@@ -182,9 +204,10 @@ impl Database for Sqlite {
             sizes_by_name.insert(name, bytes.cast_unsigned());
         }
 
-        let mut stmt = conn.prepare(&format!(
-            "SELECT name FROM {schema_name} WHERE type='table';"
-        ))?;
+        let mut stmt = prep(
+            &conn,
+            &format!("SELECT name FROM {schema_name} WHERE type='table';"),
+        )?;
         let tables = stmt
             .query_map([], |row| {
                 let name: String = row.get(0)?;
@@ -208,7 +231,7 @@ impl Database for Sqlite {
         let conn = self.open_conn()?;
 
         let mut stmt =
-            conn.prepare(&pragma_for_table("table_info", table_name))?;
+            prep(&conn, &pragma_for_table("table_info", table_name))?;
         let columns = stmt
             .query_map([], |row| {
                 let name: String = row.get(1)?;
@@ -255,7 +278,7 @@ impl Database for Sqlite {
             .join(", ");
         let query_rowid =
             format!("SELECT rowid, {col_list} FROM {tq} LIMIT ?1 OFFSET ?2");
-        let (data, row_ids) = if let Ok(mut stmt) = conn.prepare(&query_rowid) {
+        let (data, row_ids) = if let Ok(mut stmt) = prep(&conn, &query_rowid) {
             let mut row_ids = Vec::new();
             let data = stmt
                 .query_map(params![limit_i, offset_i], |row| {
@@ -269,9 +292,10 @@ impl Database for Sqlite {
                 .collect::<Result<Vec<_>, _>>()?;
             (data, row_ids)
         } else {
-            let mut stmt = conn.prepare(&format!(
-                "SELECT {col_list} FROM {tq} LIMIT ?1 OFFSET ?2"
-            ))?;
+            let mut stmt = prep(
+                &conn,
+                &format!("SELECT {col_list} FROM {tq} LIMIT ?1 OFFSET ?2"),
+            )?;
             let data = stmt
                 .query_map(params![limit_i, offset_i], |row| {
                     let values = (0..column_count)
@@ -298,7 +322,7 @@ impl Database for Sqlite {
     ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let conn = self.open_conn()?;
         let mut stmt =
-            conn.prepare(&pragma_for_table("table_info", table_name))?;
+            prep(&conn, &pragma_for_table("table_info", table_name))?;
         let mut pk_cols: Vec<(i64, String)> = stmt
             .query_map([], |row| {
                 let name: String = row.get(1)?;
@@ -347,8 +371,8 @@ impl Database for Sqlite {
             for (_, v) in primary_key {
                 refs.push(v);
             }
-            let n = u64::try_from(conn.execute(&sql, refs.as_slice())?)
-                .unwrap_or(0);
+            let n =
+                u64::try_from(exec(&conn, &sql, refs.as_slice())?).unwrap_or(0);
             return Ok(n);
         }
 
@@ -356,7 +380,7 @@ impl Database for Sqlite {
             let sql = format!(
                 "UPDATE {tq} SET {cq} = CAST(?1 AS {set_kw}) WHERE rowid = ?2"
             );
-            let n = u64::try_from(conn.execute(&sql, params![new_value, rid])?)
+            let n = u64::try_from(exec(&conn, &sql, params![new_value, rid])?)
                 .unwrap_or(0);
             return Ok(n);
         }
@@ -422,7 +446,7 @@ impl Database for Sqlite {
         }
         if col_list.is_empty() {
             let sql = format!("INSERT INTO {tq} DEFAULT VALUES");
-            return Ok(u64::try_from(conn.execute(&sql, [])?).unwrap_or(0));
+            return Ok(u64::try_from(exec(&conn, &sql, [])?).unwrap_or(0));
         }
         let col_list = col_list.join(", ");
         let sql = format!(
@@ -433,8 +457,7 @@ impl Database for Sqlite {
         for v in &refs {
             pvec.push(v);
         }
-        let n =
-            u64::try_from(conn.execute(&sql, pvec.as_slice())?).unwrap_or(0);
+        let n = u64::try_from(exec(&conn, &sql, pvec.as_slice())?).unwrap_or(0);
         Ok(n)
     }
 
@@ -466,14 +489,14 @@ impl Database for Sqlite {
             for (_, v) in primary_key {
                 refs.push(v);
             }
-            let n = u64::try_from(conn.execute(&sql, refs.as_slice())?)
-                .unwrap_or(0);
+            let n =
+                u64::try_from(exec(&conn, &sql, refs.as_slice())?).unwrap_or(0);
             return Ok(n);
         }
         if let Some(DbRowId::Sqlite(rid)) = row_id_fallback {
             let sql = format!("DELETE FROM {tq} WHERE rowid = ?1");
             let n =
-                u64::try_from(conn.execute(&sql, params![rid])?).unwrap_or(0);
+                u64::try_from(exec(&conn, &sql, params![rid])?).unwrap_or(0);
             return Ok(n);
         }
         Err("Cannot delete row: no primary key and no rowid".into())
@@ -485,11 +508,9 @@ impl Database for Sqlite {
         table_name: &str,
     ) -> Result<u64, Box<dyn std::error::Error>> {
         let conn = self.open_conn()?;
-        let count: i64 = conn.query_row(
-            &format!("SELECT COUNT(*) FROM {table_name}"),
-            [],
-            |row| row.get(0),
-        )?;
+        let sql = format!("SELECT COUNT(*) FROM {table_name}");
+        report_sql(&sql);
+        let count: i64 = conn.query_row(&sql, [], |row| row.get(0))?;
         Ok(count.cast_unsigned())
     }
 
@@ -500,7 +521,7 @@ impl Database for Sqlite {
     ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let conn = self.open_conn()?;
         let mut stmt =
-            conn.prepare(&pragma_for_table("index_list", table_name))?;
+            prep(&conn, &pragma_for_table("index_list", table_name))?;
         let names: Vec<String> = stmt
             .query_map([], |row| row.get::<_, String>(1))?
             .collect::<Result<Vec<_>, _>>()?;

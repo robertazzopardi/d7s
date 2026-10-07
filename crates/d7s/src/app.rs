@@ -785,7 +785,11 @@ mod tests {
     }
 
     fn render_text(app: &mut App<'_>) -> String {
-        let mut terminal = Terminal::new(TestBackend::new(140, 30)).unwrap();
+        render_text_w(app, 140)
+    }
+
+    fn render_text_w(app: &mut App<'_>, width: u16) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
         terminal.draw(|f| app.render(f)).unwrap();
         let buf = terminal.backend().buffer();
         buf.content()
@@ -807,6 +811,27 @@ mod tests {
             sql: sql.to_string(),
             outcome: if ok { Ok(3) } else { Err("boom".into()) },
         }
+    }
+
+    #[tokio::test]
+    async fn query_log_sql_column_fills_width_and_truncates() {
+        let mut app = sqlite_app("qlwidth");
+        let sql = format!("SELECT {} FROM t", ["col_a"; 14].join(", "));
+        let mut e = entry(QueryOrigin::User, &sql, true);
+        e.outcome = Ok(1);
+        app.query_log.push(e);
+        app.on_key_event(key('L')).await.unwrap();
+
+        let wide = render_text_w(&mut app, 160);
+        assert!(wide.contains(&sql), "full SQL visible at 160:\n{wide}");
+        assert!(wide.contains("1 row "), "singular row:\n{wide}");
+
+        let narrow = render_text_w(&mut app, 100);
+        assert!(narrow.contains("SQL"), "SQL header at 100:\n{narrow}");
+        assert!(
+            narrow.contains("SELECT col_a") && narrow.contains('…'),
+            "truncated SQL at 100:\n{narrow}"
+        );
     }
 
     #[tokio::test]
