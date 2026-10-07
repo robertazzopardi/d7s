@@ -1059,8 +1059,44 @@ mod tests {
         assert_eq!(app.command_text(), "x");
         let text = render_text(&mut app);
         assert!(text.contains("┤ Command ├") || text.contains(" Command "));
-        assert!(text.contains(": x"), "prompt then typed text");
+        assert!(text.contains(":x"), "prompt then typed text, no gap");
+        assert!(!text.contains(": x"));
         assert!(!text.contains("Filter (current view)"));
+    }
+
+    #[tokio::test]
+    async fn colon_bar_first_char_sits_right_after_prompt_with_ghost() {
+        let mut app = tables_app("cmd_nogap").await;
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "table u").await;
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        terminal.draw(|f| app.render(f)).unwrap();
+        let buf = terminal.backend().buffer();
+        let rows: Vec<&[ratatui::buffer::Cell]> =
+            buf.content().chunks(usize::from(buf.area.width)).collect();
+        let title = rows
+            .iter()
+            .position(|r| {
+                r.iter()
+                    .map(ratatui::buffer::Cell::symbol)
+                    .collect::<String>()
+                    .contains("┌ Command ")
+            })
+            .expect("title row");
+        let cells = rows.get(title + 1).expect("bar row");
+        let colon = cells
+            .iter()
+            .position(|c| c.symbol() == ":")
+            .expect("prompt cell");
+        let after = |n: usize| cells.get(colon + n).expect("cell");
+        assert_eq!(after(1).symbol(), "t", "first char right after ':'");
+        assert_eq!(after(7).symbol(), "u", "last typed char");
+        assert_eq!(after(8).symbol(), "s", "ghost right after typed text");
+        assert!(
+            after(8)
+                .modifier
+                .contains(ratatui::style::Modifier::REVERSED)
+        );
     }
 
     #[tokio::test]

@@ -136,7 +136,7 @@ impl App<'_> {
                 frame.render_widget(filter_block, search_layout_rect);
                 if self.command_mode {
                     let [prompt, text] = Layout::horizontal([
-                        Constraint::Length(2),
+                        Constraint::Length(1),
                         Constraint::Min(0),
                     ])
                     .areas(inner);

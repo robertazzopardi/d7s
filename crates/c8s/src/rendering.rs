@@ -518,4 +518,33 @@ mod tests {
         assert!(out.contains(":volumes"));
         assert!(!out.contains(" Search "));
     }
+
+    #[test]
+    fn command_bar_first_char_sits_right_after_prompt() {
+        let mut app = app();
+        app.command_mode = true;
+        app.list_search_open = true;
+        app.command_text = "vol".into();
+        let buf = render(&mut app);
+        let rows: Vec<&[Cell]> =
+            buf.content().chunks(usize::from(buf.area.width)).collect();
+        let title = rows
+            .iter()
+            .position(|r| {
+                r.iter()
+                    .map(Cell::symbol)
+                    .collect::<String>()
+                    .contains(" Command ")
+            })
+            .expect("title row");
+        let cells = rows.get(title + 1).expect("bar row");
+        let colon = cells
+            .iter()
+            .position(|c| c.symbol() == ":")
+            .expect("prompt cell");
+        let after = |n: usize| cells.get(colon + n).expect("cell").symbol();
+        assert_eq!(after(1), "v", "first char right after ':'");
+        assert_eq!(after(3), "l", "last typed char");
+        assert_eq!(after(4), "u", "ghost right after typed text");
+    }
 }
