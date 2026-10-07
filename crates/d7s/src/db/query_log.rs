@@ -65,7 +65,7 @@ impl TableData for QueryLogEntry {
             .map_or(0, |d| d.as_secs());
         let day = secs % 86_400;
         let outcome = match &self.outcome {
-            Ok(n) => format!("{n} rows"),
+            Ok(n) => format!("{n} {}", if *n == 1 { "row" } else { "rows" }),
             Err(e) => format!("ERR {}", one_line(e)),
         };
         vec![
@@ -86,6 +86,10 @@ impl TableData for QueryLogEntry {
 
     fn cols() -> Vec<&'static str> {
         vec!["Time (UTC)", "Origin", "Duration", "Rows/Error", "SQL"]
+    }
+
+    fn fill_column() -> Option<usize> {
+        Some(4)
     }
 
     fn cell_style(&self, column: usize) -> Option<Style> {

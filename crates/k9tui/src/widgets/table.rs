@@ -21,6 +21,13 @@ pub trait TableData {
     }
 
     /// UI draft rows (e.g. pending `INSERT`) use this for styling.
+    /// Column that absorbs all remaining width (other columns hug their
+    /// content); its text is truncated with `…` when too long.
+    #[must_use]
+    fn fill_column() -> Option<usize> {
+        None
+    }
+
     fn is_draft_row(&self) -> bool {
         false
     }
@@ -122,6 +129,28 @@ pub fn filter_rows<T: TableData + Clone>(rows: &[T], query: &str) -> Vec<T> {
         })
         .cloned()
         .collect()
+}
+
+const FILL_MIN_LEN: usize = 10;
+
+/// Truncate to `width` display columns, ending in `…` when cut.
+fn truncate_ellipsis(s: &str, width: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+    if unicode_width::UnicodeWidthStr::width(s) <= width {
+        return s.to_string();
+    }
+    let mut out = String::new();
+    let mut used = 0;
+    for c in s.chars() {
+        let w = c.width().unwrap_or(0);
+        if used + w + 1 > width {
+            break;
+        }
+        used += w;
+        out.push(c);
+    }
+    out.push('…');
+    out
 }
 
 const fn col_width(len: usize) -> usize {
@@ -281,10 +310,18 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
             return;
         }
 
+        // A fill column only needs a small floor to stay in the visible set;
+        // it then takes whatever width the other columns leave.
+        let fill = T::fill_column();
+        let mut lens = state.model.longest_item_lens.clone();
+        if let Some(f) = fill.and_then(|f| lens.get_mut(f)) {
+            *f = (*f).min(FILL_MIN_LEN);
+        }
+
         let selected_col_opt = state.view.state.selected_column();
         let (visible_cols, relative_selected_col, scroll_start) =
             calculate_visible_columns_for_table(
-                &state.model.longest_item_lens,
+                &lens,
                 state.view.column_offset,
                 selected_col_opt,
                 area.width,
@@ -362,6 +399,15 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
             },
         );
 
+        let fill_width = fill.map_or(0, |f| {
+            let others: usize = visible_cols
+                .iter()
+                .filter(|&&i| i != f)
+                .map(|&i| col_width(lens.get(i).copied().unwrap_or(0)))
+                .sum();
+            (area.width as usize).saturating_sub(others + 1).max(1)
+        });
+
         let rows =
             state.model.items.iter().enumerate().map(|(row_idx, data)| {
                 let row_data = data.ref_array();
@@ -382,6 +428,9 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
                             row_data.get(idx).cloned().unwrap_or_default();
                         let (mut text, cell_style) =
                             format_display_cell(data, idx, value);
+                        if fill == Some(idx) {
+                            text = truncate_ellipsis(&text, fill_width);
+                        }
                         if data.is_draft_row() && vis_idx == 0 {
                             text = format!("~{text}");
                         }
@@ -399,8 +448,10 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
         let constraints = visible_cols
             .iter()
             .map(|&idx| {
-                let width =
-                    state.model.longest_item_lens.get(idx).unwrap_or(&0) + 1;
+                if fill == Some(idx) {
+                    return Constraint::Fill(1);
+                }
+                let width = lens.get(idx).unwrap_or(&0) + 1;
                 Constraint::Length(u16::try_from(width).unwrap_or(u16::MAX))
             })
             .collect::<Vec<_>>();
