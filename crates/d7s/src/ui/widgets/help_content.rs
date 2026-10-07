@@ -126,6 +126,10 @@ const DATABASE_HELP: &[HelpEntry] = &[
         desc: "Open recent table",
     },
     HelpEntry {
+        key: "`",
+        desc: "Jump to table by name (current schema)",
+    },
+    HelpEntry {
         key: "L",
         desc: "Query log (everything d7s ran this session)",
     },

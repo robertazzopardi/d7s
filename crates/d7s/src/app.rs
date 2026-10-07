@@ -922,4 +922,83 @@ mod tests {
         assert_eq!(e.sql, "SELECT a FROM t");
         assert_eq!(e.outcome, Ok(1));
     }
+
+    async fn tables_app<'a>(tag: &str) -> App<'a> {
+        let mut app = sqlite_app(tag);
+        rusqlite::Connection::open(&app.database_explorer.connection.url)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE users(id); CREATE TABLE orders(id);
+                 CREATE TABLE order_items(id);",
+            )
+            .unwrap();
+        app.load_tables("sqlite_schema").await.unwrap();
+        app
+    }
+
+    fn enter() -> KeyEvent {
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)
+    }
+
+    #[allow(clippy::future_not_send)]
+    async fn type_str(app: &mut App<'_>, s: &str) {
+        for c in s.chars() {
+            app.on_key_event(key(c)).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn backtick_prompt_renders_and_enter_jumps_to_table() {
+        let mut app = tables_app("bt_jump").await;
+        app.on_key_event(key('`')).await.unwrap();
+        assert!(app.modal_manager.is_any_modal_open());
+        assert!(render_text(&mut app).contains("Jump to table"));
+
+        type_str(&mut app, "ord").await;
+        app.on_key_event(enter()).await.unwrap();
+        assert!(!app.modal_manager.is_any_modal_open());
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::TableData(
+                "sqlite_schema".into(),
+                "orders".into()
+            ),
+            "exact/prefix match wins over order_items substring"
+        );
+    }
+
+    #[tokio::test]
+    async fn backtick_esc_cancels_without_navigating() {
+        let mut app = tables_app("bt_esc").await;
+        app.on_key_event(key('`')).await.unwrap();
+        type_str(&mut app, "users").await;
+        app.on_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert!(!app.modal_manager.is_any_modal_open());
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::Tables("sqlite_schema".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn backtick_unknown_table_shows_status_and_stays_put() {
+        let mut app = tables_app("bt_unknown").await;
+        app.on_key_event(key('`')).await.unwrap();
+        type_str(&mut app, "zzz").await;
+        app.on_key_event(enter()).await.unwrap();
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::Tables("sqlite_schema".into())
+        );
+        assert!(render_text(&mut app).contains("No table matching 'zzz'"));
+    }
+
+    #[tokio::test]
+    async fn backtick_is_ignored_on_connection_list() {
+        let mut app = App::default();
+        app.on_key_event(key('`')).await.unwrap();
+        assert!(!app.modal_manager.is_any_modal_open());
+    }
 }
