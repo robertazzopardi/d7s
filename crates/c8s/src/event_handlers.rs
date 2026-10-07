@@ -718,7 +718,7 @@ mod filter_tests {
         type_str(&mut app, "nginx");
         press(&mut app, KeyCode::Esc);
         assert!(!app.list_search_open);
-        assert!(app.list_filter.is_empty());
+        assert_eq!(app.list_filter, "");
         assert_eq!(app.containers.model.items.len(), 2);
     }
 
@@ -749,7 +749,7 @@ mod filter_tests {
         press(&mut app, KeyCode::Enter);
         press(&mut app, KeyCode::Char('q'));
         assert!(app.running);
-        assert!(app.list_filter.is_empty());
+        assert_eq!(app.list_filter, "");
         assert_eq!(app.containers.model.items.len(), 2);
     }
 
