@@ -1180,4 +1180,340 @@ mod tests {
         ));
         assert!(render_text(&mut app).contains("Draft row pending"));
     }
+
+    fn render_sized(app: &mut App<'_>, w: u16, h: u16) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+        terminal.draw(|f| app.render(f)).unwrap();
+        let buf = terminal.backend().buffer();
+        buf.content()
+            .chunks(usize::from(buf.area.width))
+            .map(|row| {
+                row.iter()
+                    .map(ratatui::buffer::Cell::symbol)
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn named_tables_app<'a>(tag: &str, tables: &[&str]) -> App<'a> {
+        let mut app = sqlite_app(tag);
+        app.database_explorer.tables = Some(FilteredData::new(
+            tables
+                .iter()
+                .map(|n| crate::db::Table {
+                    name: (*n).to_string(),
+                    schema: "sqlite_schema".into(),
+                    size: None,
+                })
+                .collect::<Vec<_>>(),
+        ));
+        app
+    }
+
+    fn tab() -> KeyEvent {
+        KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)
+    }
+
+    #[tokio::test]
+    async fn extra_whitespace_and_blank_commands() {
+        let mut app = tables_app("cmd_ws").await;
+        run_cmd(&mut app, "users").await;
+        run_cmd(&mut app, "  tables  ").await;
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::Tables("sqlite_schema".into())
+        );
+        // Blank / whitespace-only: bar closes, nothing else changes.
+        for blank in ["", "   "] {
+            app.set_status("");
+            run_cmd(&mut app, blank).await;
+            assert!(!app.command_mode && app.search_filter.is_none());
+            assert_eq!(
+                app.database_explorer.state,
+                DatabaseExplorerState::Tables("sqlite_schema".into())
+            );
+            assert!(!render_text(&mut app).contains("Unknown command"));
+        }
+        // Uppercase + padding resolves; Tab cannot complete past whitespace.
+        run_cmd(&mut app, " USERS ").await;
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::TableData(
+                "sqlite_schema".into(),
+                "users".into()
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn typing_in_command_bar_never_filters_and_esc_keeps_old_filter() {
+        let mut app = tables_app("cmd_nofilter").await;
+        let total = |a: &App<'_>| {
+            a.database_explorer
+                .tables
+                .as_ref()
+                .map(|t| t.table.model.items.len())
+        };
+        assert_eq!(total(&app), Some(4));
+        // Commit a real filter first.
+        app.on_key_event(key('/')).await.unwrap();
+        type_str(&mut app, "users").await;
+        app.on_key_event(enter()).await.unwrap();
+        assert_eq!(total(&app), Some(1));
+        assert!(app.has_active_filter());
+        // Command typing must not touch it; Esc leaves it as it was.
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "zzz").await;
+        assert_eq!(total(&app), Some(1), "no live filtering behind the bar");
+        app.on_key_event(esc()).await.unwrap();
+        assert!(app.has_active_filter());
+        assert_eq!(total(&app), Some(1), "Esc must not clear/restore rows");
+        // `/` after `:` is a normal filter bar again.
+        app.on_key_event(key('/')).await.unwrap();
+        assert!(!app.command_mode && app.search_filter.is_some());
+        app.on_key_event(esc()).await.unwrap();
+        assert_eq!(total(&app), Some(4), "/ Esc clears the filter as before");
+        // Same on the connection list.
+        let mut app = App::default();
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "zzz").await;
+        assert!(app.command_mode);
+        assert!(!app.has_active_filter());
+        app.on_key_event(enter()).await.unwrap();
+        assert!(!app.command_mode && app.search_filter.is_none());
+        assert!(render_text(&mut app).contains("Unknown command: zzz"));
+    }
+
+    #[tokio::test]
+    async fn command_flags_reset_on_every_exit_path() {
+        let mut app = tables_app("cmd_reset").await;
+        for exit in [esc(), enter()] {
+            app.on_key_event(key(':')).await.unwrap();
+            assert!(app.command_mode);
+            app.on_key_event(exit).await.unwrap();
+            assert!(!app.command_mode && app.search_filter.is_none());
+        }
+        // Enter on a failing command, on a view change, and on quit.
+        for cmd in ["zzz", "users", "c", "q"] {
+            app.running = true;
+            run_cmd(&mut app, cmd).await;
+            assert!(!app.command_mode && app.search_filter.is_none(), "{cmd}");
+        }
+        // After `:q` the next `/` is a filter, not a command bar.
+        app.running = true;
+        app.on_key_event(key('/')).await.unwrap();
+        assert!(app.search_filter.is_some() && !app.command_mode);
+    }
+
+    #[tokio::test]
+    async fn ctrl_j_does_not_create_a_second_line() {
+        let mut app = tables_app("cmd_ctrlj").await;
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "us").await;
+        for c in ['j', 'm'] {
+            app.on_key_event(KeyEvent::new(
+                KeyCode::Char(c),
+                KeyModifiers::CONTROL,
+            ))
+            .await
+            .unwrap();
+        }
+        type_str(&mut app, "ers").await;
+        assert_eq!(app.command_text(), "users");
+        assert_eq!(
+            app.search_filter.as_ref().map(|t| t.lines().len()),
+            Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn unicode_commands_and_tables() {
+        let mut app = named_tables_app(
+            "cmd_unicode",
+            &["表格", "📦boxes", "Order Items", "O'Brien"],
+        );
+        // Emoji / multibyte typing, Backspace and Tab never panic.
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "🦀é表").await;
+        assert_eq!(app.command_text(), "🦀é表");
+        assert_eq!(app.command_suggestion(), None);
+        app.on_key_event(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(app.command_text(), "🦀é");
+        app.on_key_event(tab()).await.unwrap();
+        assert_eq!(app.command_text(), "🦀é", "nothing to complete");
+        let _ = render_text(&mut app);
+        app.on_key_event(enter()).await.unwrap();
+        assert!(render_text(&mut app).contains("Unknown command: 🦀"));
+        // Ghost for a wide-glyph table: typed is 2 cells wide per glyph.
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "表").await;
+        assert_eq!(app.command_suggestion().as_deref(), Some("表格"));
+        let text = render_text(&mut app);
+        assert!(text.contains("格"), "{text}");
+        app.on_key_event(tab()).await.unwrap();
+        assert_eq!(app.command_text(), "表格");
+        app.on_key_event(esc()).await.unwrap();
+        // Spaces / quotes / case in table names.
+        for (typed, shown) in [
+            ("order i", "Order Items"),
+            ("O'B", "O'Brien"),
+            ("📦", "📦boxes"),
+        ] {
+            app.on_key_event(key(':')).await.unwrap();
+            type_str(&mut app, typed).await;
+            app.on_key_event(tab()).await.unwrap();
+            assert_eq!(app.command_text(), shown);
+            app.on_key_event(esc()).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn bar_renders_without_panic_at_tiny_and_long_input_sizes() {
+        let long = "a_very_long_table_name_that_overflows_a_small_bar";
+        let mut app = named_tables_app("cmd_narrow", &[long, "表格"]);
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "a_v").await;
+        for (w, h) in [(20, 5), (80, 24), (120, 30), (6, 3), (3, 3), (1, 1)] {
+            let _ = render_sized(&mut app, w, h);
+        }
+        let text = render_sized(&mut app, 80, 24);
+        assert!(text.contains(long), "ghost fits at 80 cols");
+        // Ghost is clipped, not wrapped, in a 20x5 terminal.
+        let text = render_sized(&mut app, 20, 5);
+        assert!(!text.contains(long));
+        // Typed text wider than the bar: ghost vanishes, no panic.
+        type_str(&mut app, &"x".repeat(300)).await;
+        for (w, h) in [(20, 5), (80, 24), (5, 3)] {
+            let _ = render_sized(&mut app, w, h);
+        }
+        // Wide-glyph input at the narrow sizes.
+        app.on_key_event(esc()).await.unwrap();
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "表").await;
+        for (w, h) in [(20, 5), (7, 3), (4, 3)] {
+            let _ = render_sized(&mut app, w, h);
+        }
+    }
+
+    #[tokio::test]
+    async fn row_jump_edges_and_draft_guard() {
+        let mut app = tables_app("cmd_rows").await;
+        run_cmd(&mut app, "users").await;
+        for (cmd, want) in [
+            ("0", "Row number must be >= 1"),
+            ("99999999999999999999", "Unknown command"),
+            ("-1", "Unknown command"),
+            ("4", "beyond loaded page"),
+        ] {
+            run_cmd(&mut app, cmd).await;
+            assert!(render_text(&mut app).contains(want), "{cmd}");
+        }
+        run_cmd(&mut app, "3").await;
+        assert!(render_text(&mut app).contains("Jumped to row 3"));
+        // Row jump would replace the page and drop the draft: refuse.
+        app.on_key_event(key('a')).await.unwrap();
+        assert!(app.has_table_draft_rows());
+        run_cmd(&mut app, "1").await;
+        assert!(app.has_table_draft_rows(), "draft survives :N");
+        assert!(render_text(&mut app).contains("Draft row pending"));
+        // Non-navigating commands remain allowed with a draft.
+        run_cmd(&mut app, "help").await;
+        assert!(app.show_help);
+    }
+
+    #[tokio::test]
+    async fn colon_is_inert_in_describe_query_log_and_ignored_while_disconnected()
+     {
+        let mut app = tables_app("cmd_overlays").await;
+        for flag in 0..2 {
+            if flag == 0 {
+                app.show_describe = true;
+            } else {
+                app.show_describe = false;
+                app.show_query_log = true;
+            }
+            app.on_key_event(key(':')).await.unwrap();
+            assert!(app.search_filter.is_none() && !app.command_mode);
+        }
+        app.show_query_log = false;
+        // Disconnected: bar opens, view commands are refused politely.
+        let mut app = App::default();
+        run_cmd(&mut app, "schemas").await;
+        assert!(render_text(&mut app).contains("Not connected"));
+        run_cmd(&mut app, "5").await;
+        assert!(render_text(&mut app).contains("Not connected"));
+        run_cmd(&mut app, "conn").await;
+        assert!(render_text(&mut app).contains("Already on the connections"));
+    }
+
+    #[tokio::test]
+    async fn conn_command_stops_watch_and_returns_to_list() {
+        let mut app = tables_app("cmd_conn").await;
+        app.database_explorer.state =
+            DatabaseExplorerState::SqlResults("select 1".into());
+        app.watch_active = true;
+        run_cmd(&mut app, "conn").await;
+        assert_eq!(app.state, AppState::ConnectionList);
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::Connections
+        );
+        // The watch loop turns itself off once the view left SQL results.
+        app.tick_watch().await;
+        assert!(!app.watch_active);
+        assert!(!app.command_mode);
+    }
+
+    #[tokio::test]
+    async fn hotkey_bar_shows_command_hint_at_120_cols() {
+        let mut app = tables_app("cmd_hotkeys").await;
+        app.hotkeys = crate::ui::widgets::hotkeys::DATABASE_HOTKEYS.to_vec();
+        let text = render_sized(&mut app, 120, 30);
+        assert!(text.contains("<:> Command"), "{text}");
+        assert!(text.contains("Query log"), "{text}");
+    }
+
+    /// Needs `just docker-up` (Postgres on localhost:5432):
+    /// `cargo test -p d7s -- --ignored pg_command`
+    #[tokio::test]
+    #[ignore = "requires docker compose Postgres"]
+    async fn pg_command_schemas_and_activity() {
+        let pg = crate::db::postgres::Postgres {
+            name: "it".into(),
+            host: Some("localhost".into()),
+            port: Some("5432".into()),
+            user: "d7s_user".into(),
+            database: "d7s_test".into(),
+            password: "d7s_password".into(),
+        };
+        let mut app = App::default();
+        app.database_explorer = DatabaseExplorer::new(
+            Connection {
+                name: "it".into(),
+                r#type: ConnectionType::Postgres,
+                ..Connection::default()
+            },
+            Some(app.query_log.wrap(Box::new(pg))),
+        );
+        app.state = AppState::DatabaseConnected;
+        app.database_explorer.state = DatabaseExplorerState::Databases;
+        run_cmd(&mut app, "schemas").await;
+        assert_eq!(app.database_explorer.state, DatabaseExplorerState::Schemas);
+        run_cmd(&mut app, "activity").await;
+        assert!(matches!(
+            app.database_explorer.state,
+            DatabaseExplorerState::SqlResults(_)
+        ));
+        assert!(
+            app.query_log
+                .snapshot()
+                .iter()
+                .any(|e| e.origin == QueryOrigin::Activity)
+        );
+        run_cmd(&mut app, "conn").await;
+        assert_eq!(app.state, AppState::ConnectionList);
+    }
 }

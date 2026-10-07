@@ -101,10 +101,15 @@ pub fn resolve(input: &str, tables: &[&str]) -> Command {
             prefixed.push((name, *verb));
         }
     }
-    if let [(_, verb)] = prefixed.as_slice() {
+    let has_table = match_table_name(tables, raw).is_some();
+    // An exact table name beats a verb it merely prefixes.
+    let exact_table = tables.iter().any(|t| t.eq_ignore_ascii_case(raw));
+    if let [(_, verb)] = prefixed.as_slice()
+        && !exact_table
+    {
         return Command::Verb(*verb);
     }
-    if match_table_name(tables, raw).is_some() {
+    if has_table {
         let hits = match_table_candidates(tables, raw);
         return Command::Table(hits.into_iter().map(String::from).collect());
     }
@@ -207,5 +212,113 @@ mod tests {
         assert_eq!(suggest("us", &T).as_deref(), Some("users"));
         assert_eq!(suggest("tables", &T), None, "already complete");
         assert_eq!(suggest("zz", &T), None);
+    }
+
+    #[test]
+    fn whitespace_and_case_are_normalised() {
+        assert_eq!(resolve("  tables  ", &T), Command::Verb(Verb::Tables));
+        assert_eq!(resolve("\ttables\n", &T), Command::Verb(Verb::Tables));
+        assert_eq!(resolve("\t \n", &T), Command::Empty);
+        assert_eq!(resolve("QuIt", &T), Command::Verb(Verb::Quit));
+        assert_eq!(
+            resolve("  USERS ", &T),
+            Command::Table(vec!["users".into()])
+        );
+    }
+
+    #[test]
+    fn numeric_edges() {
+        assert_eq!(resolve("0", &T), Command::Row(0));
+        assert_eq!(resolve("007", &T), Command::Row(7));
+        assert_eq!(resolve(" 42 ", &T), Command::Row(42));
+        assert_eq!(resolve("18446744073709551615", &T), Command::Row(u64::MAX));
+        for bad in ["18446744073709551616", "-1", "+1", "1.5", "1_0", "１２"]
+        {
+            assert_eq!(resolve(bad, &T), Command::Unknown(bad.into()), "{bad}");
+        }
+        // A table literally named like a number does not beat the row jump.
+        assert_eq!(resolve("2024", &["2024"]), Command::Row(2024));
+    }
+
+    #[test]
+    fn multibyte_input_never_panics() {
+        let tables = ["Straße", "表格", "naïve", "📦boxes", "users"];
+        for q in [
+            "🦀", "é", "表", "表格", "ß", "📦", "ï", "\u{200d}", "a\u{301}",
+        ] {
+            let _ = resolve(q, &tables);
+            let _ = suggest(q, &tables);
+            let _ = match_table_candidates(&tables, q);
+        }
+        assert_eq!(resolve("表", &tables), Command::Table(vec!["表格".into()]));
+        assert_eq!(
+            resolve("📦", &tables),
+            Command::Table(vec!["📦boxes".into()])
+        );
+        assert_eq!(
+            resolve("naïve", &tables),
+            Command::Table(vec!["naïve".into()])
+        );
+        // ASCII-only folding: non-ASCII case differences do not match.
+        assert_eq!(resolve("NAÏVE", &tables), Command::Unknown("NAÏVE".into()));
+        assert_eq!(suggest("表", &tables).as_deref(), Some("表格"));
+        assert_eq!(suggest("📦", &tables).as_deref(), Some("📦boxes"));
+        assert_eq!(suggest("🦀", &tables), None);
+    }
+
+    #[test]
+    fn table_names_with_spaces_quotes_and_uppercase() {
+        let tables = ["Order Items", "O'Brien", "say \"hi\"", "UPPER", "a.b"];
+        assert_eq!(
+            resolve("order items", &tables),
+            Command::Table(vec!["Order Items".into()])
+        );
+        assert_eq!(
+            resolve("  order   ", &tables),
+            Command::Table(vec!["Order Items".into()])
+        );
+        assert_eq!(
+            resolve("o'br", &tables),
+            Command::Table(vec!["O'Brien".into()])
+        );
+        assert_eq!(
+            resolve("say \"hi\"", &tables),
+            Command::Table(vec!["say \"hi\"".into()])
+        );
+        assert_eq!(
+            resolve("upper", &tables),
+            Command::Table(vec!["UPPER".into()])
+        );
+        assert_eq!(resolve("a.b", &tables), Command::Table(vec!["a.b".into()]));
+        assert_eq!(suggest("order i", &tables).as_deref(), Some("Order Items"));
+        assert_eq!(suggest("up", &tables).as_deref(), Some("UPPER"));
+    }
+
+    #[test]
+    fn exact_table_beats_unique_verb_prefix_but_not_exact_verb() {
+        // `act` only prefixes `activity`, but is a real table: open the table.
+        assert_eq!(
+            resolve("act", &["act"]),
+            Command::Table(vec!["act".into()])
+        );
+        assert_eq!(
+            resolve("ACT", &["act"]),
+            Command::Table(vec!["act".into()])
+        );
+        // An exact verb word still wins (documented: use `/` to open "log").
+        assert_eq!(resolve("log", &["log"]), Command::Verb(Verb::Log));
+        // Not exact: the verb prefix still resolves.
+        assert_eq!(resolve("act", &["actors"]), Command::Verb(Verb::Activity));
+    }
+
+    #[test]
+    fn suggest_edge_cases() {
+        assert_eq!(suggest(" ", &T), None);
+        assert_eq!(suggest(" tab", &T), None, "leading space: no ghost");
+        assert_eq!(suggest("tab ", &T), None, "trailing space: no ghost");
+        assert_eq!(suggest("TAB", &T).as_deref(), Some("tables"));
+        assert_eq!(suggest("x", &[]), None);
+        // Longest-first not required: first listed verb wins over tables.
+        assert_eq!(suggest("c", &["cats"]).as_deref(), Some("connections"));
     }
 }

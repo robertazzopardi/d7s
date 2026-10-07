@@ -204,7 +204,11 @@ impl App {
             (_, KeyCode::Backspace) => {
                 self.command_text.pop();
             }
-            (_, KeyCode::Char(c)) => self.command_text.push(c),
+            (m, KeyCode::Char(c))
+                if !m.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.command_text.push(c);
+            }
             _ => {}
         }
     }
@@ -830,6 +834,148 @@ mod tests {
             .await
             .unwrap();
         assert!(!app.command_mode && !app.list_search_open);
+    }
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    async fn colon(app: &mut App, t: &mut Term, cmd: &str) {
+        app.on_key_event(key(KeyCode::Char(':')), t).await.unwrap();
+        type_cmd(app, t, cmd).await;
+        app.on_key_event(key(KeyCode::Enter), t).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn colon_whitespace_case_and_unicode_input() {
+        let mut app = app();
+        let mut t = term();
+        colon(&mut app, &mut t, "  IMAGES  ").await;
+        assert_eq!(app.view, ResourceKind::Images);
+        // Empty and whitespace-only just close the bar, no status noise.
+        for cmd in ["", "   "] {
+            colon(&mut app, &mut t, cmd).await;
+            assert!(!app.command_mode && !app.list_search_open, "{cmd:?}");
+            assert_eq!(app.view, ResourceKind::Images);
+            assert!(!screen(&mut app, &mut t).contains("Unknown command"));
+        }
+        // Multibyte / emoji input: Unknown, Backspace removes a whole char.
+        colon(&mut app, &mut t, "🦀é").await;
+        // (wide glyphs render as glyph + filler cell, so only match the prefix)
+        assert!(screen(&mut app, &mut t).contains("Unknown command: 🦀"));
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        type_cmd(&mut app, &mut t, "🦀é").await;
+        app.on_key_event(key(KeyCode::Backspace), &mut t)
+            .await
+            .unwrap();
+        assert_eq!(app.command_text, "🦀");
+        app.on_key_event(key(KeyCode::Backspace), &mut t)
+            .await
+            .unwrap();
+        app.on_key_event(key(KeyCode::Backspace), &mut t)
+            .await
+            .unwrap();
+        assert_eq!(app.command_text, "");
+        let _ = screen(&mut app, &mut t);
+    }
+
+    #[tokio::test]
+    async fn colon_bar_ignores_ctrl_chars_and_keeps_filter_untouched() {
+        let mut app = app();
+        let mut t = term();
+        // Applied row filter survives a cancelled command and a `/` after.
+        app.on_key_event(key(KeyCode::Char('/')), &mut t)
+            .await
+            .unwrap();
+        type_cmd(&mut app, &mut t, "web").await;
+        app.on_key_event(key(KeyCode::Enter), &mut t).await.unwrap();
+        assert_eq!(app.list_filter, "web");
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        type_cmd(&mut app, &mut t, "zz").await;
+        app.on_key_event(ctrl('w'), &mut t).await.unwrap();
+        app.on_key_event(
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT),
+            &mut t,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.command_text, "zz", "Ctrl/Alt chords are not text");
+        assert_eq!(app.list_filter, "web", "typing a command never filters");
+        app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
+        assert_eq!(app.list_filter, "web", "Esc must not clear the filter");
+        assert!(!app.command_mode && app.command_text.is_empty());
+        app.on_key_event(key(KeyCode::Char('/')), &mut t)
+            .await
+            .unwrap();
+        assert!(app.list_search_open && !app.command_mode);
+        type_cmd(&mut app, &mut t, "x").await;
+        assert_eq!(app.list_filter, "webx", "`/` is a normal filter again");
+    }
+
+    #[tokio::test]
+    async fn colon_q_in_bar_is_text_and_inert_with_dialog_or_in_logs() {
+        let mut app = app();
+        let mut t = term();
+        app.running = true;
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        type_cmd(&mut app, &mut t, "q").await;
+        assert!(app.running, "q is typed, not a quit key, until Enter");
+        app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
+
+        // Confirm dialog open: `:` must not open the bar.
+        app.on_key_event(shift_d(), &mut t).await.unwrap();
+        assert!(app.confirm_dialog.is_some());
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        assert!(!app.command_mode && !app.list_search_open);
+        assert!(app.confirm_dialog.is_some());
+        app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
+
+        // Log view + its search bar: `:` is just text.
+        app.state = AppState::Logs {
+            id: "c1".into(),
+            name: "web".into(),
+        };
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        assert!(!app.command_mode && !app.list_search_open);
+        app.on_key_event(key(KeyCode::Char('/')), &mut t)
+            .await
+            .unwrap();
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        assert_eq!(app.log_filter, ":");
+        assert!(!app.command_mode);
+    }
+
+    #[tokio::test]
+    async fn colon_bar_renders_at_tiny_and_normal_sizes_with_long_text() {
+        let mut app = app();
+        let mut t = term();
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        type_cmd(&mut app, &mut t, "im").await;
+        for (w, h) in [(20, 5), (80, 24), (1, 1), (3, 3), (10, 4)] {
+            let mut small = Terminal::new(TestBackend::new(w, h)).unwrap();
+            small.draw(|f| app.render(f)).unwrap();
+        }
+        type_cmd(&mut app, &mut t, &"x".repeat(200)).await;
+        let mut small = Terminal::new(TestBackend::new(20, 5)).unwrap();
+        small.draw(|f| app.render(f)).unwrap();
+        // 120-col hotkey bar still lists the new hint.
+        app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
+        let out = screen(&mut app, &mut t);
+        assert!(out.contains("command"), "{out}");
     }
 }
 

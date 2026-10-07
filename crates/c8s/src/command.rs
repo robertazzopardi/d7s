@@ -76,4 +76,23 @@ mod tests {
         assert_eq!(suggest(""), None);
         assert_eq!(suggest("zz"), None);
     }
+
+    #[test]
+    fn edge_inputs_never_panic_and_resolve_sanely() {
+        let v = Command::View;
+        assert_eq!(resolve("   "), Command::Empty);
+        assert_eq!(resolve("  images  "), v(ResourceKind::Images));
+        assert_eq!(resolve("\timages\n"), v(ResourceKind::Images));
+        assert_eq!(resolve("Q"), Command::Quit);
+        for junk in ["🦀", "ünï", "图像", "i m", "imagesx", "::", "1", "-1"]
+        {
+            assert_eq!(resolve(junk), Command::Unknown, "{junk}");
+        }
+        // Non-ASCII uppercase is left alone (ASCII-only folding), no panic.
+        assert_eq!(resolve("İMAGES"), Command::Unknown);
+        assert_eq!(suggest("🦀"), None);
+        assert_eq!(suggest("İ"), None);
+        assert_eq!(suggest("IM"), Some("images"));
+        assert_eq!(suggest(" im"), None, "leading space: no ghost");
+    }
 }
