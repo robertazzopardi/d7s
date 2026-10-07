@@ -4,5 +4,6 @@ use std::path::PathBuf;
 /// rather than deferring to OS-specific config-dir conventions.
 #[must_use]
 pub fn config_dir(app: &str) -> Option<PathBuf> {
-    directories::BaseDirs::new().map(|dirs| dirs.home_dir().join(".config").join(app))
+    directories::BaseDirs::new()
+        .map(|dirs| dirs.home_dir().join(".config").join(app))
 }

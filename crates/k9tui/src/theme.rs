@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::OnceLock};
+use std::{collections::HashMap, io::ErrorKind, path::Path, sync::OnceLock};
 
 use ratatui::style::{Color, Modifier, Style};
 use serde::Deserialize;
@@ -7,7 +7,7 @@ use crate::config_dir::config_dir;
 
 /// Named colors that make up a skin. Grouped by role, not by widget — several
 /// widgets share a role (e.g. `muted` backs borders, labels, and idle status).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Palette {
     pub muted: Color,
     pub text: Color,
@@ -54,8 +54,20 @@ pub fn set_palette(palette: Palette) {
     let _ = PALETTE.set(palette);
 }
 
-fn palette() -> &'static Palette {
-    PALETTE.get_or_init(Palette::default)
+#[cfg(test)]
+thread_local! {
+    /// Per-thread palette override so tests can render with a skin without
+    /// touching the process-wide `OnceLock`.
+    static TEST_PALETTE: std::cell::Cell<Option<Palette>> =
+        const { std::cell::Cell::new(None) };
+}
+
+fn palette() -> Palette {
+    #[cfg(test)]
+    if let Some(p) = TEST_PALETTE.with(std::cell::Cell::get) {
+        return p;
+    }
+    *PALETTE.get_or_init(Palette::default)
 }
 
 /// Parse a skin color name: a named ANSI color (case-insensitive, e.g.
@@ -227,63 +239,119 @@ pub fn null_cell() -> Style {
     Style::default().fg(palette().muted)
 }
 
+/// `skin.yml`: `colors:` maps palette field names to color specs. Unknown
+/// top-level keys are collected only so they can be reported.
 #[derive(Debug, Deserialize, Default)]
 struct SkinFile {
     #[serde(default)]
-    colors: HashMap<String, String>,
+    colors: HashMap<String, serde_yaml::Value>,
+    #[serde(flatten)]
+    other: HashMap<String, serde_yaml::Value>,
 }
 
-/// Load `~/.config/<app>/skin.yml` and apply any color overrides it
-/// contains, then install the resulting palette. Any field absent from the
-/// file, or the file/dir being absent entirely, keeps the built-in default
-/// for that field — a missing skin file is normal, not an error.
+/// Load `~/.config/<app>/skin.yml` and install the resulting palette.
+///
+/// A
+/// missing file/dir is normal (built-in theme, no warnings); an unreadable or
+/// invalid file falls back to the built-in theme and reports why. Individual
+/// bad colors only skip that color.
 ///
 /// Must be called before the first `theme::*()` call to take effect (the
-/// palette installs once, at first use).
-pub fn load_skin(app: &str) {
-    let mut palette = Palette::default();
-    if let Some(dir) = config_dir(app) {
-        let path = dir.join("skin.yml");
-        if let Ok(contents) = std::fs::read_to_string(path)
-            && let Ok(skin) = serde_yaml::from_str::<SkinFile>(&contents)
-        {
-            apply_overrides(&mut palette, &skin.colors);
-        }
-    }
+/// palette installs once, at first use). Returns human-readable warnings for
+/// the caller to surface.
+#[must_use]
+pub fn load_skin(app: &str) -> Vec<String> {
+    let (palette, warnings) = config_dir(app).map_or_else(
+        || (Palette::default(), Vec::new()),
+        |dir| load_skin_file(&dir.join("skin.yml")),
+    );
     set_palette(palette);
+    warnings
 }
 
-fn apply_overrides(palette: &mut Palette, colors: &HashMap<String, String>) {
-    macro_rules! apply {
-        ($($name:literal => $field:ident),* $(,)?) => {
-            $(
-                if let Some(c) = colors.get($name).and_then(|s| parse_color(s)) {
-                    palette.$field = c;
-                }
-            )*
-        };
+fn load_skin_file(path: &Path) -> (Palette, Vec<String>) {
+    match std::fs::read_to_string(path) {
+        Ok(contents) => parse_skin(&contents, &path.display().to_string()),
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            (Palette::default(), Vec::new())
+        }
+        Err(e) => (
+            Palette::default(),
+            vec![format!(
+                "{}: cannot read ({e}); using default theme",
+                path.display()
+            )],
+        ),
     }
-    apply! {
-        "muted" => muted,
-        "text" => text,
-        "focus" => focus,
-        "on_focus" => on_focus,
-        "selection_fg" => selection_fg,
-        "selection_bg" => selection_bg,
-        "bg_alt" => bg_alt,
-        "draft" => draft,
-        "multi_select" => multi_select,
-        "info" => info,
-        "error" => error,
-        "success" => success,
-        "warning" => warning,
-        "link" => link,
+}
+
+/// Parse a `skin.yml` document into a palette. `source` only labels warnings.
+/// Never fails: on invalid YAML the default palette is returned.
+#[must_use]
+pub fn parse_skin(yaml: &str, source: &str) -> (Palette, Vec<String>) {
+    let mut palette = Palette::default();
+    let skin = match serde_yaml::from_str::<Option<SkinFile>>(yaml) {
+        Ok(skin) => skin.unwrap_or_default(),
+        Err(e) => {
+            return (
+                palette,
+                vec![format!(
+                    "{source}: invalid YAML ({e}); using default theme"
+                )],
+            );
+        }
+    };
+    let mut warnings: Vec<String> = skin
+        .other
+        .keys()
+        .map(|k| format!("{source}: unknown top-level key '{k}' ignored"))
+        .collect();
+    let mut colors: Vec<_> = skin.colors.into_iter().collect();
+    colors.sort_by(|a, b| a.0.cmp(&b.0));
+    for (name, value) in colors {
+        let Some(slot) = palette.slot_mut(&name) else {
+            warnings.push(format!("{source}: unknown color '{name}' ignored"));
+            continue;
+        };
+        match value.as_str().and_then(parse_color) {
+            Some(c) => *slot = c,
+            None => warnings.push(format!(
+                "{source}: color '{name}': invalid value {value:?}; keeping default"
+            )),
+        }
+    }
+    warnings.sort();
+    (palette, warnings)
+}
+
+impl Palette {
+    fn slot_mut(&mut self, name: &str) -> Option<&mut Color> {
+        Some(match name {
+            "muted" => &mut self.muted,
+            "text" => &mut self.text,
+            "focus" => &mut self.focus,
+            "on_focus" => &mut self.on_focus,
+            "selection_fg" => &mut self.selection_fg,
+            "selection_bg" => &mut self.selection_bg,
+            "bg_alt" => &mut self.bg_alt,
+            "draft" => &mut self.draft,
+            "multi_select" => &mut self.multi_select,
+            "info" => &mut self.info,
+            "error" => &mut self.error,
+            "success" => &mut self.success,
+            "warning" => &mut self.warning,
+            "link" => &mut self.link,
+            _ => return None,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use ratatui::{Terminal, backend::TestBackend};
+
     use super::*;
+    use crate::widgets::{hotkey::Hotkey, hotkey_view::HotkeyView};
 
     #[test]
     fn parses_named_and_hex_colors() {
@@ -292,5 +360,76 @@ mod tests {
         assert_eq!(parse_color("#ff00aa"), Some(Color::Rgb(0xff, 0x00, 0xaa)));
         assert_eq!(parse_color("not-a-color"), None);
         assert_eq!(parse_color("#zzzzzz"), None);
+        assert_eq!(parse_color("#fff"), None);
+    }
+
+    #[test]
+    fn no_skin_is_the_default_palette() {
+        for yaml in ["", "# comment\n", "colors: {}\n"] {
+            let (p, w) = parse_skin(yaml, "t");
+            assert_eq!(w, Vec::<String>::new());
+            assert_eq!(p, Palette::default());
+        }
+    }
+
+    #[test]
+    fn partial_skin_overrides_only_named_colors() {
+        let (p, w) = parse_skin(
+            "colors:\n  focus: \"#ffcc00\"\n  error: lightred\n",
+            "t",
+        );
+        assert_eq!(w, Vec::<String>::new());
+        assert_eq!(p.focus, Color::Rgb(0xff, 0xcc, 0x00));
+        assert_eq!(p.error, Color::LightRed);
+        assert_eq!(p.text, Palette::default().text);
+    }
+
+    #[test]
+    fn bad_values_unknown_names_and_invalid_yaml_degrade() {
+        let (p, w) = parse_skin(
+            "colors:\n  focus: nope\n  bogus: red\n  text: 5\nextra: 1\n",
+            "t",
+        );
+        assert_eq!(w.len(), 4);
+        assert_eq!(p.focus, Palette::default().focus);
+        let (p, w) = parse_skin("colors: [unclosed", "t");
+        assert_eq!(w.len(), 1);
+        assert_eq!(p.text, Palette::default().text);
+        let (_, w) = parse_skin("- a\n- b\n", "t");
+        assert_eq!(w.len(), 1);
+    }
+
+    #[test]
+    fn missing_skin_file_is_silent() {
+        let path = std::env::temp_dir()
+            .join("k9tui-no-such-dir")
+            .join("skin.yml");
+        let (_, w) = load_skin_file(&path);
+        assert_eq!(w, Vec::<String>::new());
+    }
+
+    /// Render the hotkey bar and return the fg of the first key-label cell.
+    fn rendered_key_fg() -> Color {
+        let keys = [Hotkey::new('n', "new")];
+        let mut term = Terminal::new(TestBackend::new(20, 3)).unwrap();
+        term.draw(|f| f.render_widget(HotkeyView::new(&keys), f.area()))
+            .unwrap();
+        let buf = term.backend().buffer();
+        let cell = buf
+            .content()
+            .iter()
+            .find(|c| c.symbol() == "n")
+            .expect("key label rendered");
+        cell.fg
+    }
+
+    #[test]
+    fn skin_changes_rendered_cell_styles() {
+        TEST_PALETTE.with(|p| p.set(None));
+        assert_eq!(rendered_key_fg(), Palette::default().text);
+        let (skin, _) = parse_skin("colors:\n  text: \"#102030\"\n", "t");
+        TEST_PALETTE.with(|p| p.set(Some(skin)));
+        assert_eq!(rendered_key_fg(), Color::Rgb(0x10, 0x20, 0x30));
+        TEST_PALETTE.with(|p| p.set(None));
     }
 }

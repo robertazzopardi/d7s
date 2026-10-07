@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use color_eyre::Result;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use k9tui::widgets::navigation::TableNavigationHandler;
 
 use crate::{
@@ -508,13 +508,13 @@ impl App<'_> {
         ) {
             return Ok(false);
         }
-        if !key.modifiers.is_empty() {
+        // Uppercase letters (`D`, `A`, ...) arrive with SHIFT set; only
+        // reject other modifiers (Ctrl/Alt chords).
+        if !allows_hotkey_modifiers(key.modifiers) {
             return Ok(false);
         }
         let code = key.code;
-        if self.keymap.is("refresh", code)
-            || code == KeyCode::Char('R')
-        {
+        if self.keymap.is("refresh", code) || code == KeyCode::Char('R') {
             self.reload_current_table_data().await?;
             Ok(true)
         } else if self.keymap.is("new_row", code) || code == KeyCode::Char('A')
@@ -531,8 +531,7 @@ impl App<'_> {
         {
             self.table_data_commit_draft().await?;
             Ok(true)
-        } else if self.keymap.is("delete_row", code) || code == KeyCode::Char('D')
-        {
+        } else if self.keymap.is("delete_row", code) {
             self.table_data_request_delete().await?;
             Ok(true)
         } else if code == KeyCode::Char(' ') {
@@ -541,5 +540,26 @@ impl App<'_> {
         } else {
             Ok(false)
         }
+    }
+}
+
+/// Plain hotkeys may carry SHIFT (uppercase letters arrive as `Char('D')` +
+/// SHIFT); Ctrl/Alt chords are not hotkeys.
+const fn allows_hotkey_modifiers(mods: KeyModifiers) -> bool {
+    mods.difference(KeyModifiers::SHIFT).is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shift_d_is_a_hotkey_but_ctrl_d_is_not() {
+        assert!(allows_hotkey_modifiers(KeyModifiers::NONE));
+        assert!(allows_hotkey_modifiers(KeyModifiers::SHIFT));
+        assert!(!allows_hotkey_modifiers(KeyModifiers::CONTROL));
+        assert!(!allows_hotkey_modifiers(
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT
+        ));
     }
 }

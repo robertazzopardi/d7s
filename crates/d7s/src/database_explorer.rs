@@ -7,7 +7,10 @@ use k9tui::widgets::{
 use crate::{
     app::App,
     app_state::DatabaseExplorerState,
-    db::{Database, DbRowId, TableDataPage, connection::ConnectionType},
+    db::{
+        Database, DbRowId, TableDataPage, connection::ConnectionType,
+        query_log::QueryOrigin,
+    },
     filtered_data::FilteredData,
     ui::widgets::{
         connection_modal::CellValueApply, raw_table::RawTableStateExt,
@@ -102,6 +105,7 @@ impl App<'_> {
 
     /// Select a database and reconnect to it
     pub async fn select_database(&mut self, database_name: &str) -> Result<()> {
+        let log = self.query_log.clone();
         let explorer = &mut self.database_explorer;
         if explorer.database.is_some() {
             // Update connection with selected database
@@ -114,7 +118,7 @@ impl App<'_> {
             };
 
             if db.test().await {
-                explorer.database = Some(db);
+                explorer.database = Some(log.wrap(db));
                 self.load_schemas().await?;
             } else {
                 self.set_status(STATUS_CONNECT_FAILED);
@@ -626,6 +630,16 @@ impl App<'_> {
 
     /// Execute SQL query from the SQL executor
     pub(crate) async fn execute_sql_query(&mut self) {
+        self.execute_sql_query_inner(true).await;
+    }
+
+    /// Re-run the currently selected statement without touching SQL history.
+    /// Used by watch mode's periodic refresh.
+    pub(crate) async fn execute_sql_query_watch_tick(&mut self) {
+        self.execute_sql_query_inner(false).await;
+    }
+
+    async fn execute_sql_query_inner(&mut self, record_history: bool) {
         let sql = self
             .database_explorer
             .sql_executor
@@ -645,6 +659,13 @@ impl App<'_> {
 
         // Clear any previous results/errors before executing
         self.database_explorer.sql_executor.clear_results();
+        self.query_log.set_origin(if !record_history {
+            QueryOrigin::Watch
+        } else if sql == crate::app::ACTIVITY_QUERY {
+            QueryOrigin::Activity
+        } else {
+            QueryOrigin::User
+        });
 
         match database.execute_sql(&sql).await {
             Ok(results) => {
@@ -657,8 +678,12 @@ impl App<'_> {
                 let cols = first.column_names.clone();
                 let data = results.into_iter().map(|r| r.values).collect();
                 self.database_explorer.sql_executor.set_results(data, &cols);
-                let _ =
-                    crate::services::PreferencesService::push_sql_history(&sql);
+                if record_history {
+                    let _ =
+                        crate::services::PreferencesService::push_sql_history(
+                            &sql,
+                        );
+                }
             }
             Err(e) => self.set_status(format!("SQL error: {e}")),
         }

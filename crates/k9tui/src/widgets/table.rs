@@ -93,27 +93,35 @@ impl<T: TableData + Clone> TableDataState<T> {
     /// Filter items based on query
     #[must_use]
     pub fn filter(&self, query: &str) -> Vec<T> {
-        if query.is_empty() {
-            return self.model.items.clone();
-        }
-
-        let query_lower = query.to_lowercase();
-        self.model
-            .items
-            .iter()
-            .filter(|item| {
-                // Check if any column contains the query
-                for col_idx in 0..item.num_columns() {
-                    let col_value = item.col(col_idx);
-                    if col_value.to_lowercase().contains(&query_lower) {
-                        return true;
-                    }
-                }
-                false
-            })
-            .cloned()
-            .collect()
+        filter_rows(&self.model.items, query)
     }
+}
+
+/// Case-insensitive substring filter over every column of `rows`.
+///
+/// Free function (rather than a `TableDataState` method) so callers that
+/// only have a row slice — not a full table state — can reuse the same
+/// matching logic instead of reimplementing it.
+#[must_use]
+pub fn filter_rows<T: TableData + Clone>(rows: &[T], query: &str) -> Vec<T> {
+    if query.is_empty() {
+        return rows.to_vec();
+    }
+
+    let query_lower = query.to_lowercase();
+    rows.iter()
+        .filter(|item| {
+            // Check if any column contains the query
+            for col_idx in 0..item.num_columns() {
+                let col_value = item.col(col_idx);
+                if col_value.to_lowercase().contains(&query_lower) {
+                    return true;
+                }
+            }
+            false
+        })
+        .cloned()
+        .collect()
 }
 
 const fn col_width(len: usize) -> usize {
@@ -545,5 +553,53 @@ mod tests {
         assert!(content.contains("Name"));
         assert!(content.contains("alpha"));
         assert!(content.contains("beta"));
+    }
+}
+
+#[cfg(test)]
+mod filter_rows_tests {
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Row(&'static str, &'static str);
+
+    impl TableData for Row {
+        fn title() -> &'static str {
+            "rows"
+        }
+        fn ref_array(&self) -> Vec<String> {
+            vec![self.0.to_string(), self.1.to_string()]
+        }
+        fn num_columns(&self) -> usize {
+            2
+        }
+        fn cols() -> Vec<&'static str> {
+            vec!["a", "b"]
+        }
+    }
+
+    fn rows() -> Vec<Row> {
+        vec![
+            Row("Alpha", "one"),
+            Row("beta", "TWO"),
+            Row("gamma", "three"),
+        ]
+    }
+
+    #[test]
+    fn empty_query_returns_all() {
+        assert_eq!(filter_rows(&rows(), ""), rows());
+    }
+
+    #[test]
+    fn matches_case_insensitively_in_any_column() {
+        assert_eq!(filter_rows(&rows(), "ALPHA"), vec![Row("Alpha", "one")]);
+        assert_eq!(filter_rows(&rows(), "two"), vec![Row("beta", "TWO")]);
+    }
+
+    #[test]
+    fn substring_across_rows_and_no_match() {
+        assert_eq!(filter_rows(&rows(), "a").len(), 3);
+        assert_eq!(filter_rows(&rows(), "zzz").len(), 0);
     }
 }
