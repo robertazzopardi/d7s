@@ -407,9 +407,7 @@ impl<T: TableData + std::fmt::Debug + Clone> StatefulWidget for DataTable<T> {
                 .sum();
             // Table puts 1 cell of spacing between each pair of columns.
             let gaps = visible_cols.len().saturating_sub(1);
-            (area.width as usize)
-                .saturating_sub(others + gaps)
-                .max(1)
+            (area.width as usize).saturating_sub(others + gaps).max(1)
         });
 
         let rows =
@@ -667,7 +665,13 @@ mod tests {
             "five"
         }
         fn ref_array(&self) -> Vec<String> {
-            vec!["a".into(), "b".into(), "c".into(), "d".into(), self.0.clone()]
+            vec![
+                "a".into(),
+                "b".into(),
+                "c".into(),
+                "d".into(),
+                self.0.clone(),
+            ]
         }
         fn num_columns(&self) -> usize {
             5
@@ -721,16 +725,13 @@ mod tests {
             render_lines(items(), 8, 3),
             vec!["Name    ", "alpha   ", "beta    "]
         );
-        assert_eq!(
-            render_lines(items(), 3, 3),
-            vec!["Nam", "alp", "bet"]
-        );
+        assert_eq!(render_lines(items(), 3, 3), vec!["Nam", "alp", "bet"]);
     }
 
     #[test]
     fn fill_column_takes_remaining_width_and_ellipsizes() {
         let long = "x".repeat(200);
-        let lines = render_lines(vec![Filled(long.clone())], 40, 3);
+        let lines = render_lines(vec![Filled(long)], 40, 3);
         let row = lines.get(1).unwrap();
         assert!(row.starts_with("a "), "{row:?}");
         assert!(row.trim_end().ends_with('…'), "{row:?}");

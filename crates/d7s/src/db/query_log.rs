@@ -570,6 +570,255 @@ pub mod tests {
         assert!(sqls.iter().all(|s| !s.contains("secret")));
     }
 
+    fn origin_entry(origin: QueryOrigin, sql: &str) -> QueryLogEntry {
+        QueryLogEntry {
+            origin,
+            ..entry(sql)
+        }
+    }
+
+    #[test]
+    fn multibyte_sql_is_clipped_by_chars_not_bytes() {
+        // 3-byte chars: byte slicing at 120 would panic mid-codepoint.
+        let sql = "é日本😀".repeat(100);
+        let cell = entry(&sql).ref_array().get(4).cloned().unwrap();
+        assert_eq!(cell.chars().count(), SQL_DISPLAY_CHARS);
+        assert!(cell.ends_with('…'));
+        // exactly at the limit: untouched, no ellipsis
+        let exact = "日".repeat(SQL_DISPLAY_CHARS);
+        let cell = entry(&exact).ref_array().get(4).cloned().unwrap();
+        assert_eq!(cell, exact);
+        // short and empty
+        assert_eq!(clip_chars("", 5), "");
+        assert_eq!(clip_chars("日本語", 0), "…");
+        assert_eq!(clip_chars("日本語", 2), "日…");
+    }
+
+    #[test]
+    fn newlines_tabs_and_runs_of_space_flatten_to_single_spaces() {
+        let cell = entry("SELECT\n\ta,\r\n   b\nFROM\t\tt\n")
+            .ref_array()
+            .get(4)
+            .cloned()
+            .unwrap();
+        assert_eq!(cell, "SELECT a, b FROM t");
+        let err = QueryLogEntry {
+            outcome: Err("line1\n  line2\t".into()),
+            ..entry("x")
+        };
+        assert_eq!(
+            err.ref_array().get(3).map(String::as_str),
+            Some("ERR line1 line2")
+        );
+    }
+
+    #[test]
+    fn ring_buffer_evicts_oldest_across_interleaved_origins() {
+        let log = QueryLog::default();
+        let origins = [
+            QueryOrigin::Watch,
+            QueryOrigin::Activity,
+            QueryOrigin::User,
+            QueryOrigin::Metadata,
+        ];
+        let total = QUERY_LOG_CAPACITY + 7;
+        for i in 0..total {
+            let o = origins.get(i % origins.len()).copied().unwrap();
+            log.push(origin_entry(o, &format!("q{i}")));
+        }
+        let snap = log.snapshot();
+        assert_eq!(snap.len(), QUERY_LOG_CAPACITY);
+        // newest first, strictly descending sequence, origin preserved
+        for (k, e) in snap.iter().enumerate() {
+            let i = total - 1 - k;
+            assert_eq!(e.sql, format!("q{i}"));
+            assert_eq!(Some(e.origin), origins.get(i % origins.len()).copied());
+        }
+        assert_eq!(snap.last().map(|e| e.sql.as_str()), Some("q7"));
+    }
+
+    #[test]
+    fn report_sql_outside_scope_is_a_noop() {
+        // no panic, nothing to observe
+        report_sql("SELECT 1");
+        let log = QueryLog::default();
+        assert_eq!(log.snapshot().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn reported_sql_joins_with_semicolons_and_scopes_do_not_leak() {
+        let log = QueryLog::default();
+        let db = LoggedDatabase {
+            inner: Box::new(temp_sqlite("join")),
+            log: log.clone(),
+        };
+        let one = db.record(
+            QueryOrigin::Metadata,
+            "label1".into(),
+            |(): &()| 0,
+            async {
+                report_sql("A");
+                report_sql("B");
+                report_sql("C");
+                Ok(())
+            },
+        );
+        let two = db.record(
+            QueryOrigin::Metadata,
+            "label2".into(),
+            |(): &()| 0,
+            async {
+                tokio::task::yield_now().await;
+                report_sql("X");
+                Ok(())
+            },
+        );
+        let none = db.record(
+            QueryOrigin::Metadata,
+            "label3".into(),
+            |(): &()| 0,
+            async { Ok(()) },
+        );
+        // concurrently polled futures each get their own sink
+        let (a, b, c) = tokio::join!(one, two, none);
+        a.unwrap();
+        b.unwrap();
+        c.unwrap();
+        let mut sqls: Vec<String> =
+            log.snapshot().into_iter().map(|e| e.sql).collect();
+        sqls.sort();
+        assert_eq!(sqls, vec!["A; B; C", "X", "label3"]);
+        // a later report outside any scope never lands in the log
+        report_sql("late");
+        assert_eq!(log.snapshot().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn nested_record_inner_sql_stays_with_inner_entry() {
+        let log = QueryLog::default();
+        let db = LoggedDatabase {
+            inner: Box::new(temp_sqlite("nest")),
+            log: log.clone(),
+        };
+        let r = db
+            .record(QueryOrigin::User, "outer".into(), |(): &()| 0, async {
+                report_sql("o1");
+                db.record(
+                    QueryOrigin::Metadata,
+                    "inner".into(),
+                    |(): &()| 0,
+                    async {
+                        report_sql("i1");
+                        Ok(())
+                    },
+                )
+                .await?;
+                report_sql("o2");
+                Ok(())
+            })
+            .await;
+        r.unwrap();
+        let sqls: Vec<String> =
+            log.snapshot().into_iter().rev().map(|e| e.sql).collect();
+        assert_eq!(sqls, vec!["i1", "o1; o2"]);
+    }
+
+    #[tokio::test]
+    async fn edit_paths_never_log_cell_or_key_values() {
+        let log = QueryLog::default();
+        let sqlite = temp_sqlite("novalues");
+        rusqlite::Connection::open(&sqlite.path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE t(k TEXT PRIMARY KEY, a TEXT, b TEXT);",
+            )
+            .unwrap();
+        let db = log.wrap(Box::new(sqlite));
+        let pk = vec![("k".to_string(), "secretkey".to_string())];
+        db.insert_table_row(
+            "sqlite_schema",
+            "t",
+            &["secretkey".into(), "secretA".into(), "secretB".into()],
+        )
+        .await
+        .unwrap();
+        db.update_table_cell("sqlite_schema", "t", "a", "secretNew", &pk, None)
+            .await
+            .unwrap();
+        db.update_table_cell(
+            "sqlite_schema",
+            "t",
+            "b",
+            "secretFallback",
+            &[],
+            Some(crate::db::DbRowId::Sqlite(1)),
+        )
+        .await
+        .unwrap();
+        db.delete_table_row("sqlite_schema", "t", &pk, None)
+            .await
+            .unwrap();
+        let sqls: Vec<String> =
+            log.snapshot().into_iter().rev().map(|e| e.sql).collect();
+        assert!(
+            sqls.iter().any(|s| s.contains("INSERT INTO"))
+                && sqls.iter().any(|s| s.contains("UPDATE"))
+                && sqls.iter().any(|s| s.contains("DELETE FROM")),
+            "{sqls:?}"
+        );
+        assert!(
+            sqls.iter().all(|s| !s.to_lowercase().contains("secret")),
+            "{sqls:?}"
+        );
+    }
+
+    /// Needs `just docker-up`: bound values must not appear in logged SQL.
+    #[tokio::test]
+    #[ignore = "requires docker test database"]
+    async fn pg_edit_paths_never_log_cell_or_key_values() {
+        let log = QueryLog::default();
+        let pg = crate::db::postgres::Postgres {
+            name: "test".into(),
+            host: Some("localhost".into()),
+            port: Some("5432".into()),
+            user: "d7s_user".into(),
+            database: "d7s_test".into(),
+            password: "d7s_password".into(),
+        };
+        let t = format!("d7s_qlog_{}", std::process::id());
+        pg.execute_sql(&format!(
+            "CREATE TABLE {t} (k text PRIMARY KEY, a text)"
+        ))
+        .await
+        .unwrap();
+        let db = log.wrap(Box::new(pg));
+        let pk = vec![("k".to_string(), "secretkey".to_string())];
+        let r1 = db
+            .insert_table_row(
+                "public",
+                &t,
+                &["secretkey".into(), "secretA".into()],
+            )
+            .await;
+        let r2 = db
+            .update_table_cell("public", &t, "a", "secretNew", &pk, None)
+            .await;
+        let r3 = db.delete_table_row("public", &t, &pk, None).await;
+        db.execute_sql(&format!("DROP TABLE {t}")).await.unwrap();
+        r1.unwrap();
+        r2.unwrap();
+        r3.unwrap();
+        let sqls: Vec<String> =
+            log.snapshot().into_iter().rev().map(|e| e.sql).collect();
+        for kw in ["INSERT INTO", "UPDATE", "DELETE FROM"] {
+            assert!(sqls.iter().any(|s| s.contains(kw)), "{kw}: {sqls:?}");
+        }
+        assert!(
+            sqls.iter().all(|s| !s.to_lowercase().contains("secret")),
+            "{sqls:?}"
+        );
+    }
+
     /// Needs `just docker-up` (Postgres on localhost:5432):
     /// `cargo test -p d7s -- --ignored pg_activity`
     #[tokio::test]
