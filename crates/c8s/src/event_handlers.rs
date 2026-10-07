@@ -145,6 +145,52 @@ impl App {
     }
 
     #[allow(clippy::wildcard_enum_match_arm)]
+    fn on_key_list_search(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                self.list_filter.clear();
+                self.list_search_open = false;
+                self.reapply_list_filter();
+            }
+            (_, KeyCode::Enter) => self.list_search_open = false,
+            (_, KeyCode::Backspace) => {
+                self.list_filter.pop();
+                self.reapply_list_filter();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
+            (_, KeyCode::Char(c)) => {
+                self.list_filter.push(c);
+                self.reapply_list_filter();
+            }
+            _ => {}
+        }
+    }
+
+    /// Search-bar editing, `q` (clear filter, else quit), Ctrl-C and `/`.
+    /// Returns true when the key was consumed. Terminal-free so it is testable.
+    fn on_key_list_filter_or_quit(&mut self, key: KeyEvent) -> bool {
+        if self.list_search_open {
+            self.on_key_list_search(key);
+            return true;
+        }
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Char('q')) if self.list_filter.is_empty() => {
+                self.quit();
+            }
+            (_, KeyCode::Char('q')) => {
+                self.list_filter.clear();
+                self.reapply_list_filter();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
+                self.quit();
+            }
+            (_, KeyCode::Char('/')) => self.list_search_open = true,
+            _ => return false,
+        }
+        true
+    }
+
+    #[allow(clippy::wildcard_enum_match_arm)]
     #[allow(clippy::too_many_lines)] // flat key-dispatch match
     async fn on_key_list<B: Backend>(
         &mut self,
@@ -168,39 +214,11 @@ impl App {
             return Ok(());
         }
 
-        if self.list_search_open {
-            match key.code {
-                KeyCode::Esc => {
-                    self.list_filter.clear();
-                    self.list_search_open = false;
-                    self.reapply_list_filter();
-                }
-                KeyCode::Enter => self.list_search_open = false,
-                KeyCode::Backspace => {
-                    self.list_filter.pop();
-                    self.reapply_list_filter();
-                }
-                KeyCode::Char(c) => {
-                    self.list_filter.push(c);
-                    self.reapply_list_filter();
-                }
-                _ => {}
-            }
+        if self.on_key_list_filter_or_quit(key) {
             return Ok(());
         }
 
         match (key.modifiers, key.code) {
-            (_, KeyCode::Char('q')) if self.list_filter.is_empty() => {
-                self.quit();
-            }
-            (_, KeyCode::Char('q')) => {
-                self.list_filter.clear();
-                self.reapply_list_filter();
-            }
-            (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
-                self.quit();
-            }
-            (_, KeyCode::Char('/')) => self.list_search_open = true,
             (_, KeyCode::Char('1')) => {
                 self.switch_view(ResourceKind::Containers);
             }
@@ -595,5 +613,177 @@ mod tests {
 
         app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
         assert_eq!(app.state, AppState::List);
+    }
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    use crate::{
+        app::App,
+        docker::{ContainerRow, ImageRow, NetworkRow, VolumeRow},
+    };
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn press(app: &mut App, code: KeyCode) -> bool {
+        app.on_key_list_filter_or_quit(key(code))
+    }
+
+    fn type_str(app: &mut App, s: &str) {
+        for c in s.chars() {
+            press(app, KeyCode::Char(c));
+        }
+    }
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.running = true;
+        app.containers_all = vec![
+            ContainerRow {
+                name: "Web".into(),
+                image: "nginx".into(),
+                ..Default::default()
+            },
+            ContainerRow {
+                name: "db".into(),
+                image: "postgres".into(),
+                ..Default::default()
+            },
+        ];
+        app.images_all = vec![ImageRow {
+            repo_tags: "nginx:latest".into(),
+            ..Default::default()
+        }];
+        app.volumes_all = vec![
+            VolumeRow {
+                name: "data".into(),
+                ..Default::default()
+            },
+            VolumeRow {
+                name: "cache".into(),
+                driver: "NGINX-driver".into(),
+                ..Default::default()
+            },
+        ];
+        app.networks_all = vec![NetworkRow {
+            name: "bridge".into(),
+            scope: "local".into(),
+            ..Default::default()
+        }];
+        app.reapply_list_filter();
+        app
+    }
+
+    #[test]
+    fn slash_opens_search_and_chars_append() {
+        let mut app = app();
+        assert!(press(&mut app, KeyCode::Char('/')));
+        assert!(app.list_search_open);
+        type_str(&mut app, "ng");
+        assert_eq!(app.list_filter, "ng");
+        // 'q' while typing is text, not quit/clear.
+        press(&mut app, KeyCode::Char('q'));
+        assert_eq!(app.list_filter, "ngq");
+        assert!(app.running);
+    }
+
+    #[test]
+    fn backspace_pops() {
+        let mut app = app();
+        press(&mut app, KeyCode::Char('/'));
+        type_str(&mut app, "abc");
+        press(&mut app, KeyCode::Backspace);
+        assert_eq!(app.list_filter, "ab");
+    }
+
+    #[test]
+    fn enter_closes_keeping_filter() {
+        let mut app = app();
+        press(&mut app, KeyCode::Char('/'));
+        type_str(&mut app, "nginx");
+        press(&mut app, KeyCode::Enter);
+        assert!(!app.list_search_open);
+        assert_eq!(app.list_filter, "nginx");
+        assert_eq!(app.containers.model.items.len(), 1);
+    }
+
+    #[test]
+    fn esc_clears_and_closes() {
+        let mut app = app();
+        press(&mut app, KeyCode::Char('/'));
+        type_str(&mut app, "nginx");
+        press(&mut app, KeyCode::Esc);
+        assert!(!app.list_search_open);
+        assert_eq!(app.list_filter, "");
+        assert_eq!(app.containers.model.items.len(), 2);
+    }
+
+    #[test]
+    fn ctrl_c_while_filtering_quits_without_appending() {
+        let mut app = app();
+        press(&mut app, KeyCode::Char('/'));
+        type_str(&mut app, "ab");
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert!(app.on_key_list_filter_or_quit(ctrl_c));
+        assert!(!app.running);
+        assert_eq!(app.list_filter, "ab");
+    }
+
+    #[test]
+    fn ctrl_c_outside_search_quits() {
+        let mut app = app();
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert!(app.on_key_list_filter_or_quit(ctrl_c));
+        assert!(!app.running);
+    }
+
+    #[test]
+    fn q_with_filter_clears_instead_of_quitting() {
+        let mut app = app();
+        press(&mut app, KeyCode::Char('/'));
+        type_str(&mut app, "nginx");
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Char('q'));
+        assert!(app.running);
+        assert_eq!(app.list_filter, "");
+        assert_eq!(app.containers.model.items.len(), 2);
+    }
+
+    #[test]
+    fn q_without_filter_quits() {
+        let mut app = app();
+        assert!(press(&mut app, KeyCode::Char('q')));
+        assert!(!app.running);
+    }
+
+    #[test]
+    fn other_keys_are_not_consumed() {
+        let mut app = app();
+        assert!(!press(&mut app, KeyCode::Char('j')));
+        assert!(app.running);
+    }
+
+    #[test]
+    fn filter_applies_to_all_lists_case_insensitive_any_column() {
+        let mut app = app();
+        press(&mut app, KeyCode::Char('/'));
+        type_str(&mut app, "NgInX");
+        // containers: image column; images: tags; volumes: driver column;
+        // networks: no match.
+        assert_eq!(app.containers.model.items.len(), 1);
+        assert_eq!(app.images.model.items.len(), 1);
+        assert_eq!(app.volumes.model.items.len(), 1);
+        assert_eq!(app.networks.model.items.len(), 0);
+        // Backspacing to empty restores everything.
+        for _ in 0..5 {
+            press(&mut app, KeyCode::Backspace);
+        }
+        assert_eq!(app.containers.model.items.len(), 2);
+        assert_eq!(app.volumes.model.items.len(), 2);
+        assert_eq!(app.networks.model.items.len(), 1);
     }
 }
