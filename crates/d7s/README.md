@@ -124,7 +124,7 @@ Connected:
 | `1`–`5` | Jump to recent table |
 | `L` | Query log (session history of all queries d7s ran, tagged by origin) |
 | `A` | Activity view (Postgres `pg_stat_activity`; not applicable for SQLite) |
-| `` ` `` | Jump to table by name (fuzzy/substring match, current schema) |
+| `` ` `` | Jump to table by name (exact, then prefix, then substring match; current schema) |
 
 Table data:
 

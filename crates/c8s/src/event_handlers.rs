@@ -14,10 +14,8 @@ use crate::{
     app_state::{AppState, ResourceKind},
 };
 
-// TODO(command-mode bucket): k9s-style `:resource` command bar is deferred
-// here — c8s only has one resource type (containers) today, so there's
-// nothing to switch between yet. Add it once images/volumes/networks views
-// exist (separate bucket).
+// TODO(command-mode bucket): a k9s-style `:resource` command bar is not
+// implemented; views are switched with `1`-`4` for now.
 impl App {
     pub async fn on_key_event<B: Backend>(
         &mut self,
