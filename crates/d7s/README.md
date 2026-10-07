@@ -27,6 +27,7 @@ d7s and c8s are the shipped apps; k9tui exists so k9s-style TUI apps in this wor
 - **Activity view** (Postgres only) — `A` shows currently-running backends from `pg_stat_activity` (pid, query, state, wait_event, query_start); not applicable to SQLite, which has no server process to inspect.
 - **Query log** — `L` lists every query d7s ran this session (your SQL, watch ticks, activity and metadata queries), newest first, with origin, duration and rows or error; bounded to the last 500. Esc/`q` returns.
 - **Environment tagging** — label each connection as dev, staging, or prod.
+- **Connection health check** — press `p` in the connection list to ping every saved connection concurrently (a TCP connect to host:port for Postgres, a file-exists check for SQLite; no login) and see an up/down status per row, without fully connecting.
 
 ## Demo
 
@@ -110,6 +111,7 @@ Connections:
 | `D` | Delete connection |
 | `o` / Enter | Open connection |
 | `O` | Reconnect last connection |
+| `p` | Ping health check (all saved connections, up to 3s) |
 | `d` | Describe selected connection |
 
 Connected:

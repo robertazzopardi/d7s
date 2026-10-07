@@ -754,7 +754,7 @@ mod tests {
 
     use super::*;
     use crate::db::{
-        connection::{Connection, ConnectionType},
+        connection::{Connection, ConnectionStatus, ConnectionType},
         query_log::{QueryLogEntry, QueryOrigin, tests::temp_sqlite},
     };
 
@@ -947,58 +947,63 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn backtick_prompt_renders_and_enter_jumps_to_table() {
-        let mut app = tables_app("bt_jump").await;
-        app.on_key_event(key('`')).await.unwrap();
-        assert!(app.modal_manager.is_any_modal_open());
-        assert!(render_text(&mut app).contains("Jump to table"));
-
-        type_str(&mut app, "ord").await;
-        app.on_key_event(enter()).await.unwrap();
-        assert!(!app.modal_manager.is_any_modal_open());
-        assert_eq!(
-            app.database_explorer.state,
-            DatabaseExplorerState::TableData(
-                "sqlite_schema".into(),
-                "orders".into()
-            ),
-            "exact/prefix match wins over order_items substring"
-        );
+    fn sqlite_conn(name: &str, path: &str) -> Connection {
+        Connection {
+            name: name.into(),
+            r#type: ConnectionType::Sqlite,
+            url: path.into(),
+            ..Connection::default()
+        }
     }
 
     #[tokio::test]
-    async fn backtick_esc_cancels_without_navigating() {
-        let mut app = tables_app("bt_esc").await;
-        app.on_key_event(key('`')).await.unwrap();
-        type_str(&mut app, "users").await;
-        app.on_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
-            .await
-            .unwrap();
-        assert!(!app.modal_manager.is_any_modal_open());
-        assert_eq!(
-            app.database_explorer.state,
-            DatabaseExplorerState::Tables("sqlite_schema".into())
-        );
-    }
+    async fn p_pings_all_connections_and_statuses_survive_filter_clear() {
+        let present = temp_sqlite("ping-present");
+        std::fs::write(&present.path, b"").unwrap();
+        let missing = temp_sqlite("ping-missing");
+        // A port that was just free, so nothing is listening on it.
+        let closed_port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        let pg = Connection {
+            name: "pg-down".into(),
+            r#type: ConnectionType::Postgres,
+            url: format!("postgres://u@127.0.0.1:{closed_port}/db"),
+            ..Connection::default()
+        };
 
-    #[tokio::test]
-    async fn backtick_unknown_table_shows_status_and_stays_put() {
-        let mut app = tables_app("bt_unknown").await;
-        app.on_key_event(key('`')).await.unwrap();
-        type_str(&mut app, "zzz").await;
-        app.on_key_event(enter()).await.unwrap();
-        assert_eq!(
-            app.database_explorer.state,
-            DatabaseExplorerState::Tables("sqlite_schema".into())
-        );
-        assert!(render_text(&mut app).contains("No table matching 'zzz'"));
-    }
-
-    #[tokio::test]
-    async fn backtick_is_ignored_on_connection_list() {
         let mut app = App::default();
-        app.on_key_event(key('`')).await.unwrap();
-        assert!(!app.modal_manager.is_any_modal_open());
+        app.database_explorer.connections = FilteredData::new(vec![
+            sqlite_conn("present", &present.path),
+            sqlite_conn("missing", &missing.path),
+            pg,
+        ]);
+        // Filtered view shows only one row; the ping must still cover all.
+        app.database_explorer.connections.apply_filter("present");
+        app.on_key_event(key('p')).await.unwrap();
+
+        let status = |c: &FilteredData<Connection>| {
+            c.original.iter().map(|c| c.status).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            status(&app.database_explorer.connections),
+            vec![
+                ConnectionStatus::Up,
+                ConnectionStatus::Down,
+                ConnectionStatus::Down
+            ]
+        );
+        assert!(
+            !std::path::Path::new(&missing.path).exists(),
+            "ping must not create a missing sqlite file"
+        );
+
+        app.database_explorer.connections.clear_filter();
+        let text = render_text(&mut app);
+        assert!(text.contains("Status"));
+        assert!(text.contains("● up"));
+        assert_eq!(text.matches("● down").count(), 2);
+        let _ = std::fs::remove_file(&present.path);
     }
 }

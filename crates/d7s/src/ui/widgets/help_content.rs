@@ -95,6 +95,10 @@ const CONNECTION_HELP: &[HelpEntry] = &[
         desc: "Reconnect last connection",
     },
     HelpEntry {
+        key: "p",
+        desc: "Ping all connections (reachability)",
+    },
+    HelpEntry {
         key: "Enter",
         desc: "Connect",
     },

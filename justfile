@@ -18,7 +18,7 @@ run:
 
 # Run tests
 test:
-    cargo test --all-features --all-targets
+    cargo test --workspace --locked --all-features --all-targets
 
 # Format with nightly rustfmt (rustfmt.toml uses nightly-only options: group_imports, imports_granularity).
 # Uses RUST_NIGHTLY_BIN in nix shell, or the pinned rustup nightly otherwise.
@@ -34,9 +34,9 @@ fmt *ARGS:
 # Check formatting (pinned nightly rustfmt, no write)
 fmt-check *ARGS: (fmt "--check" ARGS)
 
-# Clippy: default lints + pedantic + nursery, warnings as errors (add -W clippy::cargo to include cargo lints)
+# Clippy: same flags as CI. CI uses the latest stable (no rust-toolchain file), so run `rustup update stable` often or new lints will be missed locally.
 clippy *ARGS:
-    cargo clippy --workspace --all-features --all-targets {{ARGS}} -- -D warnings -W clippy::pedantic -W clippy::nursery
+    cargo clippy --workspace --all-features --all-targets {{ARGS}} -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery
 
 # Clippy and apply fixes where possible
 clippy-fix: (clippy "--fix" "--allow-dirty")

@@ -30,10 +30,24 @@ impl App {
                 self.on_key_logs(key);
                 Ok(())
             }
+            AppState::Info(_) => {
+                self.on_key_info(key);
+                Ok(())
+            }
             AppState::Describe { .. } => {
                 self.on_key_describe(key);
                 Ok(())
             }
+        }
+    }
+
+    fn on_key_info(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Char('q' | 'i') | KeyCode::Esc) => {
+                self.state = AppState::List;
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
+            _ => {}
         }
     }
 
@@ -268,6 +282,9 @@ impl App {
                     self.exec_shell(terminal, &row.id)?;
                 }
             }
+            (_, KeyCode::Char('i')) => {
+                self.open_daemon_health().await;
+            }
             (_, KeyCode::Char('D') | KeyCode::Delete) => {
                 self.prompt_remove_selected();
             }
@@ -430,7 +447,8 @@ mod tests {
 
     use super::*;
     use crate::docker::{
-        ContainerRow, ImageRow, NetworkRow, VolumeRow, client::DockerClient,
+        ContainerRow, ImageRow, NetworkRow, VolumeRow,
+        client::{DaemonHealth, DockerClient},
     };
 
     type Term = Terminal<TestBackend>;
@@ -500,6 +518,45 @@ mod tests {
         ResourceKind::Volumes,
         ResourceKind::Networks,
     ];
+
+    #[tokio::test]
+    async fn i_failure_stays_on_list_with_status_in_every_view() {
+        for kind in KINDS {
+            let mut app = app();
+            let mut t = term();
+            app.switch_view(kind);
+            app.on_key_event(key(KeyCode::Char('i')), &mut t)
+                .await
+                .unwrap();
+            assert_eq!(app.state, AppState::List, "{kind:?}");
+            let out = screen(&mut app, &mut t);
+            assert!(out.contains("Daemon info failed"), "{kind:?}: {out}");
+        }
+    }
+
+    #[tokio::test]
+    async fn info_panel_closes_on_q_esc_i_and_ctrl_c_quits() {
+        for code in [KeyCode::Char('q'), KeyCode::Esc, KeyCode::Char('i')] {
+            let mut app = app();
+            let mut t = term();
+            app.running = true;
+            app.state = AppState::Info(DaemonHealth::default());
+            app.on_key_event(key(code), &mut t).await.unwrap();
+            assert_eq!(app.state, AppState::List, "{code:?}");
+            assert!(app.running, "{code:?} must not quit");
+        }
+        let mut app = app();
+        let mut t = term();
+        app.running = true;
+        app.state = AppState::Info(DaemonHealth::default());
+        app.on_key_event(
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            &mut t,
+        )
+        .await
+        .unwrap();
+        assert!(!app.running);
+    }
 
     #[tokio::test]
     async fn d_and_enter_describe_every_kind() {

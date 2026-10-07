@@ -649,6 +649,7 @@ impl Modal {
             table: None,
             password: if self.is_sqlite() { None } else { password },
             password_storage,
+            status: crate::db::connection::ConnectionStatus::default(),
         })
     }
 
