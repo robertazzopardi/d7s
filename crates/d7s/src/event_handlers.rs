@@ -292,6 +292,17 @@ impl App<'_> {
                 }
                 Ok(true)
             }
+            (_, KeyCode::Char('p')) => {
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::Connections
+                ) {
+                    self.check_connections_health().await;
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
             (_, KeyCode::Char('D')) => {
                 if matches!(
                     self.database_explorer.state,
@@ -811,5 +822,24 @@ impl App<'_> {
         } else {
             TestResult::Failed("Connection failed".to_string())
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    use crate::app::App;
+
+    #[tokio::test]
+    async fn p_is_only_handled_on_the_connection_list() {
+        let p = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE);
+        let mut app = App::default();
+        assert!(app.handle_hotkeys(p).await.unwrap());
+
+        // Anywhere else the key must fall through, not be swallowed.
+        app.database_explorer.state =
+            crate::app_state::DatabaseExplorerState::Tables("s".into());
+        assert!(!app.handle_hotkeys(p).await.unwrap());
     }
 }

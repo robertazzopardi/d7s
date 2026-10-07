@@ -35,6 +35,10 @@ impl App {
                 let name = name.clone();
                 self.render_logs(frame, &name);
             }
+            AppState::Info(health) => {
+                let health = health.clone();
+                Self::render_daemon_health(frame, &health);
+            }
             AppState::Describe { name, text } => {
                 let name = name.clone();
                 let text = text.clone();
@@ -59,6 +63,29 @@ impl App {
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true })
             .render(centered(area), frame.buffer_mut());
+    }
+
+    /// c8s's single-daemon analog of a fleet health dashboard: this daemon's
+    /// version/info, since there's only ever one daemon connected to summarize.
+    fn render_daemon_health(
+        frame: &mut Frame,
+        health: &crate::docker::client::DaemonHealth,
+    ) {
+        let area = frame.area();
+        let mut text = health.lines().join("\n");
+        text.push_str("\n\nPress i, q, or Esc to close.");
+        let block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(theme::border())
+            .title(" Daemon Health ")
+            .title_alignment(Alignment::Center);
+        let modal_area = centered_box(area, 42, 12);
+        let inner = block.inner(modal_area);
+        frame.render_widget(block, modal_area);
+        Paragraph::new(text)
+            .alignment(Alignment::Left)
+            .wrap(Wrap { trim: true })
+            .render(inner, frame.buffer_mut());
     }
 
     #[allow(clippy::too_many_lines)]
@@ -315,6 +342,19 @@ impl App {
     }
 }
 
+/// A fixed-size box centered within `area`, clamped to fit.
+fn centered_box(area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
+    let vertical = Layout::vertical([Constraint::Length(height)])
+        .flex(layout::Flex::Center)
+        .split(area);
+    let horizontal = Layout::horizontal([Constraint::Length(width)])
+        .flex(layout::Flex::Center)
+        .split(vertical.first().copied().unwrap_or(area));
+    horizontal.first().copied().unwrap_or(area)
+}
+
 fn centered(area: Rect) -> Rect {
     let vertical = Layout::vertical([Constraint::Length(3)])
         .flex(layout::Flex::Center)
@@ -333,7 +373,11 @@ mod tests {
         buffer::{Buffer, Cell},
     };
 
-    use crate::{app::App, app_state::AppState, docker::ContainerRow};
+    use crate::{
+        app::App,
+        app_state::AppState,
+        docker::{ContainerRow, client::DaemonHealth},
+    };
 
     fn render(app: &mut App) -> Buffer {
         let mut terminal =
@@ -404,5 +448,43 @@ mod tests {
         assert!(out.contains("[1 matches]"));
         assert!(out.contains("nginx"));
         assert!(!out.contains("postgres"));
+    }
+
+    #[test]
+    fn info_state_renders_daemon_health_panel() {
+        let mut app = App::new();
+        app.state = AppState::Info(DaemonHealth {
+            server_version: "28.0.1".into(),
+            api_version: "1.48".into(),
+            os: "linux".into(),
+            arch: "arm64".into(),
+            containers_running: 3,
+            containers_paused: 1,
+            containers_stopped: 7,
+            images: 12,
+        });
+        let out = text(&render(&mut app));
+        for want in [
+            " Daemon Health ",
+            "Docker version: 28.0.1",
+            "API version: 1.48",
+            "OS/Arch: linux/arm64",
+            "Containers running: 3",
+            "Containers paused: 1",
+            "Containers stopped: 7",
+            "Images: 12",
+            "Press i, q, or Esc to close.",
+        ] {
+            assert!(out.contains(want), "missing {want:?} in:\n{out}");
+        }
+    }
+
+    #[test]
+    fn info_panel_fits_a_small_terminal_without_panicking() {
+        let mut app = App::new();
+        app.state = AppState::Info(DaemonHealth::default());
+        let mut terminal =
+            Terminal::new(TestBackend::new(20, 5)).expect("test terminal");
+        terminal.draw(|f| app.render(f)).expect("draw");
     }
 }

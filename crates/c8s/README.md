@@ -24,6 +24,7 @@ Requires [vhs](https://github.com/charmbracelet/vhs) and Docker. Starts fake `de
 - **Describe view** — full-screen `docker inspect`-style details (id, image, status, PID, ports, mounts, env, created time) for the selected container, image, volume or network (`d` or `Enter`, `q`/`Esc` to return).
 - **Exec shell** — suspends the TUI and hands the real terminal to `docker exec -it <id> sh` (`e`), resuming the TUI on exit.
 - **Connection error screen** — if the Docker daemon is unreachable at startup, shows an error with a retry action instead of panicking.
+- **Daemon health panel** — press `i` for a snapshot of the connected daemon: Docker/API version, OS/arch, and container counts by state plus image count (`q`/`Esc`/`i` to return). c8s only ever talks to one daemon, so this is its single-daemon analog of a fleet-wide health dashboard rather than a multi-daemon view.
 
 ## Requirements
 
@@ -56,6 +57,7 @@ cargo build --release -p c8s
 | `e` | Exec an interactive shell in the selected container (containers view) |
 | `D` / `Delete` | Remove the selected item in the active view (confirm) |
 | `d` / `Enter` | Describe the selected container, image, volume or network (`q`/`Esc` to return) |
+| `i` | Daemon health panel (version, container counts by state, image count) |
 | `q` / `Ctrl-C` | Quit |
 
 ### Key semantics vs k9s
