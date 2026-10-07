@@ -382,7 +382,10 @@ impl App<'_> {
         };
         let ghost: String = full.chars().skip(typed.chars().count()).collect();
         let x = text_area.x.saturating_add(
-            u16::try_from(typed.chars().count()).unwrap_or(u16::MAX),
+            u16::try_from(unicode_width::UnicodeWidthStr::width(
+                typed.as_str(),
+            ))
+            .unwrap_or(u16::MAX),
         );
         let width = text_area.right().saturating_sub(x);
         if width == 0 {

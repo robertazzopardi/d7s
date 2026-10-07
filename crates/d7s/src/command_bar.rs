@@ -82,6 +82,8 @@ impl App<'_> {
         match (key.modifiers, key.code) {
             (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
             (_, KeyCode::Esc) => self.close_command_bar(),
+            // Ctrl+J would insert a newline into a single-line bar.
+            (KeyModifiers::CONTROL, KeyCode::Char('j' | 'J' | 'm' | 'M')) => {}
             (_, KeyCode::Enter) => {
                 let text = self.command_text();
                 self.close_command_bar();
@@ -127,6 +129,7 @@ impl App<'_> {
         let changes_view = matches!(
             cmd,
             Command::Table(_)
+                | Command::Row(_)
                 | Command::Verb(
                     Verb::Connections
                         | Verb::Schemas
