@@ -1,6 +1,6 @@
 use k9tui::widgets::hotkey::Hotkey;
 
-pub const CONNECTION_HOTKEYS: [Hotkey; 7] = [
+pub const CONNECTION_HOTKEYS: [Hotkey; 8] = [
     Hotkey::new('n', "New Connection"),
     Hotkey::new('e', "Edit Connection"),
     Hotkey::new('D', "Delete Connection"),
@@ -8,14 +8,16 @@ pub const CONNECTION_HOTKEYS: [Hotkey; 7] = [
     Hotkey::new('p', "Ping Health"),
     Hotkey::new('d', "Describe"),
     Hotkey::new('/', "Search"),
+    Hotkey::new(':', "Command"),
 ];
 
-pub const DATABASE_HOTKEYS: [Hotkey; 8] = [
+pub const DATABASE_HOTKEYS: [Hotkey; 9] = [
     Hotkey::new('e', "SQL Editor"),
     Hotkey::new('t', "Table structure"),
     Hotkey::new('d', "Describe"),
     Hotkey::new('E', "Run SQL"),
     Hotkey::new('/', "Search"),
+    Hotkey::new(':', "Command"),
     Hotkey::new('y', "Copy value"),
     Hotkey::new('A', "Activity (Postgres)"),
     Hotkey::new('L', "Query log"),

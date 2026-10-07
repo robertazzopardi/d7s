@@ -77,6 +77,10 @@ pub struct App {
     pub(crate) list_filter: String,
     /// True while the `/` search bar is open for editing in the list view.
     pub(crate) list_search_open: bool,
+    /// With `list_search_open`: the bar is the `:` command line (text in
+    /// `command_text`), not the row filter.
+    pub(crate) command_mode: bool,
+    pub(crate) command_text: String,
     pub(crate) status_line: StatusLine,
     pub(crate) confirm_dialog: Option<ConfirmDialog>,
     /// Resource kind + id pending removal once the confirm dialog resolves.
@@ -125,6 +129,8 @@ impl App {
             networks_all: Vec::new(),
             list_filter: String::new(),
             list_search_open: false,
+            command_mode: false,
+            command_text: String::new(),
             status_line: StatusLine::new(),
             confirm_dialog: None,
             pending_remove: None,

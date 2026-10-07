@@ -1,5 +1,6 @@
 mod app;
 mod app_state;
+mod command;
 mod docker;
 mod event_handlers;
 mod rendering;

@@ -18,10 +18,7 @@ use crate::{
     db::connection::ConnectionType,
     services::{ConnectionService, PasswordService, PreferencesService},
     sql::safety::split_statements,
-    ui::widgets::{
-        connection_modal::{ModalAction, TestResult},
-        help_content::help_rows,
-    },
+    ui::widgets::connection_modal::{ModalAction, TestResult},
 };
 
 const fn is_navigation_key(code: KeyCode) -> bool {
@@ -91,7 +88,7 @@ impl App<'_> {
     }
 
     /// Handles the key events and updates the state of [`App`].
-    #[allow(clippy::future_not_send)]
+    #[allow(clippy::future_not_send, clippy::too_many_lines)]
     pub async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Help view: only toggle/close and quit
         if self.show_help {
@@ -153,6 +150,11 @@ impl App<'_> {
                 }
             }
             return Ok(());
+        }
+
+        // `:` command bar shares the search bar's slot
+        if self.command_mode && self.search_filter.is_some() {
+            return self.handle_command_key(key).await;
         }
 
         // Handle search filter input first
@@ -235,11 +237,7 @@ impl App<'_> {
                 }
             }
             (_, KeyCode::Char('?')) => {
-                self.help_table = TableDataState::new(help_rows(
-                    self.state,
-                    &self.database_explorer.state,
-                ));
-                self.show_help = true;
+                self.open_help();
                 Ok(true)
             }
             (_, KeyCode::Char(c @ '1'..='5')) => {
@@ -320,18 +318,7 @@ impl App<'_> {
                 ) {
                     self.handle_edit_connection();
                 } else if self.state == AppState::DatabaseConnected {
-                    if self
-                        .database_explorer
-                        .sql_executor
-                        .sql_input()
-                        .trim()
-                        .is_empty()
-                        && let Some(sql) =
-                            crate::services::PreferencesService::last_sql()
-                    {
-                        self.database_explorer.sql_executor.set_sql(&sql);
-                    }
-                    self.open_editor_requested = true;
+                    self.request_editor();
                 }
                 Ok(true)
             }
@@ -405,7 +392,11 @@ impl App<'_> {
                 self.export_sql_results_tsv();
                 Ok(true)
             }
-            (_, KeyCode::Char(':' | '#'))
+            (_, KeyCode::Char(':')) => {
+                self.open_command_bar();
+                Ok(true)
+            }
+            (_, KeyCode::Char('#'))
                 if self.state == AppState::DatabaseConnected
                     && matches!(
                         self.database_explorer.state,
@@ -414,18 +405,6 @@ impl App<'_> {
                     && !self.has_active_filter() =>
             {
                 self.modal_manager.open_jump_to_row_modal();
-                Ok(true)
-            }
-            (_, KeyCode::Char('`'))
-                if self.state == AppState::DatabaseConnected
-                    && matches!(
-                        self.database_explorer.state,
-                        DatabaseExplorerState::Tables(_)
-                            | DatabaseExplorerState::TableData(_, _)
-                            | DatabaseExplorerState::Columns(_, _)
-                    ) =>
-            {
-                self.modal_manager.open_jump_to_table_modal();
                 Ok(true)
             }
             (_, KeyCode::Esc) => {
@@ -626,14 +605,6 @@ impl App<'_> {
                     && matches!(key.code, KeyCode::Enter)
                 {
                     self.jump_to_table_row(row).await?;
-                    self.modal_manager.cleanup_closed_modals();
-                    return Ok(());
-                }
-                if let Some(query) =
-                    self.modal_manager.was_jump_to_table_confirmed()
-                    && matches!(key.code, KeyCode::Enter)
-                {
-                    self.jump_to_table_by_name(&query).await?;
                     self.modal_manager.cleanup_closed_modals();
                     return Ok(());
                 }

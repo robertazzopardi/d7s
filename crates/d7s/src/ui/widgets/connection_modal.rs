@@ -54,7 +54,6 @@ pub enum ModalType {
     CellValue,
     Password,
     JumpToRow,
-    JumpToTable,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1633,7 +1632,6 @@ pub struct ModalManager {
     password_modal: Option<TextPromptModal>,
     password_connection: Option<Connection>,
     jump_to_row_modal: Option<TextPromptModal>,
-    jump_to_table_modal: Option<TextPromptModal>,
     active_modal_type: Option<ModalType>,
 }
 
@@ -1653,7 +1651,6 @@ impl ModalManager {
             password_modal: None,
             password_connection: None,
             jump_to_row_modal: None,
-            jump_to_table_modal: None,
             active_modal_type: None,
         }
     }
@@ -1674,7 +1671,6 @@ impl ModalManager {
             || self.cell_value_modal.as_ref().is_some_and(|m| m.is_open)
             || self.password_modal.as_ref().is_some_and(|m| m.is_open)
             || self.jump_to_row_modal.as_ref().is_some_and(|m| m.is_open)
-            || self.jump_to_table_modal.as_ref().is_some_and(|m| m.is_open)
     }
 
     /// Open a new connection modal
@@ -1816,32 +1812,6 @@ impl ModalManager {
         self.jump_to_row_modal.as_ref()
     }
 
-    /// Open the command-mode "jump to table" input (`` ` `` key).
-    pub fn open_jump_to_table_modal(&mut self) {
-        let modal = TextPromptModal::new(" Jump to table ", 40, 7)
-            .with_placeholder("Table name")
-            .with_buttons("Go", "Cancel");
-        self.jump_to_table_modal = Some(modal);
-        self.active_modal_type = Some(ModalType::JumpToTable);
-    }
-
-    /// Typed table name if the jump-to-table modal closed with Go.
-    #[must_use]
-    pub fn was_jump_to_table_confirmed(&self) -> Option<String> {
-        if let Some(modal) = &self.jump_to_table_modal
-            && !modal.is_open
-            && modal.submitted
-        {
-            return Some(modal.input_value());
-        }
-        None
-    }
-
-    #[must_use]
-    pub const fn get_jump_to_table_modal(&self) -> Option<&TextPromptModal> {
-        self.jump_to_table_modal.as_ref()
-    }
-
     /// Connection associated with the currently open (or just-closed) password modal.
     #[must_use]
     pub const fn password_connection(&self) -> Option<&Connection> {
@@ -1884,11 +1854,6 @@ impl ModalManager {
             }
             Some(ModalType::JumpToRow) => {
                 if let Some(modal) = &mut self.jump_to_row_modal {
-                    modal.close();
-                }
-            }
-            Some(ModalType::JumpToTable) => {
-                if let Some(modal) = &mut self.jump_to_table_modal {
                     modal.close();
                 }
             }
@@ -1979,17 +1944,6 @@ impl ModalManager {
             }
             Some(ModalType::JumpToRow) => {
                 if let Some(modal) = &mut self.jump_to_row_modal {
-                    let action = modal.handle_key_events(key);
-                    if !modal.is_open {
-                        self.active_modal_type = None;
-                    }
-                    Self::dialog_to_modal_action(action)
-                } else {
-                    ModalAction::None
-                }
-            }
-            Some(ModalType::JumpToTable) => {
-                if let Some(modal) = &mut self.jump_to_table_modal {
                     let action = modal.handle_key_events(key);
                     if !modal.is_open {
                         self.active_modal_type = None;
@@ -2092,12 +2046,6 @@ impl ModalManager {
             && !modal.is_open
         {
             self.jump_to_row_modal = None;
-        }
-
-        if let Some(modal) = &self.jump_to_table_modal
-            && !modal.is_open
-        {
-            self.jump_to_table_modal = None;
         }
     }
 

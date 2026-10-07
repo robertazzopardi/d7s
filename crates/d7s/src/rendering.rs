@@ -122,14 +122,33 @@ impl App<'_> {
                 search_layout.first().copied().unwrap_or_else(Rect::default);
 
             if let Some(textarea) = &self.search_filter {
+                let title = if self.command_mode {
+                    " Command "
+                } else {
+                    " Filter (current view) "
+                };
                 let filter_block = Block::default()
                     .borders(Borders::ALL)
                     .border_style(theme::border())
-                    .title(" Filter (current view) ")
+                    .title(title)
                     .title_style(theme::title());
                 let inner = filter_block.inner(search_layout_rect);
                 frame.render_widget(filter_block, search_layout_rect);
-                frame.render_widget(textarea, inner);
+                if self.command_mode {
+                    let [prompt, text] = Layout::horizontal([
+                        Constraint::Length(2),
+                        Constraint::Min(0),
+                    ])
+                    .areas(inner);
+                    frame.render_widget(
+                        Paragraph::new(":").style(theme::accent()),
+                        prompt,
+                    );
+                    frame.render_widget(textarea, text);
+                    self.render_command_ghost(frame, text);
+                } else {
+                    frame.render_widget(textarea, inner);
+                }
             }
 
             search_layout.get(1).copied().unwrap_or_else(Rect::default)
@@ -352,10 +371,36 @@ impl App<'_> {
         if let Some(modal) = self.modal_manager.get_jump_to_row_modal() {
             frame.render_widget(modal.clone(), area);
         }
+    }
 
-        if let Some(modal) = self.modal_manager.get_jump_to_table_modal() {
-            frame.render_widget(modal.clone(), area);
+    /// Dimmed best-match completion drawn right after the typed text; its
+    /// first cell is reversed so it doubles as the cursor.
+    fn render_command_ghost(&self, frame: &mut Frame, text_area: Rect) {
+        let typed = self.command_text();
+        let Some(full) = self.command_suggestion() else {
+            return;
+        };
+        let ghost: String = full.chars().skip(typed.chars().count()).collect();
+        let x = text_area.x.saturating_add(
+            u16::try_from(typed.chars().count()).unwrap_or(u16::MAX),
+        );
+        let width = text_area.right().saturating_sub(x);
+        if width == 0 {
+            return;
         }
+        let mut chars = ghost.chars();
+        let first: String = chars.by_ref().take(1).collect();
+        let line = Line::from(vec![
+            Span::styled(
+                first,
+                theme::muted().add_modifier(Modifier::REVERSED),
+            ),
+            Span::styled(chars.collect::<String>(), theme::muted()),
+        ]);
+        frame.render_widget(
+            Paragraph::new(line),
+            Rect::new(x, text_area.y, width, 1),
+        );
     }
 
     pub fn render_database_table(&mut self, frame: &mut Frame, area: Rect) {

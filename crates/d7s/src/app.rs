@@ -69,6 +69,8 @@ pub struct App<'a> {
     pub(crate) database_explorer: DatabaseExplorer,
     /// Search filter widget
     pub(crate) search_filter: Option<TextArea<'a>>,
+    /// When true, `search_filter` is the `:` command bar, not a row filter.
+    pub(crate) command_mode: bool,
     /// Status line widget
     pub(crate) status_line: StatusLine,
     /// Password management service
@@ -111,6 +113,7 @@ impl Default for App<'_> {
             state: AppState::ConnectionList,
             database_explorer: DatabaseExplorer::default(),
             search_filter: None,
+            command_mode: false,
             status_line: StatusLine::new(),
             password_service: PasswordService::new(),
             build_info: String::new(),
@@ -929,7 +932,8 @@ mod tests {
             .unwrap()
             .execute_batch(
                 "CREATE TABLE users(id); CREATE TABLE orders(id);
-                 CREATE TABLE order_items(id);",
+                 CREATE TABLE order_items(id);
+                 INSERT INTO users VALUES (1),(2),(3);",
             )
             .unwrap();
         app.load_tables("sqlite_schema").await.unwrap();
@@ -1005,5 +1009,175 @@ mod tests {
         assert!(text.contains("● up"));
         assert_eq!(text.matches("● down").count(), 2);
         let _ = std::fs::remove_file(&present.path);
+    }
+
+    fn esc() -> KeyEvent {
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)
+    }
+
+    #[allow(clippy::future_not_send)]
+    async fn run_cmd(app: &mut App<'_>, cmd: &str) {
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(app, cmd).await;
+        app.on_key_event(enter()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn colon_bar_types_completes_and_executes() {
+        let mut app = tables_app("cmd_flow").await;
+        app.on_key_event(key(':')).await.unwrap();
+        assert!(app.command_mode && app.search_filter.is_some());
+        type_str(&mut app, "tab").await;
+        assert_eq!(app.command_suggestion().as_deref(), Some("tables"));
+        let text = render_text(&mut app);
+        assert!(text.contains("tables"), "ghost completion rendered");
+        app.on_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(app.command_text(), "tables");
+        app.on_key_event(enter()).await.unwrap();
+        assert!(!app.command_mode && app.search_filter.is_none());
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::Tables("sqlite_schema".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn colon_bar_renders_prompt_and_backspace_edits() {
+        let mut app = tables_app("cmd_render").await;
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "xq").await;
+        app.on_key_event(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(app.command_text(), "x");
+        let text = render_text(&mut app);
+        assert!(text.contains("┤ Command ├") || text.contains(" Command "));
+        assert!(text.contains(": x"), "prompt then typed text");
+        assert!(!text.contains("Filter (current view)"));
+    }
+
+    #[tokio::test]
+    async fn colon_bar_esc_cancels_and_ctrl_c_quits() {
+        let mut app = tables_app("cmd_esc").await;
+        app.running = true;
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "users").await;
+        app.on_key_event(esc()).await.unwrap();
+        assert!(!app.command_mode && app.search_filter.is_none());
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::Tables("sqlite_schema".into())
+        );
+        app.on_key_event(key(':')).await.unwrap();
+        app.on_key_event(KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
+        ))
+        .await
+        .unwrap();
+        assert!(!app.running);
+    }
+
+    #[tokio::test]
+    async fn colon_is_ignored_in_inputs_modals_and_overlays() {
+        let mut app = tables_app("cmd_ignored").await;
+        // Inside the `/` filter bar it is just text.
+        app.on_key_event(key('/')).await.unwrap();
+        app.on_key_event(key(':')).await.unwrap();
+        assert!(!app.command_mode);
+        assert_eq!(app.command_text(), ":");
+        app.on_key_event(esc()).await.unwrap();
+        // Help overlay.
+        app.on_key_event(key('?')).await.unwrap();
+        app.on_key_event(key(':')).await.unwrap();
+        assert!(app.search_filter.is_none() && app.show_help);
+        app.on_key_event(esc()).await.unwrap();
+        // Modal.
+        app.modal_manager.open_new_connection_modal();
+        app.on_key_event(key(':')).await.unwrap();
+        assert!(app.search_filter.is_none() && !app.command_mode);
+    }
+
+    #[tokio::test]
+    async fn view_commands_navigate() {
+        let mut app = tables_app("cmd_nav").await;
+        let schema = "sqlite_schema".to_string();
+        run_cmd(&mut app, "users").await;
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::TableData(schema.clone(), "users".into())
+        );
+        run_cmd(&mut app, "2").await;
+        assert_eq!(
+            app.database_explorer.table_data.as_ref().and_then(|d| d
+                .table
+                .view
+                .state
+                .selected()),
+            Some(1)
+        );
+        run_cmd(&mut app, "columns").await;
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::Columns(schema.clone(), "users".into())
+        );
+        run_cmd(&mut app, "tab").await;
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::Tables(schema.clone())
+        );
+        run_cmd(&mut app, "ord").await;
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::TableData(schema, "orders".into()),
+            "first prefix match (list order) wins"
+        );
+        assert!(
+            render_text(&mut app).contains("2 matches: orders, order_items")
+        );
+    }
+
+    #[tokio::test]
+    async fn utility_commands_and_messages() {
+        let mut app = tables_app("cmd_misc").await;
+        run_cmd(&mut app, "zzz").await;
+        assert!(render_text(&mut app).contains("Unknown command: zzz"));
+        run_cmd(&mut app, "schemas").await;
+        assert!(render_text(&mut app).contains("SQLite has no schemas"));
+        run_cmd(&mut app, "activity").await;
+        assert!(render_text(&mut app).contains("Postgres-only"));
+        run_cmd(&mut app, "123").await;
+        assert!(render_text(&mut app).contains("needs an open table"));
+        run_cmd(&mut app, "sql").await;
+        assert!(app.open_editor_requested);
+        run_cmd(&mut app, "log").await;
+        assert!(app.show_query_log);
+        app.show_query_log = false;
+        run_cmd(&mut app, "help").await;
+        assert!(app.show_help);
+        app.show_help = false;
+        run_cmd(&mut app, "conn").await;
+        assert_eq!(app.state, AppState::ConnectionList);
+        run_cmd(&mut app, "tables").await;
+        assert!(render_text(&mut app).contains("Not connected"));
+        app.running = true;
+        run_cmd(&mut app, "q").await;
+        assert!(!app.running);
+    }
+
+    #[tokio::test]
+    async fn draft_row_blocks_navigation_commands() {
+        let mut app = tables_app("cmd_draft").await;
+        run_cmd(&mut app, "users").await;
+        app.on_key_event(key('a')).await.unwrap();
+        assert!(app.has_table_draft_rows());
+        run_cmd(&mut app, "tables").await;
+        assert!(matches!(
+            app.database_explorer.state,
+            DatabaseExplorerState::TableData(..)
+        ));
+        assert!(render_text(&mut app).contains("Draft row pending"));
     }
 }

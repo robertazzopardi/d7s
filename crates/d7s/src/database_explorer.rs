@@ -21,33 +21,6 @@ use crate::{
 const STATUS_DB_NOT_CONNECTED: &str = "Not connected to database.";
 const STATUS_CONNECT_FAILED: &str = "Failed to connect to database.";
 
-/// Small hardcoded shortcut map for `` ` `` command-mode table jumps
-/// (e.g. `usr` -> `users`). Substring match already covers most cases;
-/// this only helps for abbreviations that aren't substrings of the name.
-const TABLE_ALIASES: &[(&str, &str)] = &[
-    ("usr", "users"),
-    ("acct", "accounts"),
-    ("tx", "transactions"),
-];
-
-/// Resolve a typed table name: alias, then exact, prefix, substring
-/// (case-insensitive); first hit in list order wins within a tier.
-fn match_table_name<'a>(names: &[&'a str], query: &str) -> Option<&'a str> {
-    let query = query.trim();
-    let needle = TABLE_ALIASES
-        .iter()
-        .find(|(alias, _)| alias.eq_ignore_ascii_case(query))
-        .map_or(query, |(_, target)| *target)
-        .to_ascii_lowercase();
-    let lower = |n: &str| n.to_ascii_lowercase();
-    let find = |pred: &dyn Fn(&str) -> bool| {
-        names.iter().copied().find(|n| pred(&lower(n)))
-    };
-    find(&|n| n == needle)
-        .or_else(|| find(&|n| n.starts_with(&needle)))
-        .or_else(|| find(&|n| n.contains(&needle)))
-}
-
 fn column_index_for_name(names: &[String], name: &str) -> Option<usize> {
     names
         .iter()
@@ -324,36 +297,30 @@ impl App<'_> {
         Ok(())
     }
 
-    /// Command-mode table jump (`` ` `` key): fuzzy/substring match a table
-    /// name (or a small hardcoded alias) against the current schema's table
-    /// list and open its data view.
-    pub async fn jump_to_table_by_name(&mut self, query: &str) -> Result<()> {
-        let query = query.trim();
-        if query.is_empty() {
-            return Ok(());
-        }
-        let Some(schema) = self.database_explorer.state.schema_name() else {
+    /// `:<table>`: open the best-matching table of the current schema.
+    /// `candidates` are the same-tier matches, best first.
+    pub async fn jump_to_table_by_name(
+        &mut self,
+        candidates: &[String],
+    ) -> Result<()> {
+        let Some(table_name) = candidates.first() else {
             return Ok(());
         };
-        if self.has_table_draft_rows() {
-            self.set_status("Draft row pending - Esc to discard, s to commit");
-            return Ok(());
-        }
-        let Some(tables) = self.database_explorer.tables.as_ref() else {
-            self.set_status("No tables loaded for this schema.");
+        let Some(schema) = self.command_schema() else {
+            self.set_status("Open a schema first.");
             return Ok(());
         };
-        let names: Vec<&str> =
-            tables.original.iter().map(|t| t.name.as_str()).collect();
-        let matched = match_table_name(&names, query).map(str::to_string);
-
-        match matched {
-            Some(table_name) => {
-                self.load_table_data(&schema, &table_name).await?;
-            }
-            None => {
-                self.set_status(format!("No table matching '{query}'"));
-            }
+        self.load_table_data(&schema, table_name).await?;
+        if candidates.len() > 1
+            && self.database_explorer.state
+                == DatabaseExplorerState::TableData(schema, table_name.clone())
+        {
+            let shown = candidates.iter().take(4).cloned().collect::<Vec<_>>();
+            self.set_status(format!(
+                "{} matches: {}; opened {table_name}",
+                candidates.len(),
+                shown.join(", ")
+            ));
         }
         Ok(())
     }
@@ -584,7 +551,7 @@ impl App<'_> {
         explorer_selected_row_name!(self.database_explorer.schemas)
     }
 
-    fn get_selected_table_name(&self) -> Option<String> {
+    pub(crate) fn get_selected_table_name(&self) -> Option<String> {
         explorer_selected_row_name!(self.database_explorer.tables)
     }
 
@@ -827,31 +794,5 @@ impl App<'_> {
                 self.database_explorer.navigate_current(key);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::match_table_name;
-
-    const NAMES: [&str; 4] = ["accounts", "order_items", "orders", "users"];
-
-    fn find(q: &str) -> Option<&'static str> {
-        match_table_name(&NAMES, q)
-    }
-
-    #[test]
-    fn exact_beats_prefix_beats_substring() {
-        assert_eq!(find("orders"), Some("orders"));
-        assert_eq!(find("ord"), Some("order_items"), "first prefix hit");
-        assert_eq!(find("tems"), Some("order_items"));
-        assert_eq!(find("USERS"), Some("users"));
-    }
-
-    #[test]
-    fn aliases_and_misses() {
-        assert_eq!(find("usr"), Some("users"));
-        assert_eq!(find("acct"), Some("accounts"));
-        assert_eq!(find("nope"), None);
     }
 }

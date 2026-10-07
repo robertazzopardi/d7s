@@ -102,6 +102,10 @@ const CONNECTION_HELP: &[HelpEntry] = &[
         key: "Enter",
         desc: "Connect",
     },
+    HelpEntry {
+        key: ":",
+        desc: "Command bar (:q, :help, :log; Tab completes)",
+    },
 ];
 
 const DATABASE_HELP: &[HelpEntry] = &[
@@ -130,8 +134,8 @@ const DATABASE_HELP: &[HelpEntry] = &[
         desc: "Open recent table",
     },
     HelpEntry {
-        key: "`",
-        desc: "Jump to table by name (current schema)",
+        key: ":",
+        desc: "Command bar (:tables, :sql, :log, :<table>, :123 ... Tab completes)",
     },
     HelpEntry {
         key: "L",
