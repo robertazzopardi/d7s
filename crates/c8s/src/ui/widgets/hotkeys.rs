@@ -2,18 +2,20 @@ use crossterm::event::KeyCode;
 use k9tui::widgets::hotkey::Hotkey;
 
 pub const LIST_HOTKEYS: [Hotkey; 6] = [
-    Hotkey::new('s', "start/stop"),
-    Hotkey::new('r', "restart"),
-    Hotkey::new('l', "logs"),
-    Hotkey::new('e', "exec shell"),
-    Hotkey::new('d', "describe"),
-    Hotkey::new('D', "remove"),
+    Hotkey::new('s', "start/stop").action("start_stop"),
+    Hotkey::new('r', "restart").action("restart"),
+    Hotkey::new('l', "logs").action("logs"),
+    Hotkey::new('e', "exec shell").action("exec"),
+    Hotkey::new('d', "describe").action("describe"),
+    Hotkey::new('D', "remove").action("remove"),
 ];
 
 /// Hotkeys shown for the image/volume/network list views, which only
 /// support navigation and removal (no start/stop/restart/logs/exec).
-pub const RESOURCE_HOTKEYS: [Hotkey; 2] =
-    [Hotkey::new('d', "describe"), Hotkey::new('D', "remove")];
+pub const RESOURCE_HOTKEYS: [Hotkey; 2] = [
+    Hotkey::new('d', "describe").action("describe"),
+    Hotkey::new('D', "remove").action("remove"),
+];
 
 pub const VIEW_SWITCH_HOTKEYS: [Hotkey; 4] = [
     Hotkey::new('1', "containers"),

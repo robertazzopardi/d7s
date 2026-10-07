@@ -8,6 +8,7 @@ mod db;
 mod event_handlers;
 mod filtered_data;
 mod filtering;
+mod keymap;
 mod rendering;
 mod services;
 mod sql;
@@ -72,6 +73,7 @@ fn parse_launch_args() -> color_eyre::Result<Option<String>> {
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
+    let mut warnings = k9tui::theme::load_skin(PKG_NAME);
     let launch_connection = parse_launch_args()?;
     let terminal = ratatui::init();
     execute!(stdout(), EnableBracketedPaste)?;
@@ -81,11 +83,20 @@ async fn main() -> color_eyre::Result<()> {
         prev_hook(info);
     }));
     let mut app = App::default().init()?;
+    let (keymap, key_warnings) = keymap::load();
+    app.keymap = keymap;
+    warnings.extend(key_warnings);
+    if !warnings.is_empty() {
+        app.set_status(format!("Config: {}", warnings.join("; ")));
+    }
     if let Some(name) = launch_connection {
         app.connect_to_named_connection(&name).await?;
     }
     let result = app.run(terminal).await;
     let _ = execute!(stdout(), DisableBracketedPaste);
     ratatui::restore();
+    for w in &warnings {
+        eprintln!("{PKG_NAME}: {w}");
+    }
     result
 }

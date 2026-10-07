@@ -63,6 +63,7 @@ pub struct App<'a> {
     pub(crate) running: bool,
     pub(crate) modal_manager: ModalManager,
     pub(crate) hotkeys: Vec<Hotkey>,
+    pub(crate) keymap: k9tui::keymap::Keymap,
     /// Current application state
     pub(crate) state: AppState,
     /// Database explorer state (when connected to a database)
@@ -108,6 +109,7 @@ impl Default for App<'_> {
             running: false,
             modal_manager: ModalManager::new(),
             hotkeys: CONNECTION_HOTKEYS.to_vec(),
+            keymap: crate::keymap::defaults(),
             state: AppState::ConnectionList,
             database_explorer: DatabaseExplorer::default(),
             search_filter: None,

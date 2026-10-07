@@ -147,6 +147,54 @@ SQL results:
 
 Paste works in connection/cell/password modals and the search bar (bracketed paste).
 
+## Configuration
+
+### Skin (colors)
+
+Drop a `~/.config/d7s/skin.yml` to override theme colors. Any color omitted
+keeps its built-in default; if the file is absent, d7s uses the built-in
+theme unchanged. Colors are ANSI names (`white`, `darkgray`, `cyan`, ...) or
+`#rrggbb` hex.
+
+```yaml
+colors:
+  text: white
+  focus: "#ffcc00"
+  error: red
+  success: green
+  info: cyan
+```
+
+Available color names: `muted`, `text`, `focus`, `on_focus`, `selection_fg`,
+`selection_bg`, `bg_alt`, `draft`, `multi_select`, `info`, `error`,
+`success`, `warning`, `link`.
+
+### Key bindings
+
+Drop a `~/.config/d7s/keys.yml` to remap the action hotkeys shown in the
+hotkey bar (not vim-style navigation, quit, help, or Esc). It's a flat map
+of action name to a single character or a named key (`esc`, `enter`, `tab`,
+`f1`–`f12`, `pageup`, ...):
+
+```yaml
+new_connection: n
+delete_connection: x
+refresh: f5
+```
+
+Remappable actions (default key): `new_connection` (`n`), `edit_connection`
+(`e`), `delete_connection` (`D`), `describe` (`d`), `open_connection` (`o`),
+`sql_editor` (`e`), `table_structure` (`t`), `run_sql` (`E`), `copy_value`
+(`y`), `refresh` (`r`), `new_row` (`a`), `duplicate_row` (`c`), `commit_row`
+(`s`), `delete_row` (`D`). Uppercase aliases of the table-view actions stay.
+`/`, `:`, `w`, `L`, `A`, `O`, `x`, quit, help and vim navigation are not
+remappable. The hotkey bar shows remapped keys; the `?` help panel still lists
+the default keys.
+
+Bad entries (unknown action, unknown key name, invalid YAML) are ignored with
+a one-line warning in the status bar; defaults stay in force. Bind each key
+to one action per screen, since conflicts are not detected.
+
 ### Key semantics vs k9s
 
 - `y` copies the selected cell value (and `Y` the row as TSV) here, unlike

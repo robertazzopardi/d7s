@@ -83,16 +83,20 @@ impl App<'_> {
             self.database_explorer.state,
             DatabaseExplorerState::TableData(_, _)
         ) {
-            self.hotkeys
-                .iter()
-                .chain(TABLE_DATA_VIEW_HOTKEYS.iter())
-                .cloned()
-                .collect()
+            self.keymap.relabel(
+                &self
+                    .hotkeys
+                    .iter()
+                    .chain(TABLE_DATA_VIEW_HOTKEYS.iter())
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
         } else {
             Vec::new()
         };
+        let relabelled = self.keymap.relabel(&self.hotkeys);
         let hotkey_bar: &[Hotkey] = if table_data_ext.is_empty() {
-            &self.hotkeys
+            &relabelled
         } else {
             &table_data_ext
         };

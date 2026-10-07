@@ -29,6 +29,8 @@ impl HotkeyDescription {
 pub struct Hotkey {
     pub keycode: KeyCode,
     pub description: HotkeyDescription,
+    /// Keymap action this hotkey displays, so the bar can show remapped keys.
+    pub action: Option<&'static str>,
 }
 
 impl Display for Hotkey {
@@ -43,7 +45,15 @@ impl Hotkey {
         Self {
             keycode: KeyCode::Char(c),
             description: HotkeyDescription::Static(description),
+            action: None,
         }
+    }
+
+    /// Tag with the keymap action this hotkey triggers.
+    #[must_use]
+    pub const fn action(mut self, action: &'static str) -> Self {
+        self.action = Some(action);
+        self
     }
 
     #[must_use]
@@ -51,6 +61,7 @@ impl Hotkey {
         Self {
             keycode,
             description: HotkeyDescription::Static(description),
+            action: None,
         }
     }
 

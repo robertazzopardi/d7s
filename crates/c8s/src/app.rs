@@ -81,6 +81,7 @@ pub struct App {
     pub(crate) confirm_dialog: Option<ConfirmDialog>,
     /// Resource kind + id pending removal once the confirm dialog resolves.
     pub(crate) pending_remove: Option<(ResourceKind, String)>,
+    pub(crate) keymap: k9tui::keymap::Keymap,
     pub(crate) log_lines: Vec<Line<'static>>,
     /// Absolute index of the first visible log line, synced each render.
     pub(crate) log_scroll: usize,
@@ -115,6 +116,7 @@ impl App {
             view: ResourceKind::default(),
             docker: None,
             hotkeys: crate::ui::widgets::hotkeys::LIST_HOTKEYS.to_vec(),
+            keymap: crate::keymap::defaults(),
             containers: TableDataState::new(Vec::new()),
             images: TableDataState::new(Vec::new()),
             volumes: TableDataState::new(Vec::new()),
