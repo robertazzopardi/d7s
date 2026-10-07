@@ -30,9 +30,8 @@ async fn main() -> color_eyre::Result<()> {
     let (keymap, key_warnings) = keymap::load();
     app.keymap = keymap;
     warnings.extend(key_warnings);
-    if !warnings.is_empty() {
-        app.status_line
-            .set_message(format!("Config: {}", warnings.join("; ")));
+    if let Some(summary) = k9tui::config_dir::summarize_warnings(&warnings) {
+        app.status_line.set_message(summary);
     }
     let result = app.run(terminal).await;
 

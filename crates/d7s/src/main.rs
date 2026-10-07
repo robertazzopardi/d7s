@@ -86,8 +86,8 @@ async fn main() -> color_eyre::Result<()> {
     let (keymap, key_warnings) = keymap::load();
     app.keymap = keymap;
     warnings.extend(key_warnings);
-    if !warnings.is_empty() {
-        app.set_status(format!("Config: {}", warnings.join("; ")));
+    if let Some(summary) = k9tui::config_dir::summarize_warnings(&warnings) {
+        app.set_status(summary);
     }
     if let Some(name) = launch_connection {
         app.connect_to_named_connection(&name).await?;
