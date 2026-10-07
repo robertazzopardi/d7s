@@ -77,7 +77,6 @@ impl Hotkey {
     }
 
     #[must_use]
-    #[allow(dead_code)]
     pub fn length(&self) -> u16 {
         let key_len = u16::try_from(self.key_label().len()).unwrap_or(1);
         let desc_len = u16::try_from(UnicodeWidthStr::width(

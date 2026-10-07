@@ -337,7 +337,7 @@ mod tests {
 
     fn render(app: &mut App) -> Buffer {
         let mut terminal =
-            Terminal::new(TestBackend::new(160, 24)).expect("test terminal");
+            Terminal::new(TestBackend::new(120, 24)).expect("test terminal");
         terminal.draw(|f| app.render(f)).expect("draw");
         terminal.backend().buffer().clone()
     }
