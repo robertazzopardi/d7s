@@ -9,12 +9,12 @@ use crate::{
     widgets::{hotkey::Hotkey, hotkey_view::HotkeyView},
 };
 
-/// Flex weights for the four middle segments (info / recent / primary / global hotkeys).
-const MAIN_COLUMN_FILLS: [Constraint; 4] = [
+/// Flex weights for the info / recent / primary hotkey segments; the global
+/// hotkey segment is sized to its content so long labels are not clipped.
+const MAIN_COLUMN_FILLS: [Constraint; 3] = [
     Constraint::Fill(24),
     Constraint::Fill(20),
     Constraint::Fill(36),
-    Constraint::Fill(12),
 ];
 // Second row is a blank spacer before the box below — no rule drawn into it.
 const ROW_CONSTRAINTS: [Constraint; 2] =
@@ -56,10 +56,21 @@ impl Widget for TopBarView<'_> {
         .spacing(1)
         .areas(row);
 
-        let [app_info_cell, recent_cell, hotkey_cell, global_cell] =
+        // Global hotkeys get exactly the width they need (capped at a third
+        // of the bar so the other segments are never starved).
+        let global_width = HotkeyView::new(self.global_hotkeys)
+            .required_width(main_area.height)
+            .min(main_area.width / 3);
+        let [left_area, global_cell] = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Length(global_width),
+        ])
+        .spacing(1)
+        .areas(main_area);
+        let [app_info_cell, recent_cell, hotkey_cell] =
             Layout::horizontal(MAIN_COLUMN_FILLS)
                 .spacing(1)
-                .areas(main_area);
+                .areas(left_area);
 
         if let Some(build_info) = &self.build_info {
             render_info_stack(build_info, app_info_cell, buf);
@@ -123,4 +134,62 @@ fn render_info_stack(text: &str, area: Rect, buf: &mut Buffer) {
         })
         .collect();
     Paragraph::new(lines).render(area, buf);
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    use super::*;
+
+    fn render_text(width: u16, global: &[Hotkey]) -> String {
+        let hotkeys = [
+            Hotkey::new('d', "describe"),
+            Hotkey::new('l', "logs"),
+            Hotkey::new('s', "start"),
+            Hotkey::new('x', "stop"),
+            Hotkey::new('r', "restart"),
+            Hotkey::new('D', "delete"),
+        ];
+        let mut terminal =
+            Terminal::new(TestBackend::new(width, 8)).expect("terminal");
+        terminal
+            .draw(|f| {
+                f.render_widget(
+                    TopBarView {
+                        summary: "Containers: 3",
+                        recent_hotkeys: &[],
+                        hotkeys: &hotkeys,
+                        global_hotkeys: global,
+                        app_name: "  c8s\n  ___\n",
+                        build_info: None,
+                    },
+                    f.area(),
+                );
+            })
+            .expect("draw");
+        let buf = terminal.backend().buffer();
+        (0..buf.area.height)
+            .map(|y| {
+                (0..buf.area.width)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn long_global_hint_not_truncated_at_120_cols() {
+        let global = [
+            Hotkey::new('1', "containers"),
+            Hotkey::new('2', "images"),
+            Hotkey::new('3', "volumes"),
+            Hotkey::new('4', "networks"),
+            Hotkey::new('/', "search"),
+            Hotkey::new('q', "clear filter"),
+        ];
+        let text = render_text(120, &global);
+        assert!(text.contains("clear filter"), "{text}");
+    }
 }

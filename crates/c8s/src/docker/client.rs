@@ -14,6 +14,40 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::{ContainerRow, ImageRow, NetworkRow, VolumeRow};
 
+/// Snapshot of daemon-level health/info — c8s's single-daemon analog of a
+/// fleet-wide health dashboard (there's only ever one daemon to summarize).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DaemonHealth {
+    pub server_version: String,
+    pub api_version: String,
+    pub os: String,
+    pub arch: String,
+    pub containers_running: i64,
+    pub containers_paused: i64,
+    pub containers_stopped: i64,
+    pub images: i64,
+}
+
+/// Upper bound for the daemon health probe.
+const HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+impl DaemonHealth {
+    /// Lines shown in the health panel.
+    #[must_use]
+    pub fn lines(&self) -> Vec<String> {
+        vec![
+            format!("Docker version: {}", self.server_version),
+            format!("API version: {}", self.api_version),
+            format!("OS/Arch: {}/{}", self.os, self.arch),
+            String::new(),
+            format!("Containers running: {}", self.containers_running),
+            format!("Containers paused: {}", self.containers_paused),
+            format!("Containers stopped: {}", self.containers_stopped),
+            format!("Images: {}", self.images),
+        ]
+    }
+}
+
 /// Thin wrapper around a bollard `Docker` handle, scoped to what c8s needs.
 #[derive(Clone)]
 pub struct DockerClient {
@@ -45,6 +79,33 @@ impl DockerClient {
     pub async fn ping(&self) -> Result<()> {
         self.docker.ping().await?;
         Ok(())
+    }
+
+    /// Cheap daemon-level summary (version + container counts by state), for
+    /// c8s's health panel. Two lightweight API calls issued concurrently, with
+    /// a hard timeout so a wedged daemon can't freeze the UI (the caller
+    /// awaits this on the event loop).
+    pub async fn daemon_health(&self) -> Result<DaemonHealth> {
+        let (version, info) = tokio::time::timeout(HEALTH_TIMEOUT, async {
+            tokio::try_join!(self.docker.version(), self.docker.info())
+        })
+        .await
+        .map_err(|_| {
+            color_eyre::eyre::eyre!(
+                "timed out after {}s",
+                HEALTH_TIMEOUT.as_secs()
+            )
+        })??;
+        Ok(DaemonHealth {
+            server_version: version.version.unwrap_or_default(),
+            api_version: version.api_version.unwrap_or_default(),
+            os: version.os.unwrap_or_default(),
+            arch: version.arch.unwrap_or_default(),
+            containers_running: info.containers_running.unwrap_or_default(),
+            containers_paused: info.containers_paused.unwrap_or_default(),
+            containers_stopped: info.containers_stopped.unwrap_or_default(),
+            images: info.images.unwrap_or_default(),
+        })
     }
 
     pub async fn list_containers(&self) -> Result<Vec<ContainerRow>> {
@@ -187,5 +248,43 @@ impl DockerClient {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn health_lines_format_every_field() {
+        let h = DaemonHealth {
+            server_version: "28.0.1".into(),
+            api_version: "1.48".into(),
+            os: "linux".into(),
+            arch: "arm64".into(),
+            containers_running: 3,
+            containers_paused: 1,
+            containers_stopped: 7,
+            images: 12,
+        };
+        assert_eq!(
+            h.lines(),
+            vec![
+                "Docker version: 28.0.1",
+                "API version: 1.48",
+                "OS/Arch: linux/arm64",
+                "",
+                "Containers running: 3",
+                "Containers paused: 1",
+                "Containers stopped: 7",
+                "Images: 12",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn daemon_health_fails_fast_when_unreachable() {
+        let res = DockerClient::unreachable().daemon_health().await;
+        assert!(res.is_err());
     }
 }

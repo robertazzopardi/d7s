@@ -17,6 +17,20 @@ impl<'a> HotkeyView<'a> {
     }
 }
 
+impl HotkeyView<'_> {
+    /// Width needed to show every hotkey untruncated in `height` rows
+    /// (single column: widest label; multiple columns: whole 30-col columns).
+    #[must_use]
+    pub fn required_width(&self, height: u16) -> u16 {
+        let h = usize::from(height.max(1));
+        if self.hotkeys.len() > h {
+            let cols = self.hotkeys.len().div_ceil(h);
+            return u16::try_from(cols * 30).unwrap_or(u16::MAX);
+        }
+        self.hotkeys.iter().map(Hotkey::length).max().unwrap_or(0)
+    }
+}
+
 fn hotkey_line(hotkey: &Hotkey) -> Line<'static> {
     Line::from(vec![
         Span::styled("<", theme::muted()),

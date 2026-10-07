@@ -686,6 +686,7 @@ pub fn get_connections() -> Result<Vec<Connection>> {
                 table: None,
                 password: None,
                 password_storage,
+                status: crate::db::connection::ConnectionStatus::default(),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;

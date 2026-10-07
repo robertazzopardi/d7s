@@ -4,8 +4,8 @@ use crate::{
     app::App,
     app_state::{AppState, DatabaseExplorerState},
     database_explorer_state::DatabaseExplorer,
-    db::connection::{Connection, ConnectionType},
-    services::PreferencesService,
+    db::connection::{Connection, ConnectionStatus, ConnectionType},
+    services::{ConnectionService, PreferencesService},
     ui::widgets::hotkeys::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS},
 };
 
@@ -154,6 +154,43 @@ impl App<'_> {
             .state
             .select(Some(idx));
         self.connect_to_database().await
+    }
+
+    /// Ping every saved connection concurrently (credential-free reachability
+    /// probe, see `ConnectionService::ping`) and update each row's status column.
+    /// Bounded by a per-probe timeout, so the UI is blocked for a few seconds at
+    /// most. Statuses are written to both the unfiltered list and the visible
+    /// (possibly filtered) rows so clearing a search keeps them.
+    pub async fn check_connections_health(&mut self) {
+        let connections = &mut self.database_explorer.connections;
+        let mut set = tokio::task::JoinSet::new();
+        for connection in connections.original.clone() {
+            set.spawn(async move {
+                let up = ConnectionService::ping(&connection).await;
+                (connection.name, up)
+            });
+        }
+
+        // A probe task that panics is reported as Down rather than left "Checking".
+        let mut up_names = std::collections::HashSet::new();
+        while let Some(result) = set.join_next().await {
+            if let Ok((name, true)) = result {
+                up_names.insert(name);
+            }
+        }
+        let apply = |items: &mut [Connection]| {
+            for item in items {
+                item.status = if up_names.contains(&item.name) {
+                    ConnectionStatus::Up
+                } else {
+                    ConnectionStatus::Down
+                };
+            }
+        };
+        apply(&mut connections.original);
+        apply(&mut connections.table.model.items);
+
+        self.set_status("Connection health check complete.");
     }
 
     /// Disconnect from the current database

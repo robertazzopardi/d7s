@@ -98,6 +98,28 @@ pub struct Connection {
     pub password: Option<String>,
     /// Where to store password: `keyring` or `dont_save`.
     pub password_storage: Option<String>,
+    /// Runtime-only health status from the last `p` ping check (not persisted).
+    pub status: ConnectionStatus,
+}
+
+/// Result of the `p` reachability check (TCP connect / file exists), not a login.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConnectionStatus {
+    #[default]
+    Unknown,
+    Up,
+    Down,
+}
+
+impl ConnectionStatus {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Unknown => "",
+            Self::Up => "● up",
+            Self::Down => "● down",
+        }
+    }
 }
 
 impl Display for Connection {
@@ -151,6 +173,7 @@ impl TableData for Connection {
             ),
             self.environment.to_string(),
             self.auth_badge().to_string(),
+            self.status.label().to_string(),
         ]
     }
 
@@ -159,12 +182,24 @@ impl TableData for Connection {
     }
 
     fn cols() -> Vec<&'static str> {
-        vec!["Name", "Type", "Url", "Env", "Auth"]
+        vec!["Name", "Type", "Url", "Env", "Auth", "Status"]
     }
 
     fn cell_style(&self, column: usize) -> Option<ratatui::style::Style> {
         if column == Self::ENV_COLUMN {
             Some(theme::env_style(self.environment))
+        } else if column == Self::STATUS_COLUMN {
+            match self.status {
+                ConnectionStatus::Up => Some(
+                    ratatui::style::Style::default()
+                        .fg(ratatui::style::Color::Green),
+                ),
+                ConnectionStatus::Down => Some(
+                    ratatui::style::Style::default()
+                        .fg(ratatui::style::Color::Red),
+                ),
+                ConnectionStatus::Unknown => None,
+            }
         } else {
             None
         }
@@ -217,7 +252,9 @@ fn truncate_display_url(url: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_display_url;
+    use super::{
+        Connection, ConnectionStatus, TableData, truncate_display_url,
+    };
 
     #[test]
     fn truncate_keeps_url_tail() {
@@ -226,6 +263,34 @@ mod tests {
         assert!(out.starts_with('…'));
         assert!(out.ends_with("d7s.db"));
         assert!(out.chars().count() <= 20);
+    }
+
+    #[test]
+    fn status_labels_and_column() {
+        assert_eq!(ConnectionStatus::Unknown.label(), "");
+        assert_eq!(ConnectionStatus::Up.label(), "● up");
+        assert_eq!(ConnectionStatus::Down.label(), "● down");
+
+        let c = Connection {
+            status: ConnectionStatus::Down,
+            ..Connection::default()
+        };
+        assert_eq!(
+            Connection::cols().get(Connection::STATUS_COLUMN),
+            Some(&"Status")
+        );
+        assert_eq!(
+            c.ref_array()
+                .get(Connection::STATUS_COLUMN)
+                .map(String::as_str),
+            Some("● down")
+        );
+        assert!(c.cell_style(Connection::STATUS_COLUMN).is_some());
+        assert!(
+            Connection::default()
+                .cell_style(Connection::STATUS_COLUMN)
+                .is_none()
+        );
     }
 }
 
@@ -332,6 +397,8 @@ impl Connection {
 
     /// Environment column index in the connections table.
     pub const ENV_COLUMN: usize = 3;
+    /// Status column index in the connections table.
+    pub const STATUS_COLUMN: usize = 5;
 }
 
 /// Result of parsing a connection string. Used to prefill the connection form.

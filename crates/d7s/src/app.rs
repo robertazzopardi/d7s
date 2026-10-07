@@ -754,7 +754,7 @@ mod tests {
 
     use super::*;
     use crate::db::{
-        connection::{Connection, ConnectionType},
+        connection::{Connection, ConnectionStatus, ConnectionType},
         query_log::{QueryLogEntry, QueryOrigin, tests::temp_sqlite},
     };
 
@@ -921,5 +921,65 @@ mod tests {
         assert_eq!(e.origin, QueryOrigin::Watch);
         assert_eq!(e.sql, "SELECT a FROM t");
         assert_eq!(e.outcome, Ok(1));
+    }
+
+    fn sqlite_conn(name: &str, path: &str) -> Connection {
+        Connection {
+            name: name.into(),
+            r#type: ConnectionType::Sqlite,
+            url: path.into(),
+            ..Connection::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn p_pings_all_connections_and_statuses_survive_filter_clear() {
+        let present = temp_sqlite("ping-present");
+        std::fs::write(&present.path, b"").unwrap();
+        let missing = temp_sqlite("ping-missing");
+        // A port that was just free, so nothing is listening on it.
+        let closed_port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        let pg = Connection {
+            name: "pg-down".into(),
+            r#type: ConnectionType::Postgres,
+            url: format!("postgres://u@127.0.0.1:{closed_port}/db"),
+            ..Connection::default()
+        };
+
+        let mut app = App::default();
+        app.database_explorer.connections = FilteredData::new(vec![
+            sqlite_conn("present", &present.path),
+            sqlite_conn("missing", &missing.path),
+            pg,
+        ]);
+        // Filtered view shows only one row; the ping must still cover all.
+        app.database_explorer.connections.apply_filter("present");
+        app.on_key_event(key('p')).await.unwrap();
+
+        let status = |c: &FilteredData<Connection>| {
+            c.original.iter().map(|c| c.status).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            status(&app.database_explorer.connections),
+            vec![
+                ConnectionStatus::Up,
+                ConnectionStatus::Down,
+                ConnectionStatus::Down
+            ]
+        );
+        assert!(
+            !std::path::Path::new(&missing.path).exists(),
+            "ping must not create a missing sqlite file"
+        );
+
+        app.database_explorer.connections.clear_filter();
+        let text = render_text(&mut app);
+        assert!(text.contains("Status"));
+        assert!(text.contains("● up"));
+        assert_eq!(text.matches("● down").count(), 2);
+        let _ = std::fs::remove_file(&present.path);
     }
 }
