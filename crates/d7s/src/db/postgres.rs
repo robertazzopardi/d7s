@@ -1369,4 +1369,46 @@ mod tests {
         assert_eq!(n.unwrap()[0].values[0], "1");
         assert!(e.unwrap().is_empty());
     }
+
+    /// Needs `just docker-up`. Exercises the real tokio-postgres path of
+    /// `$1::text::regclass` with a quote in the table name.
+    #[tokio::test]
+    #[ignore = "requires docker test database"]
+    async fn table_size_and_indexes_with_odd_names() {
+        let pg = Postgres {
+            name: "test".into(),
+            host: Some("localhost".into()),
+            port: Some("5432".into()),
+            user: "d7s_user".into(),
+            database: "d7s_test".into(),
+            password: "d7s_password".into(),
+        };
+        let pid = std::process::id();
+        let odd = format!("Odd'Tbl_{pid}");
+        let plain = format!("d7s_size_{pid}");
+        for t in [&odd, &plain] {
+            pg.execute_sql(&format!(
+                "CREATE TABLE {} (id int PRIMARY KEY)",
+                pg_quote_ident(t)
+            ))
+            .await
+            .unwrap();
+        }
+        let mut got = Vec::new();
+        for t in [&odd, &plain] {
+            let size = pg.get_table_size("public", t).await;
+            let idx = pg.get_table_index_names("public", t).await;
+            got.push((size, idx));
+        }
+        for t in [&odd, &plain] {
+            pg.execute_sql(&format!("DROP TABLE {}", pg_quote_ident(t)))
+                .await
+                .unwrap();
+        }
+        for ((size, idx), t) in got.into_iter().zip([&odd, &plain]) {
+            let size = size.unwrap().unwrap();
+            assert!(size.ends_with("kB") || size.ends_with("bytes"), "{size}");
+            assert_eq!(idx.unwrap(), vec![format!("{t}_pkey")]);
+        }
+    }
 }
