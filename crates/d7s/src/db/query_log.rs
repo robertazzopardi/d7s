@@ -73,10 +73,7 @@ impl TableData for QueryLogEntry {
             self.origin.label().to_string(),
             format!("{}ms", self.duration.as_millis()),
             outcome,
-            one_line(&self.sql)
-                .chars()
-                .take(SQL_DISPLAY_CHARS)
-                .collect(),
+            clip_chars(&one_line(&self.sql), SQL_DISPLAY_CHARS),
         ]
     }
 
@@ -98,6 +95,16 @@ impl TableData for QueryLogEntry {
         }
         None
     }
+}
+
+/// At most `max` chars (never byte-slices), ending in `…` when cut.
+fn clip_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
 
 fn one_line(s: &str) -> String {
