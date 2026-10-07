@@ -5,7 +5,7 @@ use crate::{
     app_state::{AppState, DatabaseExplorerState},
     database_explorer_state::DatabaseExplorer,
     db::connection::{Connection, ConnectionStatus, ConnectionType},
-    services::PreferencesService,
+    services::{ConnectionService, PreferencesService},
     ui::widgets::hotkeys::{CONNECTION_HOTKEYS, DATABASE_HOTKEYS},
 };
 
@@ -59,7 +59,7 @@ impl App<'_> {
         &mut self,
         connection: Connection,
     ) -> Result<()> {
-        let sqlite = connection.to_sqlite();
+        let sqlite = self.query_log.wrap(connection.to_sqlite());
         if !sqlite.test().await {
             self.set_status(format!(
                 "Failed to connect to database: {}",
@@ -101,6 +101,7 @@ impl App<'_> {
         let mut temp_connection = connection_with_password.clone();
         temp_connection.selected_database = Some(default_db.clone());
         let postgres = temp_connection.to_postgres();
+        let postgres = self.query_log.wrap(postgres);
 
         if postgres.test().await {
             // Connection successful; keep selected_database so explorer is on "postgres"
@@ -155,46 +156,39 @@ impl App<'_> {
         self.connect_to_database().await
     }
 
-    /// Ping every saved connection concurrently (`SELECT 1` for Postgres, a cheap
-    /// open for `SQLite`) and update each row's status column in place. This is a
-    /// lightweight reachability check, not a full connect.
+    /// Ping every saved connection concurrently (credential-free reachability
+    /// probe, see `ConnectionService::ping`) and update each row's status column.
+    /// Bounded by a per-probe timeout, so the UI is blocked for a few seconds at
+    /// most. Statuses are written to both the unfiltered list and the visible
+    /// (possibly filtered) rows so clearing a search keeps them.
     pub async fn check_connections_health(&mut self) {
-        for item in
-            &mut self.database_explorer.connections.table.model.items
-        {
-            item.status = ConnectionStatus::Checking;
-        }
-        let snapshot: Vec<Connection> =
-            self.database_explorer.connections.table.model.items.clone();
-
+        let connections = &mut self.database_explorer.connections;
         let mut set = tokio::task::JoinSet::new();
-        for (idx, connection) in snapshot.into_iter().enumerate() {
+        for connection in connections.original.clone() {
             set.spawn(async move {
-                let db = match connection.r#type {
-                    ConnectionType::Postgres => connection.to_postgres(),
-                    ConnectionType::Sqlite => connection.to_sqlite(),
-                };
-                (idx, db.test().await)
+                let up = ConnectionService::ping(&connection).await;
+                (connection.name, up)
             });
         }
 
+        // A probe task that panics is reported as Down rather than left "Checking".
+        let mut up_names = std::collections::HashSet::new();
         while let Some(result) = set.join_next().await {
-            let Ok((idx, reachable)) = result else {
-                continue;
-            };
-            let status =
-                if reachable { ConnectionStatus::Up } else { ConnectionStatus::Down };
-            if let Some(item) = self
-                .database_explorer
-                .connections
-                .table
-                .model
-                .items
-                .get_mut(idx)
-            {
-                item.status = status;
+            if let Ok((name, true)) = result {
+                up_names.insert(name);
             }
         }
+        let apply = |items: &mut [Connection]| {
+            for item in items {
+                item.status = if up_names.contains(&item.name) {
+                    ConnectionStatus::Up
+                } else {
+                    ConnectionStatus::Down
+                };
+            }
+        };
+        apply(&mut connections.original);
+        apply(&mut connections.table.model.items);
 
         self.set_status("Connection health check complete.");
     }

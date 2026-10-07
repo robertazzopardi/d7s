@@ -8,17 +8,21 @@ use crossterm::{
     execute,
 };
 use k9tui::widgets::{
-    hotkey::Hotkey, modal::ConfirmDialog, status_line::StatusLine,
-    table::TableDataState,
+    hotkey::Hotkey,
+    modal::ConfirmDialog,
+    status_line::StatusLine,
+    table::{TableData, TableDataState, filter_rows},
 };
-use ratatui::{DefaultTerminal, text::Line};
+use ratatui::{DefaultTerminal, Terminal, backend::Backend, text::Line};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
 
 use crate::{
-    app_state::AppState,
-    docker::{ContainerRow, client::DockerClient},
+    app_state::{AppState, ResourceKind},
+    docker::{
+        ContainerRow, ImageRow, NetworkRow, VolumeRow, client::DockerClient,
+    },
 };
 
 pub const APP_NAME: &str = r"         ______
@@ -38,22 +42,45 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 pub enum BackgroundEvent {
     /// Container list refreshed by the poller.
     Containers(Vec<ContainerRow>),
+    /// Image list refreshed by the poller.
+    Images(Vec<ImageRow>),
+    /// Volume list refreshed by the poller.
+    Volumes(Vec<VolumeRow>),
+    /// Network list refreshed by the poller.
+    Networks(Vec<NetworkRow>),
     /// The poller failed to reach the daemon (e.g. it was stopped mid-session).
     PollError(String),
     /// One log line from the active log-tail task.
     LogLine(String),
 }
 
+#[allow(clippy::struct_excessive_bools)]
 pub struct App {
     pub(crate) running: bool,
     pub(crate) state: AppState,
+    /// Which resource table the list view currently shows.
+    pub(crate) view: ResourceKind,
     pub(crate) docker: Option<DockerClient>,
     pub(crate) hotkeys: Vec<Hotkey>,
     pub(crate) containers: TableDataState<ContainerRow>,
+    pub(crate) images: TableDataState<ImageRow>,
+    pub(crate) volumes: TableDataState<VolumeRow>,
+    pub(crate) networks: TableDataState<NetworkRow>,
+    /// Unfiltered rows from the last poll, kept so the `/` filter can be
+    /// re-applied (or cleared) without waiting for the next poll tick.
+    pub(crate) containers_all: Vec<ContainerRow>,
+    pub(crate) images_all: Vec<ImageRow>,
+    pub(crate) volumes_all: Vec<VolumeRow>,
+    pub(crate) networks_all: Vec<NetworkRow>,
+    /// Case-insensitive substring filter applied to the active list view(s).
+    /// Empty = no filter.
+    pub(crate) list_filter: String,
+    /// True while the `/` search bar is open for editing in the list view.
+    pub(crate) list_search_open: bool,
     pub(crate) status_line: StatusLine,
     pub(crate) confirm_dialog: Option<ConfirmDialog>,
-    /// Container id pending removal once the confirm dialog resolves.
-    pub(crate) pending_remove: Option<String>,
+    /// Resource kind + id pending removal once the confirm dialog resolves.
+    pub(crate) pending_remove: Option<(ResourceKind, String)>,
     pub(crate) log_lines: Vec<Line<'static>>,
     /// Absolute index of the first visible log line, synced each render.
     pub(crate) log_scroll: usize,
@@ -65,6 +92,10 @@ pub struct App {
     pub(crate) log_filter: String,
     /// True while the `/` search bar is open for editing.
     pub(crate) log_search_open: bool,
+    /// Absolute index of the first visible line in the describe view.
+    pub(crate) describe_scroll: usize,
+    /// Height of the last-rendered describe viewport, used to clamp scrolling.
+    pub(crate) describe_viewport_height: usize,
     pub(crate) build_info: String,
 
     pub(crate) bg_tx: UnboundedSender<BackgroundEvent>,
@@ -81,9 +112,19 @@ impl App {
         Self {
             running: false,
             state: AppState::default(),
+            view: ResourceKind::default(),
             docker: None,
             hotkeys: crate::ui::widgets::hotkeys::LIST_HOTKEYS.to_vec(),
             containers: TableDataState::new(Vec::new()),
+            images: TableDataState::new(Vec::new()),
+            volumes: TableDataState::new(Vec::new()),
+            networks: TableDataState::new(Vec::new()),
+            containers_all: Vec::new(),
+            images_all: Vec::new(),
+            volumes_all: Vec::new(),
+            networks_all: Vec::new(),
+            list_filter: String::new(),
+            list_search_open: false,
             status_line: StatusLine::new(),
             confirm_dialog: None,
             pending_remove: None,
@@ -93,6 +134,8 @@ impl App {
             log_viewport_height: 0,
             log_filter: String::new(),
             log_search_open: false,
+            describe_scroll: 0,
+            describe_viewport_height: 0,
             build_info: format!("Name: {PKG_NAME}\nVersion: {PKG_VERSION}"),
             bg_tx,
             bg_rx,
@@ -133,11 +176,26 @@ impl App {
         let tx = self.bg_tx.clone();
         self.poll_task = Some(tokio::spawn(async move {
             loop {
-                match docker.list_containers().await {
+                // Stop polling once the app has quit and dropped its
+                // receiver, instead of hammering the Docker daemon forever
+                // in the background.
+                if tx.is_closed() {
+                    return;
+                }
+
+                // Run the four list calls concurrently instead of awaiting
+                // them one at a time, so a poll cycle costs the slowest
+                // single call rather than the sum of all four.
+                let (containers, images, volumes, networks) = tokio::join!(
+                    docker.list_containers(),
+                    docker.list_images(),
+                    docker.list_volumes(),
+                    docker.list_networks(),
+                );
+
+                match containers {
                     Ok(rows) => {
-                        if tx.send(BackgroundEvent::Containers(rows)).is_err() {
-                            return;
-                        }
+                        let _ = tx.send(BackgroundEvent::Containers(rows));
                     }
                     Err(e) => {
                         if tx
@@ -148,36 +206,56 @@ impl App {
                         }
                     }
                 }
+                match images {
+                    Ok(rows) => {
+                        let _ = tx.send(BackgroundEvent::Images(rows));
+                    }
+                    Err(e) => {
+                        let _ =
+                            tx.send(BackgroundEvent::PollError(e.to_string()));
+                    }
+                }
+                match volumes {
+                    Ok(rows) => {
+                        let _ = tx.send(BackgroundEvent::Volumes(rows));
+                    }
+                    Err(e) => {
+                        let _ =
+                            tx.send(BackgroundEvent::PollError(e.to_string()));
+                    }
+                }
+                match networks {
+                    Ok(rows) => {
+                        let _ = tx.send(BackgroundEvent::Networks(rows));
+                    }
+                    Err(e) => {
+                        let _ =
+                            tx.send(BackgroundEvent::PollError(e.to_string()));
+                    }
+                }
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
         }));
     }
 
-    /// Merge a freshly polled container list into the table, preserving the
-    /// current selection where possible instead of resetting it to row 0.
-    pub(crate) fn apply_containers_update(&mut self, rows: Vec<ContainerRow>) {
-        let selected = self.containers.view.state.selected();
-        self.containers.model.longest_item_lens =
-            k9tui::widgets::constraint_len_calculator(&rows);
-        self.containers.model.items = rows;
-
-        let len = self.containers.model.items.len();
-        match selected {
-            Some(sel) if sel >= len => {
-                self.containers.view.state.select(if len == 0 {
-                    None
-                } else {
-                    Some(len - 1)
-                });
-            }
-            None if len > 0 => self.containers.view.state.select(Some(0)),
-            _ => {}
-        }
-    }
-
     pub(crate) fn selected_container(&self) -> Option<&ContainerRow> {
         let idx = self.containers.view.state.selected()?;
         self.containers.model.items.get(idx)
+    }
+
+    pub(crate) fn selected_image(&self) -> Option<&ImageRow> {
+        let idx = self.images.view.state.selected()?;
+        self.images.model.items.get(idx)
+    }
+
+    pub(crate) fn selected_volume(&self) -> Option<&VolumeRow> {
+        let idx = self.volumes.view.state.selected()?;
+        self.volumes.model.items.get(idx)
+    }
+
+    pub(crate) fn selected_network(&self) -> Option<&NetworkRow> {
+        let idx = self.networks.view.state.selected()?;
+        self.networks.model.items.get(idx)
     }
 
     pub(crate) const fn quit(&mut self) {
@@ -204,8 +282,33 @@ impl App {
     fn drain_background_events(&mut self) {
         while let Ok(event) = self.bg_rx.try_recv() {
             match event {
-                BackgroundEvent::Containers(rows) => {
-                    self.apply_containers_update(rows);
+                BackgroundEvent::Containers(mut rows) => {
+                    rows.sort_by_key(|r| r.name.to_lowercase());
+                    self.containers_all = rows;
+                    let filtered =
+                        filter_rows(&self.containers_all, &self.list_filter);
+                    apply_table_update(&mut self.containers, filtered);
+                }
+                BackgroundEvent::Images(mut rows) => {
+                    rows.sort_by_key(|r| r.repo_tags.to_lowercase());
+                    self.images_all = rows;
+                    let filtered =
+                        filter_rows(&self.images_all, &self.list_filter);
+                    apply_table_update(&mut self.images, filtered);
+                }
+                BackgroundEvent::Volumes(mut rows) => {
+                    rows.sort_by_key(|r| r.name.to_lowercase());
+                    self.volumes_all = rows;
+                    let filtered =
+                        filter_rows(&self.volumes_all, &self.list_filter);
+                    apply_table_update(&mut self.volumes, filtered);
+                }
+                BackgroundEvent::Networks(mut rows) => {
+                    rows.sort_by_key(|r| r.name.to_lowercase());
+                    self.networks_all = rows;
+                    let filtered =
+                        filter_rows(&self.networks_all, &self.list_filter);
+                    apply_table_update(&mut self.networks, filtered);
                 }
                 BackgroundEvent::PollError(e) => {
                     self.set_status(format!("Refresh failed: {e}"));
@@ -251,9 +354,9 @@ impl App {
     }
 
     /// Suspend the TUI, spawn an interactive `docker exec` shell, and resume.
-    pub(crate) fn exec_shell(
+    pub(crate) fn exec_shell<B: Backend>(
         &mut self,
-        terminal: &mut DefaultTerminal,
+        terminal: &mut Terminal<B>,
         id: &str,
     ) -> Result<()> {
         execute!(std::io::stdout(), DisableBracketedPaste)?;
@@ -267,7 +370,9 @@ impl App {
         std::io::stdout().execute(crossterm::terminal::EnterAlternateScreen)?;
         crossterm::terminal::enable_raw_mode()?;
         execute!(std::io::stdout(), EnableBracketedPaste)?;
-        terminal.clear()?;
+        terminal
+            .clear()
+            .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
         match status {
             Ok(s) if s.success() => self.set_status("Exec session ended"),
@@ -328,10 +433,96 @@ impl App {
         }
         self.state = AppState::List;
     }
+
+    /// Re-apply the `/` filter to all four resource lists from their
+    /// unfiltered masters, e.g. after the filter text changes.
+    pub(crate) fn reapply_list_filter(&mut self) {
+        let filtered = filter_rows(&self.containers_all, &self.list_filter);
+        apply_table_update(&mut self.containers, filtered);
+        let filtered = filter_rows(&self.images_all, &self.list_filter);
+        apply_table_update(&mut self.images, filtered);
+        let filtered = filter_rows(&self.volumes_all, &self.list_filter);
+        apply_table_update(&mut self.volumes, filtered);
+        let filtered = filter_rows(&self.networks_all, &self.list_filter);
+        apply_table_update(&mut self.networks, filtered);
+    }
+
+    /// Fetch and show full inspect details for a resource of any kind.
+    pub(crate) async fn open_describe(
+        &mut self,
+        kind: ResourceKind,
+        id: &str,
+        name: &str,
+    ) {
+        use crate::docker::{
+            describe_image_text, describe_network_text, describe_text,
+            describe_volume_text,
+        };
+        let Some(docker) = self.docker.clone() else {
+            return;
+        };
+        let text = match kind {
+            ResourceKind::Containers => {
+                docker.inspect(id).await.map(|i| describe_text(&i))
+            }
+            ResourceKind::Images => docker
+                .inspect_image(id)
+                .await
+                .map(|i| describe_image_text(&i)),
+            ResourceKind::Volumes => docker
+                .inspect_volume(id)
+                .await
+                .map(|v| describe_volume_text(&v)),
+            ResourceKind::Networks => docker
+                .inspect_network(id)
+                .await
+                .map(|n| describe_network_text(&n)),
+        };
+        match text {
+            Ok(text) => {
+                self.describe_scroll = 0;
+                self.state = AppState::Describe {
+                    name: name.to_string(),
+                    text,
+                };
+            }
+            Err(e) => self.set_status(format!("Inspect failed: {e}")),
+        }
+    }
+
+    /// Leave the describe view.
+    pub(crate) fn close_describe(&mut self) {
+        self.state = AppState::List;
+    }
 }
 
 impl Default for App {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Merge a freshly polled row list into a table, preserving the current
+/// selection where possible instead of resetting it to row 0.
+fn apply_table_update<T: TableData + Clone>(
+    table: &mut TableDataState<T>,
+    rows: Vec<T>,
+) {
+    let selected = table.view.state.selected();
+    table.model.longest_item_lens =
+        k9tui::widgets::constraint_len_calculator(&rows);
+    table.model.items = rows;
+
+    let len = table.model.items.len();
+    match selected {
+        Some(sel) if sel >= len => {
+            table.view.state.select(if len == 0 {
+                None
+            } else {
+                Some(len - 1)
+            });
+        }
+        None if len > 0 => table.view.state.select(Some(0)),
+        _ => {}
     }
 }

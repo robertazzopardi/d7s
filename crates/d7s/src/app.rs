@@ -1,4 +1,8 @@
-use std::{path::Path, process::Command};
+use std::{
+    path::Path,
+    process::Command,
+    time::{Duration, Instant},
+};
 
 use color_eyre::Result;
 use crossterm::{
@@ -21,13 +25,17 @@ use ratatui_textarea::TextArea;
 use crate::{
     app_state::{AppState, DatabaseExplorerState},
     database_explorer_state::DatabaseExplorer,
-    db::{RowDeleteSpec, sqlite::init_db},
+    db::{
+        RowDeleteSpec,
+        query_log::{QueryLog, QueryLogEntry},
+        sqlite::init_db,
+    },
     filtered_data::FilteredData,
     services::{ConnectionService, PasswordService, PreferencesService},
     sql::safety::{StatementSafety, classify_statement, split_statements},
     ui::widgets::{
-        connection_modal::ModalManager, help_content::HelpRow,
-        hotkeys::CONNECTION_HOTKEYS,
+        connection_modal::ModalManager, describe_content::DescribeRow,
+        help_content::HelpRow, hotkeys::CONNECTION_HOTKEYS,
     },
     virtual_table::VIRTUAL_TABLE_PAGE_SIZE,
 };
@@ -43,6 +51,10 @@ pub const APP_NAME: &str = r"_________________
 // Build metadata
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 pub const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Re-run interval for SQL "watch" mode (`w` on SQL results), matching
+/// c8s's container-list poll cadence.
+const WATCH_INTERVAL: Duration = Duration::from_secs(2);
 
 /// The main application which holds the state and logic of the application.
 #[allow(clippy::struct_excessive_bools)] // session flags; not worth a state machine
@@ -70,12 +82,24 @@ pub struct App<'a> {
     /// k9s-style help panel in main content area (`?` toggles).
     pub(crate) show_help: bool,
     pub(crate) help_table: TableDataState<HelpRow>,
+    /// k9s-style describe panel for the currently selected object (`i` toggles).
+    pub(crate) show_describe: bool,
+    pub(crate) describe_table: TableDataState<DescribeRow>,
     /// Rows per virtual table page (from prefs / `D7S_PAGE_SIZE`).
     pub(crate) page_size: u32,
     /// First Esc warns before dropping draft rows; second Esc discards.
     pub(crate) draft_discard_pending: bool,
     /// One-shot hint after first connect in a session.
     pub(crate) showed_help_hint: bool,
+    /// SQL results: when true, the current statement re-runs on
+    /// [`WATCH_INTERVAL`] until toggled off or the view changes.
+    pub(crate) watch_active: bool,
+    pub(crate) watch_last_tick: Instant,
+    /// Every query d7s ran this session (bounded ring buffer).
+    pub(crate) query_log: QueryLog,
+    /// `L`: query log view in the main content area.
+    pub(crate) show_query_log: bool,
+    pub(crate) query_log_table: TableDataState<QueryLogEntry>,
 }
 
 impl Default for App<'_> {
@@ -94,9 +118,16 @@ impl Default for App<'_> {
             pending_row_deletes: None,
             show_help: false,
             help_table: TableDataState::new(Vec::new()),
+            show_describe: false,
+            describe_table: TableDataState::new(Vec::new()),
             page_size: VIRTUAL_TABLE_PAGE_SIZE,
             draft_discard_pending: false,
             showed_help_hint: false,
+            watch_active: false,
+            watch_last_tick: Instant::now(),
+            query_log: QueryLog::default(),
+            show_query_log: false,
+            query_log_table: TableDataState::new(Vec::new()),
         }
     }
 }
@@ -118,16 +149,53 @@ impl App<'_> {
     }
 
     /// Run the application's main loop.
+    #[allow(clippy::future_not_send)]
     pub async fn run(&mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
         while self.running {
             terminal.draw(|frame| self.render(frame))?;
+            self.tick_watch().await;
             self.handle_crossterm_events().await?;
 
             self.handle_external_terminal(&mut terminal).await?;
         }
         self.save_session_preferences();
         Ok(())
+    }
+
+    /// Re-run the SQL results query if watch mode is on and the interval
+    /// has elapsed. Turns itself off if the view has moved away from
+    /// SQL results (e.g. the user pressed Esc back to the connection tree).
+    async fn tick_watch(&mut self) {
+        if !self.watch_active {
+            return;
+        }
+        if !matches!(
+            self.database_explorer.state,
+            DatabaseExplorerState::SqlResults(_)
+        ) {
+            self.watch_active = false;
+            return;
+        }
+        if self.watch_last_tick.elapsed() < WATCH_INTERVAL {
+            return;
+        }
+        self.watch_last_tick = Instant::now();
+        self.execute_sql_query_watch_tick().await;
+    }
+
+    /// Toggle SQL-results watch mode (`w`).
+    pub(crate) fn toggle_watch(&mut self) {
+        self.watch_active = !self.watch_active;
+        if self.watch_active {
+            self.watch_last_tick = Instant::now();
+            self.set_status(format!(
+                "Watching (every {}s) — press w to stop",
+                WATCH_INTERVAL.as_secs()
+            ));
+        } else {
+            self.set_status("Watch stopped");
+        }
     }
 
     fn save_session_preferences(&self) {
@@ -295,6 +363,153 @@ impl App<'_> {
         }
     }
 
+    /// Build the field/value rows describing whatever object is currently
+    /// selected (connection, table, column, or table-data row).
+    ///
+    /// Never spawned onto another task, so the returned future not being
+    /// `Send` (due to interior-mutability fields on `App`) is harmless.
+    #[allow(clippy::future_not_send, clippy::too_many_lines)]
+    pub(crate) async fn build_describe_rows(&self) -> Vec<DescribeRow> {
+        let explorer = &self.database_explorer;
+        match &explorer.state {
+            DatabaseExplorerState::Connections => explorer
+                .connections
+                .table
+                .view
+                .state
+                .selected()
+                .and_then(|i| explorer.connections.table.model.items.get(i))
+                .map_or_else(Vec::new, connection_describe_rows),
+            DatabaseExplorerState::Tables(_) => {
+                let Some(table) = explorer.tables.as_ref().and_then(|t| {
+                    let i = t.table.view.state.selected()?;
+                    t.table.model.items.get(i).cloned()
+                }) else {
+                    return Vec::new();
+                };
+                let mut rows = vec![
+                    DescribeRow::section("Table"),
+                    DescribeRow::new("Name", &table.name),
+                    DescribeRow::new("Schema", &table.schema),
+                ];
+                if let Some(db) = explorer.database.as_ref() {
+                    let (count_res, cols_res, pk_res, indexes_res, size_res) = tokio::join!(
+                        db.get_table_row_count(&table.schema, &table.name),
+                        db.get_columns(&table.schema, &table.name),
+                        db.get_primary_key_columns(&table.schema, &table.name),
+                        db.get_table_index_names(&table.schema, &table.name),
+                        db.get_table_size(&table.schema, &table.name),
+                    );
+                    if let Ok(count) = count_res {
+                        rows.push(DescribeRow::new(
+                            "Row count",
+                            count.to_string(),
+                        ));
+                    }
+                    if let Ok(cols) = cols_res {
+                        rows.push(DescribeRow::new(
+                            "Columns",
+                            cols.len().to_string(),
+                        ));
+                    }
+                    if let Ok(pk) = pk_res
+                        && !pk.is_empty()
+                    {
+                        rows.push(DescribeRow::new(
+                            "Primary key",
+                            pk.join(", "),
+                        ));
+                    }
+                    if let Ok(indexes) = indexes_res
+                        && !indexes.is_empty()
+                    {
+                        rows.push(DescribeRow::new(
+                            "Indexes",
+                            indexes.join(", "),
+                        ));
+                    }
+                    let size =
+                        size_res.ok().flatten().or_else(|| table.size.clone());
+                    if let Some(size) = size {
+                        rows.push(DescribeRow::new("Size", size));
+                    }
+                } else if let Some(size) = table.size.clone() {
+                    rows.push(DescribeRow::new("Size", size));
+                }
+                rows
+            }
+            DatabaseExplorerState::Columns(schema, table_name) => {
+                let Some(col) = explorer.columns.as_ref().and_then(|c| {
+                    let i = c.table.view.state.selected()?;
+                    c.table.model.items.get(i).cloned()
+                }) else {
+                    return Vec::new();
+                };
+                let mut rows = vec![
+                    DescribeRow::section("Column"),
+                    DescribeRow::new("Table", format!("{schema}.{table_name}")),
+                    DescribeRow::new("Name", &col.name),
+                    DescribeRow::new("Type", &col.data_type),
+                    DescribeRow::new(
+                        "Nullable",
+                        if col.is_nullable { "YES" } else { "NO" },
+                    ),
+                    DescribeRow::new(
+                        "Default",
+                        col.default_value.clone().unwrap_or_default(),
+                    ),
+                ];
+                if let Some(db) = explorer.database.as_ref()
+                    && let Ok(pk) =
+                        db.get_primary_key_columns(schema, table_name).await
+                {
+                    rows.push(DescribeRow::new(
+                        "Part of key",
+                        if pk.iter().any(|k| k == &col.name) {
+                            "YES"
+                        } else {
+                            "NO"
+                        },
+                    ));
+                }
+                rows.push(DescribeRow::new(
+                    "Description",
+                    col.description.clone().unwrap_or_default(),
+                ));
+                rows
+            }
+            DatabaseExplorerState::TableData(schema, table_name) => explorer
+                .table_data
+                .as_ref()
+                .and_then(|t| {
+                    let i = t.table.view.state.selected()?;
+                    let row = t.table.model.items.get(i)?;
+                    let names = t.table.model.dynamic_column_names.as_ref();
+                    Some((row, names))
+                })
+                .map_or_else(Vec::new, |(row, names)| {
+                    let mut rows = vec![
+                        DescribeRow::section("Row"),
+                        DescribeRow::new(
+                            "Table",
+                            format!("{schema}.{table_name}"),
+                        ),
+                    ];
+                    for (idx, value) in row.values.iter().enumerate() {
+                        let field = names
+                            .and_then(|n| n.get(idx))
+                            .cloned()
+                            .unwrap_or_else(|| format!("col{idx}"));
+                        rows.push(DescribeRow::new(field, value.clone()));
+                    }
+                    rows
+                }),
+            DatabaseExplorerState::Databases
+            | DatabaseExplorerState::Schemas
+            | DatabaseExplorerState::SqlResults(_) => Vec::new(),
+        }
+    }
+
     /// Copy the full selected row as tab-separated values.
     pub(crate) fn copy_row_tsv(&mut self) {
         let explorer = &self.database_explorer;
@@ -433,6 +648,9 @@ impl App<'_> {
             let current_state = self.database_explorer.state.clone();
             self.database_explorer.previous_state = Some(current_state);
         }
+        // A newly selected/edited statement is a view change: stop watching
+        // the old one rather than silently watching the new query.
+        self.watch_active = false;
         self.database_explorer.state =
             DatabaseExplorerState::SqlResults(statement);
     }
@@ -461,7 +679,54 @@ impl App<'_> {
             .set_selected_statement(statement);
         self.execute_sql_query().await;
     }
+
+    /// `L`: show every query d7s ran this session, newest first.
+    pub(crate) fn open_query_log_view(&mut self) {
+        self.query_log_table = TableDataState::new(self.query_log.snapshot());
+        self.show_query_log = true;
+    }
+
+    /// `A`: show currently-running Postgres backends via `pg_stat_activity`.
+    /// SQLite is an embedded/file engine with no server process to inspect,
+    /// so there's nothing equivalent to show there.
+    pub(crate) async fn open_activity_view(&mut self) {
+        if self.database_explorer.connection.r#type
+            != crate::db::connection::ConnectionType::Postgres
+        {
+            self.set_status(
+                "Activity view is Postgres-only (pg_stat_activity has no equivalent here).",
+            );
+            return;
+        }
+        self.execute_sql_statement_now(ACTIVITY_QUERY.to_string())
+            .await;
+    }
 }
+
+/// Turn a connection's existing `Display` output ("` Field: value`" per line)
+/// into describe rows, reusing the formatting already defined for it.
+fn connection_describe_rows(
+    conn: &crate::db::connection::Connection,
+) -> Vec<DescribeRow> {
+    let mut rows = vec![DescribeRow::section("Connection")];
+    for line in conn.to_string().lines() {
+        if let Some((field, value)) = line.trim().split_once(':') {
+            rows.push(DescribeRow::new(field.trim(), value.trim()));
+        }
+    }
+    rows.push(DescribeRow::new(
+        "Environment",
+        conn.environment.to_string(),
+    ));
+    rows
+}
+
+/// `pg_stat_activity` columns worth showing at a glance. Permission-denied
+/// (non-superusers without `pg_read_all_stats` may only see their own rows,
+/// or be refused entirely) surfaces as a normal SQL error via the existing
+/// error path rather than crashing.
+pub const ACTIVITY_QUERY: &str = "SELECT pid, query, state, wait_event, query_start \
+FROM pg_stat_activity ORDER BY query_start DESC NULLS LAST";
 
 /// Info related to the program
 fn build_info() -> Result<String> {
@@ -478,4 +743,243 @@ fn build_info() -> Result<String> {
         ));
     }
     Ok(lines.join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::SystemTime;
+
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::{Terminal, backend::TestBackend};
+
+    use super::*;
+    use crate::db::{
+        connection::{Connection, ConnectionStatus, ConnectionType},
+        query_log::{QueryLogEntry, QueryOrigin, tests::temp_sqlite},
+    };
+
+    fn key(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+
+    /// App connected to a throwaway `SQLite` file, wired through the log.
+    fn sqlite_app<'a>(tag: &str) -> App<'a> {
+        let sqlite = temp_sqlite(tag);
+        rusqlite::Connection::open(&sqlite.path)
+            .unwrap()
+            .execute_batch("CREATE TABLE t(a); INSERT INTO t VALUES (7);")
+            .unwrap();
+        let mut app = App::default();
+        let conn = Connection {
+            name: tag.to_string(),
+            r#type: ConnectionType::Sqlite,
+            url: sqlite.path.clone(),
+            ..Connection::default()
+        };
+        let db = app.query_log.wrap(Box::new(sqlite));
+        app.database_explorer = DatabaseExplorer::new(conn, Some(db));
+        app.state = AppState::DatabaseConnected;
+        app.database_explorer.state =
+            DatabaseExplorerState::Tables("sqlite_schema".into());
+        app
+    }
+
+    fn render_text(app: &mut App<'_>) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(140, 30)).unwrap();
+        terminal.draw(|f| app.render(f)).unwrap();
+        let buf = terminal.backend().buffer();
+        buf.content()
+            .chunks(usize::from(buf.area.width))
+            .map(|row| {
+                row.iter()
+                    .map(ratatui::buffer::Cell::symbol)
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn entry(origin: QueryOrigin, sql: &str, ok: bool) -> QueryLogEntry {
+        QueryLogEntry {
+            at: SystemTime::UNIX_EPOCH,
+            origin,
+            duration: Duration::from_millis(12),
+            sql: sql.to_string(),
+            outcome: if ok { Ok(3) } else { Err("boom".into()) },
+        }
+    }
+
+    #[tokio::test]
+    async fn l_opens_query_log_view_newest_first_and_esc_returns() {
+        let mut app = sqlite_app("qlview");
+        app.query_log
+            .push(entry(QueryOrigin::User, "SELECT older", true));
+        app.query_log
+            .push(entry(QueryOrigin::Watch, "SELECT newer", false));
+
+        app.on_key_event(key('L')).await.unwrap();
+        assert!(app.show_query_log);
+        let text = render_text(&mut app);
+        for want in [
+            "Query log",
+            "Origin",
+            "Duration",
+            "watch",
+            "user",
+            "ERR boom",
+            "3 rows",
+        ] {
+            assert!(text.contains(want), "missing {want:?} in:\n{text}");
+        }
+        let newer = text.find("SELECT newer").expect("newer row");
+        let older = text.find("SELECT older").expect("older row");
+        assert!(newer < older, "newest entry must be listed first");
+
+        app.on_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert!(!app.show_query_log);
+        assert!(!render_text(&mut app).contains("Origin"));
+
+        // `q` also returns (and does not quit)
+        app.running = true;
+        app.on_key_event(key('L')).await.unwrap();
+        app.on_key_event(key('q')).await.unwrap();
+        assert!(!app.show_query_log && app.running);
+    }
+
+    #[tokio::test]
+    async fn activity_is_refused_on_sqlite() {
+        let mut app = sqlite_app("noact");
+        app.on_key_event(key('A')).await.unwrap();
+        assert!(app.query_log.snapshot().is_empty(), "nothing may run");
+        assert!(matches!(
+            app.database_explorer.state,
+            DatabaseExplorerState::Tables(_)
+        ));
+        assert!(render_text(&mut app).contains("Postgres-only"));
+    }
+
+    #[test]
+    fn activity_view_renders_pg_stat_activity_columns() {
+        let mut app = sqlite_app("actview");
+        app.enter_sql_results_state(ACTIVITY_QUERY.to_string());
+        let cols: Vec<String> =
+            ["pid", "query", "state", "wait_event", "query_start"]
+                .map(String::from)
+                .to_vec();
+        app.database_explorer.sql_executor.set_results(
+            vec![vec![
+                "4242".into(),
+                "select pg_sleep(9)".into(),
+                "active".into(),
+                "PgSleep".into(),
+                "2026-01-01".into(),
+            ]],
+            &cols,
+        );
+        let text = render_text(&mut app);
+        for want in ["pid", "wait_event", "query_start", "4242", "pg_sleep"] {
+            assert!(text.contains(want), "missing {want:?} in:\n{text}");
+        }
+    }
+
+    #[tokio::test]
+    async fn w_toggles_watch_only_on_sql_results_and_shows_indicator() {
+        let mut app = sqlite_app("watchkey");
+        app.on_key_event(key('w')).await.unwrap();
+        assert!(!app.watch_active, "w is inert outside SQL results");
+
+        app.enter_sql_results_state("SELECT a FROM t".into());
+        app.on_key_event(key('w')).await.unwrap();
+        assert!(app.watch_active);
+        // The toggle's own status message temporarily replaces the idle hint.
+        assert!(render_text(&mut app).contains("Watching (every 2s)"));
+        app.clear_status();
+        assert!(render_text(&mut app).contains("WATCHING"));
+
+        app.on_key_event(key('w')).await.unwrap();
+        assert!(!app.watch_active);
+        assert!(!render_text(&mut app).contains("WATCHING"));
+    }
+
+    #[tokio::test]
+    async fn watch_tick_is_logged_but_not_added_to_sql_history() {
+        let mut app = sqlite_app("watchtick");
+        app.enter_sql_results_state("SELECT a FROM t".into());
+        app.database_explorer
+            .sql_executor
+            .set_selected_statement("SELECT a FROM t");
+        let history_before = PreferencesService::load_sql_history();
+
+        app.execute_sql_query_watch_tick().await;
+
+        assert_eq!(PreferencesService::load_sql_history(), history_before);
+        let snap = app.query_log.snapshot();
+        assert_eq!(snap.len(), 1);
+        let e = snap.first().unwrap();
+        assert_eq!(e.origin, QueryOrigin::Watch);
+        assert_eq!(e.sql, "SELECT a FROM t");
+        assert_eq!(e.outcome, Ok(1));
+    }
+
+    fn sqlite_conn(name: &str, path: &str) -> Connection {
+        Connection {
+            name: name.into(),
+            r#type: ConnectionType::Sqlite,
+            url: path.into(),
+            ..Connection::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn p_pings_all_connections_and_statuses_survive_filter_clear() {
+        let present = temp_sqlite("ping-present");
+        std::fs::write(&present.path, b"").unwrap();
+        let missing = temp_sqlite("ping-missing");
+        // A port that was just free, so nothing is listening on it.
+        let closed_port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        let pg = Connection {
+            name: "pg-down".into(),
+            r#type: ConnectionType::Postgres,
+            url: format!("postgres://u@127.0.0.1:{closed_port}/db"),
+            ..Connection::default()
+        };
+
+        let mut app = App::default();
+        app.database_explorer.connections = FilteredData::new(vec![
+            sqlite_conn("present", &present.path),
+            sqlite_conn("missing", &missing.path),
+            pg,
+        ]);
+        // Filtered view shows only one row; the ping must still cover all.
+        app.database_explorer.connections.apply_filter("present");
+        app.on_key_event(key('p')).await.unwrap();
+
+        let status = |c: &FilteredData<Connection>| {
+            c.original.iter().map(|c| c.status).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            status(&app.database_explorer.connections),
+            vec![
+                ConnectionStatus::Up,
+                ConnectionStatus::Down,
+                ConnectionStatus::Down
+            ]
+        );
+        assert!(
+            !std::path::Path::new(&missing.path).exists(),
+            "ping must not create a missing sqlite file"
+        );
+
+        app.database_explorer.connections.clear_filter();
+        let text = render_text(&mut app);
+        assert!(text.contains("Status"));
+        assert!(text.contains("● up"));
+        assert_eq!(text.matches("● down").count(), 2);
+        let _ = std::fs::remove_file(&present.path);
+    }
 }

@@ -165,7 +165,11 @@ impl ConfirmDialog {
 
     pub const fn handle_key_events(&mut self, key: KeyEvent) -> DialogAction {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc | KeyCode::Enter) => {
+            (_, KeyCode::Esc) => {
+                self.close();
+                DialogAction::Cancel
+            }
+            (_, KeyCode::Enter) => {
                 let action = if self.is_confirmed() {
                     DialogAction::Submit
                 } else {
@@ -504,12 +508,20 @@ mod tests {
     }
 
     #[test]
-    fn confirm_dialog_esc_submits_when_yes_selected() {
+    fn confirm_dialog_enter_submits_when_yes_selected() {
         let mut dialog =
             ConfirmDialog::new("Delete?", "sure?", Style::default(), 0);
         let action = dialog.handle_key_events(KeyEvent::from(KeyCode::Enter));
         assert_eq!(action, DialogAction::Submit);
         assert!(!dialog.is_open);
+    }
+
+    #[test]
+    fn confirm_dialog_esc_always_cancels() {
+        let mut dialog =
+            ConfirmDialog::new("Delete?", "sure?", Style::default(), 0);
+        let action = dialog.handle_key_events(KeyEvent::from(KeyCode::Esc));
+        assert_eq!(action, DialogAction::Cancel);
     }
 
     #[test]

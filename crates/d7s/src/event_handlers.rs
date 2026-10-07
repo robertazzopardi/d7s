@@ -46,7 +46,13 @@ impl App<'_> {
     ///
     /// If your application needs to perform work in between handling events, you can use the
     /// [`event::poll`] function to check if there are any events available with a timeout.
+    #[allow(clippy::future_not_send)]
     pub async fn handle_crossterm_events(&mut self) -> Result<()> {
+        // Short timeout (rather than a blocking read) so the run loop keeps
+        // spinning to pick up watch-mode ticks between keypresses.
+        if !event::poll(std::time::Duration::from_millis(200))? {
+            return Ok(());
+        }
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
                 if should_clear_status_on_key(key) {
@@ -85,6 +91,7 @@ impl App<'_> {
     }
 
     /// Handles the key events and updates the state of [`App`].
+    #[allow(clippy::future_not_send)]
     pub async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         // Help view: only toggle/close and quit
         if self.show_help {
@@ -100,6 +107,47 @@ impl App<'_> {
                     TableNavigationHandler::navigate_table(
                         &self.help_table.model,
                         &mut self.help_table.view,
+                        key.code,
+                    );
+                }
+            }
+            return Ok(());
+        }
+
+        // Describe view: only toggle/close, quit, and scroll
+        if self.show_describe {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('d') | KeyCode::Esc) => {
+                    self.show_describe = false;
+                }
+                (_, KeyCode::Char('q'))
+                | (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
+                    self.quit();
+                }
+                _ => {
+                    TableNavigationHandler::navigate_table(
+                        &self.describe_table.model,
+                        &mut self.describe_table.view,
+                        key.code,
+                    );
+                }
+            }
+            return Ok(());
+        }
+
+        // Query log view: Esc / q / L return; Ctrl+C quits
+        if self.show_query_log {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc | KeyCode::Char('q' | 'L')) => {
+                    self.show_query_log = false;
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
+                    self.quit();
+                }
+                _ => {
+                    TableNavigationHandler::navigate_table(
+                        &self.query_log_table.model,
+                        &mut self.query_log_table.view,
                         key.code,
                     );
                 }
@@ -162,7 +210,7 @@ impl App<'_> {
 
     /// Handle application shortcuts (q, n, d, e, E, t, Esc, Enter)
     /// Returns true if the key was handled and should stop processing
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::future_not_send)]
     async fn handle_hotkeys(&mut self, key: KeyEvent) -> Result<bool> {
         match (key.modifiers, key.code) {
             (_, KeyCode::Char('q'))
@@ -249,12 +297,13 @@ impl App<'_> {
                     self.database_explorer.state,
                     DatabaseExplorerState::Connections
                 ) {
-                    self.set_status("Checking connection health...");
                     self.check_connections_health().await;
+                    Ok(true)
+                } else {
+                    Ok(false)
                 }
-                Ok(true)
             }
-            (_, KeyCode::Char('d')) => {
+            (_, KeyCode::Char('D')) => {
                 if matches!(
                     self.database_explorer.state,
                     DatabaseExplorerState::Connections
@@ -286,6 +335,16 @@ impl App<'_> {
                 }
                 Ok(true)
             }
+            (_, KeyCode::Char('d')) => {
+                let rows = self.build_describe_rows().await;
+                if rows.is_empty() {
+                    Ok(false)
+                } else {
+                    self.describe_table = TableDataState::new(rows);
+                    self.show_describe = true;
+                    Ok(true)
+                }
+            }
             (_, KeyCode::Char('t')) => {
                 if self.state == AppState::DatabaseConnected {
                     self.handle_toggle_table_view().await?;
@@ -314,6 +373,27 @@ impl App<'_> {
                     return Ok(true);
                 }
                 Ok(false)
+            }
+            (_, KeyCode::Char('w'))
+                if matches!(
+                    self.database_explorer.state,
+                    DatabaseExplorerState::SqlResults(_)
+                ) =>
+            {
+                self.toggle_watch();
+                Ok(true)
+            }
+            (_, KeyCode::Char('L'))
+                if self.state == AppState::DatabaseConnected =>
+            {
+                self.open_query_log_view();
+                Ok(true)
+            }
+            (_, KeyCode::Char('A'))
+                if self.state == AppState::DatabaseConnected =>
+            {
+                self.open_activity_view().await;
+                Ok(true)
             }
             (KeyModifiers::CONTROL, KeyCode::Char('s' | 'S'))
             | (_, KeyCode::Char('x'))
@@ -742,5 +822,24 @@ impl App<'_> {
         } else {
             TestResult::Failed("Connection failed".to_string())
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    use crate::app::App;
+
+    #[tokio::test]
+    async fn p_is_only_handled_on_the_connection_list() {
+        let p = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE);
+        let mut app = App::default();
+        assert!(app.handle_hotkeys(p).await.unwrap());
+
+        // Anywhere else the key must fall through, not be swallowed.
+        app.database_explorer.state =
+            crate::app_state::DatabaseExplorerState::Tables("s".into());
+        assert!(!app.handle_hotkeys(p).await.unwrap());
     }
 }

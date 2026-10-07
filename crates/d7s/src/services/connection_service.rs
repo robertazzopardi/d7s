@@ -10,6 +10,9 @@ use crate::db::{
 /// Service for managing database connections (CRUD operations)
 pub struct ConnectionService;
 
+/// Per-connection bound for the list health check.
+const PING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 impl ConnectionService {
     /// Get all connections from the database
     pub fn get_all() -> Result<Vec<Connection>> {
@@ -52,5 +55,62 @@ impl ConnectionService {
             ConnectionType::Postgres => connection.to_postgres().test().await,
             ConnectionType::Sqlite => connection.to_sqlite().test().await,
         }
+    }
+
+    /// Credential-free reachability probe for the connection-list health
+    /// check. Postgres: a bounded TCP connect to host:port (no login, so
+    /// saved/prompted passwords don't matter and no failed-auth noise hits the
+    /// server log). `SQLite`: the database file exists (opening would create it).
+    pub async fn ping(connection: &Connection) -> bool {
+        match connection.r#type {
+            ConnectionType::Postgres => {
+                let (host, port, _, _) =
+                    crate::db::connection::parse_postgres_url(&connection.url);
+                let Ok(port) = port.parse::<u16>() else {
+                    return false;
+                };
+                tokio::time::timeout(
+                    PING_TIMEOUT,
+                    tokio::net::TcpStream::connect((host.as_str(), port)),
+                )
+                .await
+                .is_ok_and(|r| r.is_ok())
+            }
+            ConnectionType::Sqlite => tokio::fs::metadata(&connection.url)
+                .await
+                .is_ok_and(|m| m.is_file()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pg(url: &str) -> Connection {
+        Connection {
+            r#type: ConnectionType::Postgres,
+            url: url.into(),
+            ..Connection::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn ping_postgres_is_a_credential_free_tcp_connect() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(
+            ConnectionService::ping(&pg(&format!(
+                "postgres://nobody@127.0.0.1:{port}/db"
+            )))
+            .await
+        );
+        drop(listener);
+        assert!(
+            !ConnectionService::ping(&pg(&format!(
+                "postgres://nobody@127.0.0.1:{port}/db"
+            )))
+            .await
+        );
     }
 }
