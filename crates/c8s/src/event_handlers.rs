@@ -12,6 +12,7 @@ use ratatui::{Terminal, backend::Backend, style::Style};
 use crate::{
     app::App,
     app_state::{AppState, ResourceKind},
+    command::Command,
 };
 
 impl App {
@@ -160,6 +161,10 @@ impl App {
 
     #[allow(clippy::wildcard_enum_match_arm)]
     fn on_key_list_search(&mut self, key: KeyEvent) {
+        if self.command_mode {
+            self.on_key_command(key);
+            return;
+        }
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 self.list_filter.clear();
@@ -177,6 +182,51 @@ impl App {
                 self.reapply_list_filter();
             }
             _ => {}
+        }
+    }
+
+    /// `:` command bar editing: Enter runs, Esc cancels, Tab completes.
+    #[allow(clippy::wildcard_enum_match_arm)]
+    fn on_key_command(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
+            (_, KeyCode::Esc) => self.close_command_bar(),
+            (_, KeyCode::Enter) => {
+                let text = std::mem::take(&mut self.command_text);
+                self.close_command_bar();
+                self.run_command(&text);
+            }
+            (_, KeyCode::Tab) => {
+                if let Some(s) = crate::command::suggest(&self.command_text) {
+                    self.command_text = s.to_string();
+                }
+            }
+            (_, KeyCode::Backspace) => {
+                self.command_text.pop();
+            }
+            (m, KeyCode::Char(c))
+                if !m.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.command_text.push(c);
+            }
+            _ => {}
+        }
+    }
+
+    fn close_command_bar(&mut self) {
+        self.command_mode = false;
+        self.list_search_open = false;
+        self.command_text.clear();
+    }
+
+    fn run_command(&mut self, text: &str) {
+        match crate::command::resolve(text) {
+            Command::Empty => {}
+            Command::View(kind) => self.switch_view(kind),
+            Command::Quit => self.quit(),
+            Command::Unknown => {
+                self.set_status(format!("Unknown command: {}", text.trim()));
+            }
         }
     }
 
@@ -199,6 +249,11 @@ impl App {
                 self.quit();
             }
             (_, KeyCode::Char('/')) => self.list_search_open = true,
+            (_, KeyCode::Char(':')) => {
+                self.list_search_open = true;
+                self.command_mode = true;
+                self.command_text.clear();
+            }
             _ => return false,
         }
         true
@@ -670,6 +725,257 @@ mod tests {
 
         app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
         assert_eq!(app.state, AppState::List);
+    }
+
+    async fn type_cmd(app: &mut App, t: &mut Term, s: &str) {
+        for c in s.chars() {
+            app.on_key_event(key(KeyCode::Char(c)), t).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn colon_bar_types_completes_runs_and_switches_view() {
+        let mut app = app();
+        let mut t = term();
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        assert!(app.command_mode && app.list_search_open);
+        type_cmd(&mut app, &mut t, "im").await;
+        assert_eq!(app.command_text, "im");
+        assert_eq!(app.list_filter, "", "typing must not filter rows");
+        let out = screen(&mut app, &mut t);
+        assert!(out.contains(" Command "), "{out}");
+        assert!(out.contains(":images"), "dim ghost completion: {out}");
+        app.on_key_event(key(KeyCode::Tab), &mut t).await.unwrap();
+        assert_eq!(app.command_text, "images");
+        app.on_key_event(key(KeyCode::Enter), &mut t).await.unwrap();
+        assert!(!app.command_mode && !app.list_search_open);
+        assert_eq!(app.view, ResourceKind::Images);
+        assert_eq!(
+            app.hotkeys.len(),
+            crate::ui::widgets::hotkeys::RESOURCE_HOTKEYS.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn colon_aliases_unknown_quit_esc_and_ctrl_c() {
+        let mut app = app();
+        let mut t = term();
+        for (cmd, kind) in [
+            ("v", ResourceKind::Volumes),
+            ("n", ResourceKind::Networks),
+            ("c", ResourceKind::Containers),
+        ] {
+            app.on_key_event(key(KeyCode::Char(':')), &mut t)
+                .await
+                .unwrap();
+            type_cmd(&mut app, &mut t, cmd).await;
+            app.on_key_event(key(KeyCode::Enter), &mut t).await.unwrap();
+            assert_eq!(app.view, kind, "{cmd}");
+        }
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        type_cmd(&mut app, &mut t, "zz").await;
+        app.on_key_event(key(KeyCode::Enter), &mut t).await.unwrap();
+        assert_eq!(app.view, ResourceKind::Containers);
+        assert!(screen(&mut app, &mut t).contains("Unknown command: zz"));
+
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        type_cmd(&mut app, &mut t, "images").await;
+        app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
+        assert!(!app.command_mode && !app.list_search_open);
+        assert_eq!(app.view, ResourceKind::Containers);
+
+        app.running = true;
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        app.on_key_event(
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            &mut t,
+        )
+        .await
+        .unwrap();
+        assert!(!app.running);
+
+        app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
+        app.running = true;
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        type_cmd(&mut app, &mut t, "quit").await;
+        app.on_key_event(key(KeyCode::Enter), &mut t).await.unwrap();
+        assert!(!app.running);
+    }
+
+    #[tokio::test]
+    async fn colon_is_text_in_search_and_inert_in_other_views() {
+        let mut app = app();
+        let mut t = term();
+        app.on_key_event(key(KeyCode::Char('/')), &mut t)
+            .await
+            .unwrap();
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        assert!(!app.command_mode);
+        assert_eq!(app.list_filter, ":");
+
+        let mut app = self::app();
+        app.state = AppState::Describe {
+            name: "web".into(),
+            text: "x".into(),
+        };
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        assert!(!app.command_mode && !app.list_search_open);
+    }
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    async fn colon(app: &mut App, t: &mut Term, cmd: &str) {
+        app.on_key_event(key(KeyCode::Char(':')), t).await.unwrap();
+        type_cmd(app, t, cmd).await;
+        app.on_key_event(key(KeyCode::Enter), t).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn colon_whitespace_case_and_unicode_input() {
+        let mut app = app();
+        let mut t = term();
+        colon(&mut app, &mut t, "  IMAGES  ").await;
+        assert_eq!(app.view, ResourceKind::Images);
+        // Empty and whitespace-only just close the bar, no status noise.
+        for cmd in ["", "   "] {
+            colon(&mut app, &mut t, cmd).await;
+            assert!(!app.command_mode && !app.list_search_open, "{cmd:?}");
+            assert_eq!(app.view, ResourceKind::Images);
+            assert!(!screen(&mut app, &mut t).contains("Unknown command"));
+        }
+        // Multibyte / emoji input: Unknown, Backspace removes a whole char.
+        colon(&mut app, &mut t, "🦀é").await;
+        // (wide glyphs render as glyph + filler cell, so only match the prefix)
+        assert!(screen(&mut app, &mut t).contains("Unknown command: 🦀"));
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        type_cmd(&mut app, &mut t, "🦀é").await;
+        app.on_key_event(key(KeyCode::Backspace), &mut t)
+            .await
+            .unwrap();
+        assert_eq!(app.command_text, "🦀");
+        app.on_key_event(key(KeyCode::Backspace), &mut t)
+            .await
+            .unwrap();
+        app.on_key_event(key(KeyCode::Backspace), &mut t)
+            .await
+            .unwrap();
+        assert_eq!(app.command_text, "");
+        let _ = screen(&mut app, &mut t);
+    }
+
+    #[tokio::test]
+    async fn colon_bar_ignores_ctrl_chars_and_keeps_filter_untouched() {
+        let mut app = app();
+        let mut t = term();
+        // Applied row filter survives a cancelled command and a `/` after.
+        app.on_key_event(key(KeyCode::Char('/')), &mut t)
+            .await
+            .unwrap();
+        type_cmd(&mut app, &mut t, "web").await;
+        app.on_key_event(key(KeyCode::Enter), &mut t).await.unwrap();
+        assert_eq!(app.list_filter, "web");
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        type_cmd(&mut app, &mut t, "zz").await;
+        app.on_key_event(ctrl('w'), &mut t).await.unwrap();
+        app.on_key_event(
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT),
+            &mut t,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.command_text, "zz", "Ctrl/Alt chords are not text");
+        assert_eq!(app.list_filter, "web", "typing a command never filters");
+        app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
+        assert_eq!(app.list_filter, "web", "Esc must not clear the filter");
+        assert!(!app.command_mode && app.command_text.is_empty());
+        app.on_key_event(key(KeyCode::Char('/')), &mut t)
+            .await
+            .unwrap();
+        assert!(app.list_search_open && !app.command_mode);
+        type_cmd(&mut app, &mut t, "x").await;
+        assert_eq!(app.list_filter, "webx", "`/` is a normal filter again");
+    }
+
+    #[tokio::test]
+    async fn colon_q_in_bar_is_text_and_inert_with_dialog_or_in_logs() {
+        let mut app = app();
+        let mut t = term();
+        app.running = true;
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        type_cmd(&mut app, &mut t, "q").await;
+        assert!(app.running, "q is typed, not a quit key, until Enter");
+        app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
+
+        // Confirm dialog open: `:` must not open the bar.
+        app.on_key_event(shift_d(), &mut t).await.unwrap();
+        assert!(app.confirm_dialog.is_some());
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        assert!(!app.command_mode && !app.list_search_open);
+        assert!(app.confirm_dialog.is_some());
+        app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
+
+        // Log view + its search bar: `:` is just text.
+        app.state = AppState::Logs {
+            id: "c1".into(),
+            name: "web".into(),
+        };
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        assert!(!app.command_mode && !app.list_search_open);
+        app.on_key_event(key(KeyCode::Char('/')), &mut t)
+            .await
+            .unwrap();
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        assert_eq!(app.log_filter, ":");
+        assert!(!app.command_mode);
+    }
+
+    #[tokio::test]
+    async fn colon_bar_renders_at_tiny_and_normal_sizes_with_long_text() {
+        let mut app = app();
+        let mut t = term();
+        app.on_key_event(key(KeyCode::Char(':')), &mut t)
+            .await
+            .unwrap();
+        type_cmd(&mut app, &mut t, "im").await;
+        for (w, h) in [(20, 5), (80, 24), (1, 1), (3, 3), (10, 4)] {
+            let mut small = Terminal::new(TestBackend::new(w, h)).unwrap();
+            small.draw(|f| app.render(f)).unwrap();
+        }
+        type_cmd(&mut app, &mut t, &"x".repeat(200)).await;
+        let mut small = Terminal::new(TestBackend::new(20, 5)).unwrap();
+        small.draw(|f| app.render(f)).unwrap();
+        // 120-col hotkey bar still lists the new hint.
+        app.on_key_event(key(KeyCode::Esc), &mut t).await.unwrap();
+        let out = screen(&mut app, &mut t);
+        assert!(out.contains("command"), "{out}");
     }
 }
 

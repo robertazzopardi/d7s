@@ -1,6 +1,8 @@
 mod app;
 mod app_state;
 mod auth;
+mod command;
+mod command_bar;
 mod connection_manager;
 mod database_explorer;
 mod database_explorer_state;

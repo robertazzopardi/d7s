@@ -297,6 +297,34 @@ impl App<'_> {
         Ok(())
     }
 
+    /// `:table <name>`: open the best-matching table of the current schema.
+    /// `candidates` are the same-tier matches, best first.
+    pub async fn jump_to_table_by_name(
+        &mut self,
+        candidates: &[String],
+    ) -> Result<()> {
+        let Some(table_name) = candidates.first() else {
+            return Ok(());
+        };
+        let Some(schema) = self.command_schema() else {
+            self.set_status("Open a schema first.");
+            return Ok(());
+        };
+        self.load_table_data(&schema, table_name).await?;
+        if candidates.len() > 1
+            && self.database_explorer.state
+                == DatabaseExplorerState::TableData(schema, table_name.clone())
+        {
+            let shown = candidates.iter().take(4).cloned().collect::<Vec<_>>();
+            self.set_status(format!(
+                "{} matches: {}; opened {table_name}",
+                candidates.len(),
+                shown.join(", ")
+            ));
+        }
+        Ok(())
+    }
+
     async fn fetch_adjacent_table_page(&mut self, next: bool) -> Result<()> {
         if self.discard_table_draft() {
             self.set_status("Draft discarded (page change).");
@@ -523,7 +551,7 @@ impl App<'_> {
         explorer_selected_row_name!(self.database_explorer.schemas)
     }
 
-    fn get_selected_table_name(&self) -> Option<String> {
+    pub(crate) fn get_selected_table_name(&self) -> Option<String> {
         explorer_selected_row_name!(self.database_explorer.tables)
     }
 

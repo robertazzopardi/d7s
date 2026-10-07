@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use k9tui::widgets::hotkey::Hotkey;
 
-pub const LIST_HOTKEYS: [Hotkey; 7] = [
+pub const LIST_HOTKEYS: [Hotkey; 8] = [
     Hotkey::new('s', "start/stop"),
     Hotkey::new('r', "restart"),
     Hotkey::new('l', "logs"),
@@ -9,14 +9,16 @@ pub const LIST_HOTKEYS: [Hotkey; 7] = [
     Hotkey::new('d', "describe"),
     Hotkey::new('D', "remove"),
     Hotkey::new('i', "daemon health"),
+    Hotkey::new(':', "command"),
 ];
 
 /// Hotkeys shown for the image/volume/network list views, which only
 /// support navigation and removal (no start/stop/restart/logs/exec).
-pub const RESOURCE_HOTKEYS: [Hotkey; 3] = [
+pub const RESOURCE_HOTKEYS: [Hotkey; 4] = [
     Hotkey::new('d', "describe"),
     Hotkey::new('D', "remove"),
     Hotkey::new('i', "daemon health"),
+    Hotkey::new(':', "command"),
 ];
 
 pub const VIEW_SWITCH_HOTKEYS: [Hotkey; 4] = [

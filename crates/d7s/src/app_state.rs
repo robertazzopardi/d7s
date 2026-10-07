@@ -20,6 +20,22 @@ pub enum DatabaseExplorerState {
     SqlResults(String),        // SQL execution mode
 }
 
+impl DatabaseExplorerState {
+    /// Schema name for states scoped to a schema (`Tables`/`Columns`/`TableData`).
+    #[must_use]
+    pub fn schema_name(&self) -> Option<String> {
+        match self {
+            Self::Tables(schema)
+            | Self::Columns(schema, _)
+            | Self::TableData(schema, _) => Some(schema.clone()),
+            Self::Connections
+            | Self::Databases
+            | Self::Schemas
+            | Self::SqlResults(_) => None,
+        }
+    }
+}
+
 impl Display for DatabaseExplorerState {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {

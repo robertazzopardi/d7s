@@ -126,6 +126,7 @@ Connected:
 | `1`–`5` | Jump to recent table |
 | `L` | Query log (session history of all queries d7s ran, tagged by origin) |
 | `A` | Activity view (Postgres `pg_stat_activity`; not applicable for SQLite) |
+| `:` | Command bar (see below) |
 
 Table data:
 
@@ -138,7 +139,7 @@ Table data:
 | `D` | Delete row |
 | Space | Toggle multi-select |
 | Enter | Edit cell |
-| `:` / `#` | Jump to row number |
+| `#` | Jump to row number (or `:123`) |
 
 SQL results:
 
@@ -148,6 +149,26 @@ SQL results:
 | `w` | Toggle watch (re-run query every 2s until toggled off or the query/view changes) |
 
 Paste works in connection/cell/password modals and the search bar (bracketed paste).
+
+### Command bar (`:`)
+
+`:` opens the same bottom bar as `/`, with a `:` prompt and a dimmed completion (Tab accepts, Enter runs, Esc cancels, Ctrl-C quits).
+
+| Command | Action |
+|---------|--------|
+| `:connections` / `:conn` | Back to the connection list |
+| `:schemas` | Schema list (Postgres) |
+| `:tables` / `:table` | Tables of the current schema |
+| `:columns` / `:cols` | Columns of the current/selected table |
+| `:sql` / `:editor` | SQL editor |
+| `:log` / `:querylog` | Query log |
+| `:activity` | Activity view (Postgres only) |
+| `:help` | Help |
+| `:q` / `:quit` | Quit |
+| `:table <name>` | Open that table's data (exact, then prefix, then substring match; case-insensitive; the name may contain spaces). No match: `No table matching 'x'`; several: best match opens and the status line lists the rest |
+| `:123` | Jump to row 123 (table data) |
+
+Unique verb prefixes work (`:sch`); a bare word that is not a verb is an unknown command (tables are only reached via `:table <name>`, so tables named `log`, `act`, etc. are never shadowed). Tab completes verbs, and after `table ` completes the table name. Navigation commands are refused while a draft row is pending.
 
 ### Key semantics vs k9s
 

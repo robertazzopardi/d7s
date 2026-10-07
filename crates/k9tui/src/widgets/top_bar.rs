@@ -16,6 +16,13 @@ const MAIN_COLUMN_FILLS: [Constraint; 3] = [
     Constraint::Fill(20),
     Constraint::Fill(36),
 ];
+/// Same, when there are no recent hotkeys: their share goes to the primary
+/// hotkeys so a second column (more than one bar-height of hints) is not clipped.
+const NO_RECENT_COLUMN_FILLS: [Constraint; 3] = [
+    Constraint::Fill(24),
+    Constraint::Length(0),
+    Constraint::Fill(56),
+];
 // Second row is a blank spacer before the box below — no rule drawn into it.
 const ROW_CONSTRAINTS: [Constraint; 2] =
     [Constraint::Fill(1), Constraint::Length(1)];
@@ -68,9 +75,13 @@ impl Widget for TopBarView<'_> {
         .spacing(1)
         .areas(main_area);
         let [app_info_cell, recent_cell, hotkey_cell] =
-            Layout::horizontal(MAIN_COLUMN_FILLS)
-                .spacing(1)
-                .areas(left_area);
+            Layout::horizontal(if self.recent_hotkeys.is_empty() {
+                NO_RECENT_COLUMN_FILLS
+            } else {
+                MAIN_COLUMN_FILLS
+            })
+            .spacing(1)
+            .areas(left_area);
 
         if let Some(build_info) = &self.build_info {
             render_info_stack(build_info, app_info_cell, buf);

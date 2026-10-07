@@ -146,13 +146,32 @@ impl App {
                 let search_block = Block::default()
                     .borders(Borders::ALL)
                     .border_style(theme::border())
-                    .title(" Search ")
+                    .title(if self.command_mode {
+                        " Command "
+                    } else {
+                        " Search "
+                    })
                     .title_style(theme::title());
                 let inner = search_block.inner(search_area);
                 frame.render_widget(search_block, search_area);
-                let cursor = if self.list_search_open { "_" } else { "" };
-                Paragraph::new(format!("/{}{cursor}", self.list_filter))
+                if self.command_mode {
+                    let ghost = crate::command::suggest(&self.command_text)
+                        .map(|s| {
+                            s.chars()
+                                .skip(self.command_text.chars().count())
+                                .collect::<String>()
+                        })
+                        .unwrap_or_default();
+                    Paragraph::new(Line::from(vec![
+                        Span::raw(format!(":{}", self.command_text)),
+                        Span::styled(ghost, theme::muted()),
+                    ]))
                     .render(inner, frame.buffer_mut());
+                } else {
+                    let cursor = if self.list_search_open { "_" } else { "" };
+                    Paragraph::new(format!("/{}{cursor}", self.list_filter))
+                        .render(inner, frame.buffer_mut());
+                }
                 search_layout.get(1).copied().unwrap_or_default()
             } else {
                 content_area
@@ -486,5 +505,46 @@ mod tests {
         let mut terminal =
             Terminal::new(TestBackend::new(20, 5)).expect("test terminal");
         terminal.draw(|f| app.render(f)).expect("draw");
+    }
+
+    #[test]
+    fn command_bar_renders_colon_prompt_text_and_ghost() {
+        let mut app = app();
+        app.command_mode = true;
+        app.list_search_open = true;
+        app.command_text = "vol".into();
+        let out = text(&render(&mut app));
+        assert!(out.contains(" Command "));
+        assert!(out.contains(":volumes"));
+        assert!(!out.contains(" Search "));
+    }
+
+    #[test]
+    fn command_bar_first_char_sits_right_after_prompt() {
+        let mut app = app();
+        app.command_mode = true;
+        app.list_search_open = true;
+        app.command_text = "vol".into();
+        let buf = render(&mut app);
+        let rows: Vec<&[Cell]> =
+            buf.content().chunks(usize::from(buf.area.width)).collect();
+        let title = rows
+            .iter()
+            .position(|r| {
+                r.iter()
+                    .map(Cell::symbol)
+                    .collect::<String>()
+                    .contains(" Command ")
+            })
+            .expect("title row");
+        let cells = rows.get(title + 1).expect("bar row");
+        let colon = cells
+            .iter()
+            .position(|c| c.symbol() == ":")
+            .expect("prompt cell");
+        let after = |n: usize| cells.get(colon + n).expect("cell").symbol();
+        assert_eq!(after(1), "v", "first char right after ':'");
+        assert_eq!(after(3), "l", "last typed char");
+        assert_eq!(after(4), "u", "ghost right after typed text");
     }
 }
