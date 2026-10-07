@@ -4,7 +4,7 @@ rustc-ice-*
 *.mp4
 .demo-home/
 .demo-data/
-docker/sqlite/*.sqlite
+crates/d7s/docker/sqlite/*.sqlite
 .claude/
 docs/superpowers/
 .superpowers/
