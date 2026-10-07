@@ -368,20 +368,20 @@ impl Database for Postgres {
     ) -> Result<Vec<TableRow>, Box<dyn std::error::Error>> {
         let client = self.get_connection().await?;
 
-        let rows = client.query(sql, &[]).await?;
+        // Prepare once; statements without result columns are executed (not
+        // queried) so nothing runs twice.
+        let stmt = client.prepare(sql).await?;
         let mut result = Vec::new();
 
-        if rows.is_empty() {
-            let affected_rows = client.execute(sql, &[]).await?;
+        if stmt.columns().is_empty() {
+            let affected_rows = client.execute(&stmt, &[]).await?;
             result.push(TableRow {
-                values: vec![format!("Affected rows: {}", affected_rows)],
+                values: vec![format!("Affected rows: {affected_rows}")],
                 column_names: vec!["Result".to_string()],
             });
         } else {
-            let Some(first_row) = rows.first() else {
-                return Ok(result);
-            };
-            let column_names: Vec<String> = first_row
+            let rows = client.query(&stmt, &[]).await?;
+            let column_names: Vec<String> = stmt
                 .columns()
                 .iter()
                 .map(|col| col.name().to_string())
@@ -782,6 +782,34 @@ impl Database for Postgres {
         let row = client.query_one(&q, &[]).await?;
         let count: i64 = row.get(0);
         Ok(count.cast_unsigned())
+    }
+
+    async fn get_table_index_names(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+        let q = "SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND tablename = $2 ORDER BY indexname";
+        let rows = client.query(q, &[&schema_name, &table_name]).await?;
+        Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect())
+    }
+
+    async fn get_table_size(
+        &self,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        let client = self.get_connection().await?;
+        let q =
+            "SELECT pg_size_pretty(pg_total_relation_size($1::text::regclass))";
+        let ident = format!(
+            "{}.{}",
+            pg_quote_ident(schema_name),
+            pg_quote_ident(table_name)
+        );
+        let row = client.query_one(q, &[&ident]).await?;
+        Ok(Some(row.get::<_, String>(0)))
     }
 
     async fn get_databases(
@@ -1278,4 +1306,37 @@ fn try_get_time(row: &Row, index: usize) -> String {
 
     // Fallback to string
     try_get::<String>(row, index)
+}
+
+#[cfg(test)]
+#[allow(clippy::indexing_slicing)]
+mod tests {
+    use super::*;
+
+    /// Needs `just docker-up` (d7s-test-db on localhost:5432).
+    #[tokio::test]
+    #[ignore = "requires docker test database"]
+    async fn insert_executes_exactly_once() {
+        let pg = Postgres {
+            name: "test".into(),
+            host: Some("localhost".into()),
+            port: Some("5432".into()),
+            user: "d7s_user".into(),
+            database: "d7s_test".into(),
+            password: "d7s_password".into(),
+        };
+        let t = format!("d7s_once_{}", std::process::id());
+        pg.execute_sql(&format!("CREATE TABLE {t} (id int)"))
+            .await
+            .unwrap();
+        let r = pg.execute_sql(&format!("INSERT INTO {t} VALUES (1)")).await;
+        let n = pg.execute_sql(&format!("SELECT count(*) FROM {t}")).await;
+        let e = pg
+            .execute_sql(&format!("SELECT * FROM {t} WHERE id = 99"))
+            .await;
+        pg.execute_sql(&format!("DROP TABLE {t}")).await.unwrap();
+        assert_eq!(r.unwrap()[0].values[0], "Affected rows: 1");
+        assert_eq!(n.unwrap()[0].values[0], "1");
+        assert!(e.unwrap().is_empty());
+    }
 }

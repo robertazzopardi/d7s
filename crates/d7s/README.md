@@ -23,6 +23,9 @@ d7s and c8s are the shipped apps; k9tui exists so k9s-style TUI apps in this wor
 - **Credential storage** — passwords are stored in the platform keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service), or never saved and prompted everytime.
 - **Database traversal** — navigate databases, schemas, tables, columns, and row data with keyboard-driven menus, supports vim.
 - **SQL executor** — execute SQL from the editor, choose a statement when multiple are present, with read-only-by-default safety and confirmation for mutating statements.
+- **Watch mode** — re-run the current SQL results query every 2s (`w`) until toggled off.
+- **Activity view** (Postgres only) — `A` shows currently-running backends from `pg_stat_activity` (pid, query, state, wait_event, query_start); not applicable to SQLite, which has no server process to inspect.
+- **Query log** — `L` lists every query d7s ran this session (your SQL, watch ticks, activity and metadata queries), newest first, with origin, duration and rows or error; bounded to the last 500. Esc/`q` returns.
 - **Environment tagging** — label each connection as dev, staging, or prod.
 
 ## Demo
@@ -104,9 +107,10 @@ Connections:
 |-----|--------|
 | `n` | New connection |
 | `e` | Edit connection |
-| `d` | Delete connection |
+| `D` | Delete connection |
 | `o` / Enter | Open connection |
 | `O` | Reconnect last connection |
+| `d` | Describe selected connection |
 
 Connected:
 
@@ -115,8 +119,11 @@ Connected:
 | `e` | SQL editor |
 | `E` | Run SQL |
 | `t` | Toggle table structure |
+| `d` | Describe selected table/column/row |
 | `/` | Search |
 | `1`–`5` | Jump to recent table |
+| `L` | Query log (session history of all queries d7s ran, tagged by origin) |
+| `A` | Activity view (Postgres `pg_stat_activity`; not applicable for SQLite) |
 | `` ` `` | Jump to table by name (fuzzy/substring match, current schema) |
 
 Table data:
@@ -127,7 +134,7 @@ Table data:
 | `a` | New row |
 | `c` | Duplicate row as draft |
 | `s` | Commit draft row |
-| `d` | Delete row |
+| `D` | Delete row |
 | Space | Toggle multi-select |
 | Enter | Edit cell |
 | `:` / `#` | Jump to row number |
@@ -137,5 +144,18 @@ SQL results:
 | Key | Action |
 |-----|--------|
 | `Ctrl-s` / `x` | Export results to temp TSV |
+| `w` | Toggle watch (re-run query every 2s until toggled off or the query/view changes) |
 
 Paste works in connection/cell/password modals and the search bar (bracketed paste).
+
+### Key semantics vs k9s
+
+- `y` copies the selected cell value (and `Y` the row as TSV) here, unlike
+  k9s where `y` shows the resource's YAML manifest. There is no manifest
+  concept in a relational-table client.
+- `d` describes the selected connection, table, column or row, as in k9s.
+  Destructive actions sit behind Shift: `D` deletes the selected connection
+  or row (confirm dialog).
+- `/` filters the current view's rows by substring, matching k9s's filter key
+  and UX intent, scoped to whichever table/list is on screen rather than a
+  single global resource list.
