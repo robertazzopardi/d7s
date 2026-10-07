@@ -158,17 +158,17 @@ Paste works in connection/cell/password modals and the search bar (bracketed pas
 |---------|--------|
 | `:connections` / `:conn` | Back to the connection list |
 | `:schemas` | Schema list (Postgres) |
-| `:tables` | Tables of the current schema |
+| `:tables` / `:table` | Tables of the current schema |
 | `:columns` / `:cols` | Columns of the current/selected table |
 | `:sql` / `:editor` | SQL editor |
 | `:log` / `:querylog` | Query log |
 | `:activity` | Activity view (Postgres only) |
 | `:help` | Help |
 | `:q` / `:quit` | Quit |
-| `:<table>` | Open that table's data (exact, then prefix, then substring match; case-insensitive) |
+| `:table <name>` | Open that table's data (exact, then prefix, then substring match; case-insensitive; the name may contain spaces). No match: `No table matching 'x'`; several: best match opens and the status line lists the rest |
 | `:123` | Jump to row 123 (table data) |
 
-Unique prefixes work (`:sch`). Navigation commands are refused while a draft row is pending.
+Unique verb prefixes work (`:sch`); a bare word that is not a verb is an unknown command (tables are only reached via `:table <name>`, so tables named `log`, `act`, etc. are never shadowed). Tab completes verbs, and after `table ` completes the table name. Navigation commands are refused while a draft row is pending.
 
 ### Key semantics vs k9s
 

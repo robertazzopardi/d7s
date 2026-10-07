@@ -1028,18 +1028,23 @@ mod tests {
         app.on_key_event(key(':')).await.unwrap();
         assert!(app.command_mode && app.search_filter.is_some());
         type_str(&mut app, "tab").await;
-        assert_eq!(app.command_suggestion().as_deref(), Some("tables"));
+        assert_eq!(app.command_suggestion().as_deref(), Some("table "));
+        app.on_key_event(tab()).await.unwrap();
+        assert_eq!(app.command_text(), "table ");
+        type_str(&mut app, "us").await;
+        assert_eq!(app.command_suggestion().as_deref(), Some("table users"));
         let text = render_text(&mut app);
-        assert!(text.contains("tables"), "ghost completion rendered");
-        app.on_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE))
-            .await
-            .unwrap();
-        assert_eq!(app.command_text(), "tables");
+        assert!(text.contains("users"), "ghost completion rendered");
+        app.on_key_event(tab()).await.unwrap();
+        assert_eq!(app.command_text(), "table users");
         app.on_key_event(enter()).await.unwrap();
         assert!(!app.command_mode && app.search_filter.is_none());
         assert_eq!(
             app.database_explorer.state,
-            DatabaseExplorerState::Tables("sqlite_schema".into())
+            DatabaseExplorerState::TableData(
+                "sqlite_schema".into(),
+                "users".into()
+            )
         );
     }
 
@@ -1104,7 +1109,7 @@ mod tests {
     async fn view_commands_navigate() {
         let mut app = tables_app("cmd_nav").await;
         let schema = "sqlite_schema".to_string();
-        run_cmd(&mut app, "users").await;
+        run_cmd(&mut app, "table users").await;
         assert_eq!(
             app.database_explorer.state,
             DatabaseExplorerState::TableData(schema.clone(), "users".into())
@@ -1128,7 +1133,7 @@ mod tests {
             app.database_explorer.state,
             DatabaseExplorerState::Tables(schema.clone())
         );
-        run_cmd(&mut app, "ord").await;
+        run_cmd(&mut app, "table ord").await;
         assert_eq!(
             app.database_explorer.state,
             DatabaseExplorerState::TableData(schema, "orders".into()),
@@ -1170,7 +1175,7 @@ mod tests {
     #[tokio::test]
     async fn draft_row_blocks_navigation_commands() {
         let mut app = tables_app("cmd_draft").await;
-        run_cmd(&mut app, "users").await;
+        run_cmd(&mut app, "table users").await;
         app.on_key_event(key('a')).await.unwrap();
         assert!(app.has_table_draft_rows());
         run_cmd(&mut app, "tables").await;
@@ -1216,9 +1221,101 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn table_command_args_errors_and_verb_named_tables() {
+        let mut app = tables_app("cmd_table_arg").await;
+        rusqlite::Connection::open(&app.database_explorer.connection.url)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE log(id); CREATE TABLE act(id);
+                 CREATE TABLE \"tables\"(id); CREATE TABLE \"my data\"(id);",
+            )
+            .unwrap();
+        app.load_tables("sqlite_schema").await.unwrap();
+        let open = |t: &str| {
+            DatabaseExplorerState::TableData("sqlite_schema".into(), t.into())
+        };
+        for (cmd, table) in [
+            ("table log", "log"),
+            ("table act", "act"),
+            ("table tables", "tables"),
+            ("table my data", "my data"),
+            ("table   MY DA  ", "my data"),
+        ] {
+            run_cmd(&mut app, "tables").await;
+            run_cmd(&mut app, cmd).await;
+            assert_eq!(app.database_explorer.state, open(table), "{cmd}");
+        }
+        // Bare verbs keep their meaning even if a table shares the name.
+        run_cmd(&mut app, "log").await;
+        assert!(app.show_query_log, "bare :log opens the query log");
+        app.on_key_event(esc()).await.unwrap();
+        run_cmd(&mut app, "tables").await;
+        run_cmd(&mut app, "act").await;
+        assert!(render_text(&mut app).contains("Postgres-only"));
+        // A bare table name is no longer a command.
+        run_cmd(&mut app, "users").await;
+        assert!(render_text(&mut app).contains("Unknown command: users"));
+        // `:table` alone == `:tables`; unknown table reports and stays put.
+        run_cmd(&mut app, "table users").await;
+        run_cmd(&mut app, "table").await;
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::Tables("sqlite_schema".into())
+        );
+        run_cmd(&mut app, "table nope").await;
+        assert!(render_text(&mut app).contains("No table matching 'nope'"));
+        assert_eq!(
+            app.database_explorer.state,
+            DatabaseExplorerState::Tables("sqlite_schema".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn table_argument_tab_completion_and_spaces() {
+        let mut app = named_tables_app(
+            "cmd_table_tab",
+            &["orders", "Order Items", "log", "users"],
+        );
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "table or").await;
+        assert_eq!(
+            app.command_suggestion().as_deref(),
+            Some("table orders"),
+            "best (first) prefix match"
+        );
+        app.on_key_event(tab()).await.unwrap();
+        assert_eq!(app.command_text(), "table orders");
+        assert_eq!(app.command_suggestion(), None);
+        app.on_key_event(tab()).await.unwrap();
+        assert_eq!(app.command_text(), "table orders", "Tab is idempotent");
+        app.on_key_event(esc()).await.unwrap();
+        // Spaces inside the argument.
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "table order i").await;
+        app.on_key_event(tab()).await.unwrap();
+        assert_eq!(app.command_text(), "table Order Items");
+        app.on_key_event(esc()).await.unwrap();
+        // Empty argument completes to the first table; non-table verbs
+        // never get an argument completion.
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "table ").await;
+        assert_eq!(app.command_suggestion().as_deref(), Some("table orders"));
+        app.on_key_event(esc()).await.unwrap();
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "columns u").await;
+        assert_eq!(app.command_suggestion(), None);
+        app.on_key_event(esc()).await.unwrap();
+        // No match: nothing to complete.
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "table zz").await;
+        app.on_key_event(tab()).await.unwrap();
+        assert_eq!(app.command_text(), "table zz");
+    }
+
+    #[tokio::test]
     async fn extra_whitespace_and_blank_commands() {
         let mut app = tables_app("cmd_ws").await;
-        run_cmd(&mut app, "users").await;
+        run_cmd(&mut app, "table users").await;
         run_cmd(&mut app, "  tables  ").await;
         assert_eq!(
             app.database_explorer.state,
@@ -1236,7 +1333,7 @@ mod tests {
             assert!(!render_text(&mut app).contains("Unknown command"));
         }
         // Uppercase + padding resolves; Tab cannot complete past whitespace.
-        run_cmd(&mut app, " USERS ").await;
+        run_cmd(&mut app, "  table  USERS ").await;
         assert_eq!(
             app.database_explorer.state,
             DatabaseExplorerState::TableData(
@@ -1350,17 +1447,26 @@ mod tests {
         // Ghost for a wide-glyph table: typed is 2 cells wide per glyph.
         app.on_key_event(key(':')).await.unwrap();
         type_str(&mut app, "表").await;
-        assert_eq!(app.command_suggestion().as_deref(), Some("表格"));
+        assert_eq!(
+            app.command_suggestion(),
+            None,
+            "verbs only before `table `"
+        );
+        type_str(&mut app, "x").await;
+        app.on_key_event(esc()).await.unwrap();
+        app.on_key_event(key(':')).await.unwrap();
+        type_str(&mut app, "table 表").await;
+        assert_eq!(app.command_suggestion().as_deref(), Some("table 表格"));
         let text = render_text(&mut app);
         assert!(text.contains("格"), "{text}");
         app.on_key_event(tab()).await.unwrap();
-        assert_eq!(app.command_text(), "表格");
+        assert_eq!(app.command_text(), "table 表格");
         app.on_key_event(esc()).await.unwrap();
         // Spaces / quotes / case in table names.
         for (typed, shown) in [
-            ("order i", "Order Items"),
-            ("O'B", "O'Brien"),
-            ("📦", "📦boxes"),
+            ("table order i", "table Order Items"),
+            ("table O'B", "table O'Brien"),
+            ("table 📦", "table 📦boxes"),
         ] {
             app.on_key_event(key(':')).await.unwrap();
             type_str(&mut app, typed).await;
@@ -1375,7 +1481,7 @@ mod tests {
         let long = "a_very_long_table_name_that_overflows_a_small_bar";
         let mut app = named_tables_app("cmd_narrow", &[long, "表格"]);
         app.on_key_event(key(':')).await.unwrap();
-        type_str(&mut app, "a_v").await;
+        type_str(&mut app, "table a_v").await;
         for (w, h) in [(20, 5), (80, 24), (120, 30), (6, 3), (3, 3), (1, 1)] {
             let _ = render_sized(&mut app, w, h);
         }
@@ -1392,7 +1498,7 @@ mod tests {
         // Wide-glyph input at the narrow sizes.
         app.on_key_event(esc()).await.unwrap();
         app.on_key_event(key(':')).await.unwrap();
-        type_str(&mut app, "表").await;
+        type_str(&mut app, "table 表").await;
         for (w, h) in [(20, 5), (7, 3), (4, 3)] {
             let _ = render_sized(&mut app, w, h);
         }
@@ -1401,7 +1507,7 @@ mod tests {
     #[tokio::test]
     async fn row_jump_edges_and_draft_guard() {
         let mut app = tables_app("cmd_rows").await;
-        run_cmd(&mut app, "users").await;
+        run_cmd(&mut app, "table users").await;
         for (cmd, want) in [
             ("0", "Row number must be >= 1"),
             ("99999999999999999999", "Unknown command"),

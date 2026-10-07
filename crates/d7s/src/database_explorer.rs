@@ -297,7 +297,7 @@ impl App<'_> {
         Ok(())
     }
 
-    /// `:<table>`: open the best-matching table of the current schema.
+    /// `:table <name>`: open the best-matching table of the current schema.
     /// `candidates` are the same-tier matches, best first.
     pub async fn jump_to_table_by_name(
         &mut self,

@@ -45,7 +45,7 @@ impl App<'_> {
             .unwrap_or_default()
     }
 
-    /// Schema whose tables `:<table>` / `:tables` refer to.
+    /// Schema whose tables `:table <name>` / `:tables` refer to.
     pub(crate) fn command_schema(&self) -> Option<String> {
         if self.state != AppState::DatabaseConnected {
             return None;
@@ -129,6 +129,7 @@ impl App<'_> {
         let changes_view = matches!(
             cmd,
             Command::Table(_)
+                | Command::NoTable(_)
                 | Command::Row(_)
                 | Command::Verb(
                     Verb::Connections
@@ -153,6 +154,9 @@ impl App<'_> {
         }
         match cmd {
             Command::Empty => {}
+            Command::NoTable(x) => {
+                self.set_status(format!("No table matching '{x}'"));
+            }
             Command::Unknown(x) => {
                 self.set_status(format!("Unknown command: {x}"));
             }
