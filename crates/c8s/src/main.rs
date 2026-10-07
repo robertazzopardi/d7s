@@ -3,6 +3,7 @@ mod app_state;
 mod command;
 mod docker;
 mod event_handlers;
+mod log_dedup;
 mod rendering;
 mod ui;
 

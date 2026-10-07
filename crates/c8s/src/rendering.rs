@@ -14,6 +14,7 @@ use ratatui::{
 use crate::{
     app::{APP_NAME, App},
     app_state::{AppState, ResourceKind},
+    log_dedup::fold,
     ui::widgets::hotkeys::{
         GLOBAL_HOTKEYS, VIEW_SWITCH_HOTKEYS, describe_hotkeys, log_hotkeys,
     },
@@ -276,14 +277,20 @@ impl App {
                 content_area
             };
 
-        let filtered = filter_and_highlight(&self.log_lines, &self.log_filter);
+        let folded = fold(&self.log_lines, self.log_dedup);
+        let filtered = filter_and_highlight(&folded, &self.log_filter);
+        self.log_view_len = filtered.len();
 
+        let dedup = self.log_dedup.label();
         let title = if !self.log_filter.is_empty() {
-            format!(" Logs: {name} ({} matches) ", filtered.len())
+            format!(
+                " Logs: {name} ({} matches, dedup: {dedup}) ",
+                filtered.len()
+            )
         } else if self.log_follow {
-            format!(" Logs: {name} (live) ")
+            format!(" Logs: {name} (live, dedup: {dedup}) ")
         } else {
-            format!(" Logs: {name} (scrolled, G to follow) ")
+            format!(" Logs: {name} (scrolled, G to follow, dedup: {dedup}) ")
         };
         let block = Block::new()
             .borders(Borders::ALL)

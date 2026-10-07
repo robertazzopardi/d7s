@@ -117,10 +117,8 @@ impl App {
             return;
         }
 
-        let max_start = self
-            .log_lines
-            .len()
-            .saturating_sub(self.log_viewport_height);
+        let max_start =
+            self.log_view_len.saturating_sub(self.log_viewport_height);
         match (key.modifiers, key.code) {
             (_, KeyCode::Char('q') | KeyCode::Esc)
                 if self.log_filter.is_empty() =>
@@ -129,6 +127,9 @@ impl App {
             }
             (_, KeyCode::Char('q') | KeyCode::Esc) => self.log_filter.clear(),
             (_, KeyCode::Char('/')) => self.log_search_open = true,
+            (KeyModifiers::NONE, KeyCode::Char('d')) => {
+                self.log_dedup = self.log_dedup.next()
+            }
             (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
             (_, KeyCode::Char('k') | KeyCode::Up) => {
                 self.log_follow = false;

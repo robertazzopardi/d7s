@@ -92,6 +92,9 @@ pub struct App {
     pub(crate) log_follow: bool,
     /// Height of the last-rendered log viewport, used to clamp scrolling.
     pub(crate) log_viewport_height: usize,
+    /// Row count of the last-rendered (deduped + filtered) log view.
+    pub(crate) log_view_len: usize,
+    pub(crate) log_dedup: crate::log_dedup::DedupMode,
     /// Case-insensitive substring filter applied to log lines. Empty = no filter.
     pub(crate) log_filter: String,
     /// True while the `/` search bar is open for editing.
@@ -138,6 +141,8 @@ impl App {
             log_scroll: 0,
             log_follow: true,
             log_viewport_height: 0,
+            log_view_len: 0,
+            log_dedup: crate::log_dedup::DedupMode::default(),
             log_filter: String::new(),
             log_search_open: false,
             describe_scroll: 0,
