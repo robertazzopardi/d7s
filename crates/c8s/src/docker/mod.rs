@@ -75,9 +75,13 @@ impl ContainerRow {
             let used = usage.saturating_sub(cache);
             self.mem = match mem.limit {
                 Some(limit) if limit > 0 => {
-                    format!("{} / {}", format_bytes(used), format_bytes(limit))
+                    format!(
+                        "{} / {}",
+                        format_size_u64(used),
+                        format_size_u64(limit)
+                    )
                 }
-                _ => format_bytes(used),
+                _ => format_size_u64(used),
             };
         }
     }
@@ -98,21 +102,6 @@ fn cpu_percent(stats: &bollard::models::ContainerStatsResponse) -> Option<f64> {
     }
     let cpus = f64::from(cur.online_cpus.unwrap_or(1).max(1));
     Some(cpu_delta / sys_delta * cpus * 100.0)
-}
-
-fn format_bytes(b: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
-    let mut v = b as f64;
-    let mut i = 0;
-    while v >= 1024.0 && i < UNITS.len() - 1 {
-        v /= 1024.0;
-        i += 1;
-    }
-    if i == 0 {
-        format!("{b}B")
-    } else {
-        format!("{v:.1}{}", UNITS.get(i).copied().unwrap_or(""))
-    }
 }
 
 /// Render a k9s-style "describe" text block from a full container inspect
@@ -608,6 +597,10 @@ impl TableData for NetworkRow {
     }
 }
 
+fn format_size_u64(bytes: u64) -> String {
+    format_size(i64::try_from(bytes).unwrap_or(i64::MAX))
+}
+
 fn format_size(bytes: i64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     #[allow(clippy::cast_precision_loss)]
@@ -735,7 +728,7 @@ mod tests {
         let mut row = ContainerRow::from_summary(&summary());
         row.apply_stats(&stats);
         assert_eq!(row.cpu, "20.0%");
-        assert_eq!(row.mem, "3.0MiB / 1.0GiB");
+        assert_eq!(row.mem, "3.0MB / 1.0GB");
     }
 }
 
