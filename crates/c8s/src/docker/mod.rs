@@ -111,7 +111,7 @@ fn format_bytes(b: u64) -> String {
     if i == 0 {
         format!("{b}B")
     } else {
-        format!("{v:.1}{}", UNITS[i])
+        format!("{v:.1}{}", UNITS.get(i).copied().unwrap_or(""))
     }
 }
 
