@@ -40,6 +40,7 @@ pub fn log_hotkeys() -> Vec<Hotkey> {
         Hotkey::new('g', "top"),
         Hotkey::new('G', "follow"),
         Hotkey::new('/', "search"),
+        Hotkey::new('d', "dedup"),
         Hotkey::code(KeyCode::Esc, "back"),
         Hotkey::new('q', "back"),
     ]
