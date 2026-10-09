@@ -75,6 +75,8 @@ pub struct App {
     /// Case-insensitive substring filter applied to the active list view(s).
     /// Empty = no filter.
     pub(crate) list_filter: String,
+    /// Hide non-running containers (`a` toggles).
+    pub(crate) running_only: bool,
     /// True while the `/` search bar is open for editing in the list view.
     pub(crate) list_search_open: bool,
     /// With `list_search_open`: the bar is the `:` command line (text in
@@ -131,6 +133,7 @@ impl App {
             volumes_all: Vec::new(),
             networks_all: Vec::new(),
             list_filter: String::new(),
+            running_only: false,
             list_search_open: false,
             command_mode: false,
             command_text: String::new(),
@@ -296,8 +299,7 @@ impl App {
                 BackgroundEvent::Containers(mut rows) => {
                     rows.sort_by_key(|r| r.name.to_lowercase());
                     self.containers_all = rows;
-                    let filtered =
-                        filter_rows(&self.containers_all, &self.list_filter);
+                    let filtered = self.visible_containers();
                     apply_table_update(&mut self.containers, filtered);
                 }
                 BackgroundEvent::Images(mut rows) => {
@@ -445,10 +447,19 @@ impl App {
         self.state = AppState::List;
     }
 
+    /// Containers matching the `/` filter and, when on, running-only.
+    fn visible_containers(&self) -> Vec<ContainerRow> {
+        let mut rows = filter_rows(&self.containers_all, &self.list_filter);
+        if self.running_only {
+            rows.retain(ContainerRow::is_running);
+        }
+        rows
+    }
+
     /// Re-apply the `/` filter to all four resource lists from their
     /// unfiltered masters, e.g. after the filter text changes.
     pub(crate) fn reapply_list_filter(&mut self) {
-        let filtered = filter_rows(&self.containers_all, &self.list_filter);
+        let filtered = self.visible_containers();
         apply_table_update(&mut self.containers, filtered);
         let filtered = filter_rows(&self.images_all, &self.list_filter);
         apply_table_update(&mut self.images, filtered);

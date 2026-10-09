@@ -1,7 +1,8 @@
 use crossterm::event::KeyCode;
 use k9tui::widgets::hotkey::Hotkey;
 
-pub const LIST_HOTKEYS: [Hotkey; 8] = [
+pub const LIST_HOTKEYS: [Hotkey; 9] = [
+    Hotkey::new('a', "running only"),
     Hotkey::new('s', "start/stop"),
     Hotkey::new('r', "restart"),
     Hotkey::new('l', "logs"),
