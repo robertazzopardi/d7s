@@ -20,6 +20,11 @@ pub struct ContainerRow {
 }
 
 impl ContainerRow {
+    #[must_use]
+    pub fn is_running(&self) -> bool {
+        self.status.eq_ignore_ascii_case("running")
+    }
+
     /// Build a row from a bollard container-summary response.
     #[must_use]
     pub fn from_summary(summary: &bollard::models::ContainerSummary) -> Self {

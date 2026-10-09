@@ -178,10 +178,16 @@ impl App {
                 content_area
             };
 
+        let running =
+            if self.running_only && self.view == ResourceKind::Containers {
+                " running"
+            } else {
+                ""
+            };
         let title = if self.list_filter.is_empty() {
-            format!(" {label} [{n}] ")
+            format!(" {label}{running} [{n}] ")
         } else {
-            format!(" {label} [{n} matches] ")
+            format!(" {label}{running} [{n} matches] ")
         };
         let block = Block::new()
             .borders(Borders::ALL)

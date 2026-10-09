@@ -301,11 +301,17 @@ impl App {
             (_, KeyCode::Char('k') | KeyCode::Up) => self.navigate(KeyCode::Up),
             (_, KeyCode::Char('g')) => self.navigate(KeyCode::Char('g')),
             (_, KeyCode::Char('G')) => self.navigate(KeyCode::Char('G')),
+            (_, KeyCode::Char('a'))
+                if self.view == ResourceKind::Containers =>
+            {
+                self.running_only = !self.running_only;
+                self.reapply_list_filter();
+            }
             (_, KeyCode::Char('s' | 'S'))
                 if self.view == ResourceKind::Containers =>
             {
                 if let Some(row) = self.selected_container().cloned() {
-                    if row.status.eq_ignore_ascii_case("running") {
+                    if row.is_running() {
                         self.stop_container(&row.id).await;
                     } else {
                         self.start_container(&row.id).await;
@@ -1001,6 +1007,22 @@ mod filter_tests {
         for c in s.chars() {
             press(app, KeyCode::Char(c));
         }
+    }
+
+    #[test]
+    fn running_only_hides_stopped_containers() {
+        let mut app = app();
+        for (row, status) in
+            app.containers_all.iter_mut().zip(["running", "exited"])
+        {
+            row.status = status.into();
+        }
+        app.running_only = true;
+        app.reapply_list_filter();
+        assert_eq!(app.containers.model.items.len(), 1);
+        app.running_only = false;
+        app.reapply_list_filter();
+        assert_eq!(app.containers.model.items.len(), 2);
     }
 
     fn app() -> App {
