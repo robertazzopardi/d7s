@@ -88,6 +88,7 @@ impl ContainerRow {
 }
 
 /// CPU % between the previous and current sample, as `docker stats` does.
+#[allow(clippy::cast_precision_loss)]
 fn cpu_percent(stats: &bollard::models::ContainerStatsResponse) -> Option<f64> {
     let cur = stats.cpu_stats.as_ref()?;
     let pre = stats.precpu_stats.as_ref()?;
