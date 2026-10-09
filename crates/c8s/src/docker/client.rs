@@ -5,7 +5,8 @@ use bollard::{
         InspectContainerOptions, InspectNetworkOptions, ListContainersOptions,
         ListImagesOptions, ListNetworksOptions, ListVolumesOptions,
         LogsOptions, RemoveContainerOptions, RemoveImageOptions,
-        RemoveVolumeOptions, RestartContainerOptions, StopContainerOptions,
+        RemoveVolumeOptions, RestartContainerOptions, StatsOptions,
+        StopContainerOptions,
     },
 };
 use color_eyre::Result;
@@ -30,6 +31,9 @@ pub struct DaemonHealth {
 
 /// Upper bound for the daemon health probe.
 const HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Upper bound for one container stats sample.
+const STATS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 impl DaemonHealth {
     /// Lines shown in the health panel.
@@ -114,7 +118,39 @@ impl DockerClient {
             ..Default::default()
         };
         let summaries = self.docker.list_containers(Some(options)).await?;
-        Ok(summaries.iter().map(ContainerRow::from_summary).collect())
+        let mut rows: Vec<ContainerRow> =
+            summaries.iter().map(ContainerRow::from_summary).collect();
+        // Stats only exist for running containers. Sampled concurrently, each
+        // with a timeout; failures just leave the cells blank.
+        futures_util::future::join_all(
+            rows.iter_mut().filter(|r| r.status == "running").map(
+                |row| async move {
+                    if let Some(stats) = self.container_stats(&row.id).await {
+                        row.apply_stats(&stats);
+                    }
+                },
+            ),
+        )
+        .await;
+        Ok(rows)
+    }
+
+    /// One non-streaming stats sample (the daemon fills `precpu_stats`).
+    async fn container_stats(
+        &self,
+        id: &str,
+    ) -> Option<bollard::models::ContainerStatsResponse> {
+        let options = StatsOptions {
+            stream: false,
+            one_shot: false,
+        };
+        tokio::time::timeout(
+            STATS_TIMEOUT,
+            self.docker.stats(id, Some(options)).next(),
+        )
+        .await
+        .ok()?
+        .and_then(Result::ok)
     }
 
     pub async fn start(&self, id: &str) -> Result<()> {

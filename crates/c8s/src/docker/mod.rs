@@ -13,6 +13,10 @@ pub struct ContainerRow {
     pub status: String,
     pub ports: String,
     pub uptime: String,
+    /// CPU usage, e.g. "12.3%"; empty when not running or stats unavailable.
+    pub cpu: String,
+    /// Memory usage, e.g. "120.5MiB / 1.9GiB"; empty when unavailable.
+    pub mem: String,
 }
 
 impl ContainerRow {
@@ -46,8 +50,59 @@ impl ContainerRow {
             status,
             ports,
             uptime,
+            cpu: String::new(),
+            mem: String::new(),
         }
     }
+
+    /// Fill `cpu`/`mem` from a one-shot stats sample.
+    pub fn apply_stats(
+        &mut self,
+        stats: &bollard::models::ContainerStatsResponse,
+    ) {
+        if let Some(pct) = cpu_percent(stats) {
+            self.cpu = format!("{pct:.1}%");
+        }
+        if let Some(mem) = stats.memory_stats.as_ref() {
+            let usage = mem.usage.unwrap_or(0);
+            // Match `docker stats`: exclude reclaimable page cache.
+            let cache = mem
+                .stats
+                .as_ref()
+                .and_then(|m| m.get("inactive_file").or_else(|| m.get("cache")))
+                .copied()
+                .unwrap_or(0);
+            let used = usage.saturating_sub(cache);
+            self.mem = match mem.limit {
+                Some(limit) if limit > 0 => {
+                    format!(
+                        "{} / {}",
+                        format_size_u64(used),
+                        format_size_u64(limit)
+                    )
+                }
+                _ => format_size_u64(used),
+            };
+        }
+    }
+}
+
+/// CPU % between the previous and current sample, as `docker stats` does.
+#[allow(clippy::cast_precision_loss)]
+fn cpu_percent(stats: &bollard::models::ContainerStatsResponse) -> Option<f64> {
+    let cur = stats.cpu_stats.as_ref()?;
+    let pre = stats.precpu_stats.as_ref()?;
+    let total = |c: &bollard::models::ContainerCpuStats| {
+        c.cpu_usage.as_ref().and_then(|u| u.total_usage)
+    };
+    let cpu_delta = total(cur)?.checked_sub(total(pre)?)? as f64;
+    let sys_delta =
+        cur.system_cpu_usage?.checked_sub(pre.system_cpu_usage?)? as f64;
+    if sys_delta <= 0.0 {
+        return None;
+    }
+    let cpus = f64::from(cur.online_cpus.unwrap_or(1).max(1));
+    Some(cpu_delta / sys_delta * cpus * 100.0)
 }
 
 /// Render a k9s-style "describe" text block from a full container inspect
@@ -379,7 +434,8 @@ fn format_port(port: &bollard::models::PortSummary) -> String {
     }
 }
 
-const COLUMNS: [&str; 5] = ["NAME", "IMAGE", "STATUS", "PORTS", "UPTIME"];
+const COLUMNS: [&str; 7] =
+    ["NAME", "IMAGE", "STATUS", "CPU", "MEM", "PORTS", "UPTIME"];
 
 impl TableData for ContainerRow {
     fn title() -> &'static str {
@@ -391,6 +447,8 @@ impl TableData for ContainerRow {
             self.name.clone(),
             self.image.clone(),
             self.status.clone(),
+            self.cpu.clone(),
+            self.mem.clone(),
             self.ports.clone(),
             self.uptime.clone(),
         ]
@@ -540,6 +598,10 @@ impl TableData for NetworkRow {
     }
 }
 
+fn format_size_u64(bytes: u64) -> String {
+    format_size(i64::try_from(bytes).unwrap_or(i64::MAX))
+}
+
 fn format_size(bytes: i64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     #[allow(clippy::cast_precision_loss)]
@@ -630,11 +692,44 @@ mod tests {
                 "my-app".to_string(),
                 "nginx:latest".to_string(),
                 "running".to_string(),
+                String::new(),
+                String::new(),
                 "0.0.0.0:8080->80/tcp".to_string(),
                 "Up 3 hours".to_string(),
             ]
         );
-        assert_eq!(row.num_columns(), 5);
+        assert_eq!(row.num_columns(), 7);
+    }
+
+    #[test]
+    fn stats_fill_cpu_and_mem() {
+        use bollard::models::{
+            ContainerCpuStats, ContainerCpuUsage, ContainerMemoryStats,
+            ContainerStatsResponse,
+        };
+        let cpu = |total, sys| ContainerCpuStats {
+            cpu_usage: Some(ContainerCpuUsage {
+                total_usage: Some(total),
+                ..Default::default()
+            }),
+            system_cpu_usage: Some(sys),
+            online_cpus: Some(2),
+            ..Default::default()
+        };
+        let stats = ContainerStatsResponse {
+            cpu_stats: Some(cpu(200, 2000)),
+            precpu_stats: Some(cpu(100, 1000)),
+            memory_stats: Some(ContainerMemoryStats {
+                usage: Some(3 * 1024 * 1024),
+                limit: Some(1024 * 1024 * 1024),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut row = ContainerRow::from_summary(&summary());
+        row.apply_stats(&stats);
+        assert_eq!(row.cpu, "20.0%");
+        assert_eq!(row.mem, "3.0MB / 1.0GB");
     }
 }
 
