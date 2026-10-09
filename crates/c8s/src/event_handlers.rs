@@ -37,6 +37,10 @@ impl App {
                 self.on_key_describe(key);
                 Ok(())
             }
+            AppState::Processes { .. } => {
+                self.on_key_processes(key);
+                Ok(())
+            }
         }
     }
 
@@ -48,6 +52,32 @@ impl App {
             (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
             _ => {}
         }
+    }
+
+    #[allow(clippy::wildcard_enum_match_arm)]
+    fn on_key_processes(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Char('q') | KeyCode::Esc) => self.close_processes(),
+            (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
+            (_, KeyCode::Char('l')) => self.open_process_output(),
+            (_, KeyCode::Char('j')) => self.navigate_processes(KeyCode::Down),
+            (_, KeyCode::Char('k')) => self.navigate_processes(KeyCode::Up),
+            (
+                _,
+                code @ (KeyCode::Down | KeyCode::Up | KeyCode::Char('g' | 'G')),
+            ) => {
+                self.navigate_processes(code);
+            }
+            _ => {}
+        }
+    }
+
+    fn navigate_processes(&mut self, key: KeyCode) {
+        TableNavigationHandler::navigate_table(
+            &self.processes.model,
+            &mut self.processes.view,
+            key,
+        );
     }
 
     fn on_key_describe(&mut self, key: KeyEvent) {
@@ -323,6 +353,13 @@ impl App {
             {
                 if let Some(row) = self.selected_container().cloned() {
                     self.restart_container(&row.id).await;
+                }
+            }
+            (_, KeyCode::Char('p'))
+                if self.view == ResourceKind::Containers =>
+            {
+                if let Some(row) = self.selected_container().cloned() {
+                    self.open_processes(&row.id, &row.name);
                 }
             }
             (_, KeyCode::Char('l'))

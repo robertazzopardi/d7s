@@ -6,14 +6,20 @@ use bollard::{
         ListImagesOptions, ListNetworksOptions, ListVolumesOptions,
         LogsOptions, RemoveContainerOptions, RemoveImageOptions,
         RemoveVolumeOptions, RestartContainerOptions, StatsOptions,
-        StopContainerOptions,
+        StopContainerOptions, TopOptionsBuilder,
     },
 };
 use color_eyre::Result;
 use futures_util::StreamExt;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    process::Command,
+    sync::mpsc::UnboundedSender,
+};
 
-use super::{ContainerRow, ImageRow, NetworkRow, VolumeRow};
+use super::{
+    ContainerRow, ImageRow, NetworkRow, ProcessRow, SCAN_SCRIPT, VolumeRow,
+};
 
 /// Snapshot of daemon-level health/info — c8s's single-daemon analog of a
 /// fleet-wide health dashboard (there's only ever one daemon to summarize).
@@ -151,6 +157,113 @@ impl DockerClient {
         .await
         .ok()?
         .and_then(Result::ok)
+    }
+
+    /// Processes of a container with their output targets, found by running
+    /// [`SCAN_SCRIPT`] via the `docker` CLI (same as the exec-shell key).
+    /// Falls back to `docker top` when the container has no usable `sh`.
+    pub async fn processes(&self, id: &str) -> Result<Vec<ProcessRow>> {
+        let Some(mut rows) = Self::scan(id, None).await else {
+            return self.top(id).await;
+        };
+        // The kernel hides another user's `/proc/<pid>/fd` (no ptrace cap),
+        // e.g. postgres (uid 70) under the default root exec. Rescan as each
+        // owner of a process whose fds came back empty.
+        let owners: std::collections::BTreeSet<String> = rows
+            .iter()
+            .filter(|r| r.stdout.is_empty() && !r.user.is_empty())
+            .map(|r| r.user.clone())
+            .collect();
+        let scans = futures_util::future::join_all(
+            owners.iter().map(|uid| Self::scan(id, Some(uid))),
+        )
+        .await;
+        for seen in scans.into_iter().flatten() {
+            for s in seen.into_iter().filter(|s| !s.stdout.is_empty()) {
+                if let Some(r) = rows.iter_mut().find(|r| r.pid == s.pid) {
+                    r.stdout = s.stdout;
+                    r.stderr = s.stderr;
+                    r.files = s.files;
+                }
+            }
+        }
+        Ok(rows)
+    }
+
+    /// Run [`SCAN_SCRIPT`] in the container, optionally as `user`.
+    async fn scan(id: &str, user: Option<&str>) -> Option<Vec<ProcessRow>> {
+        let mut cmd = Command::new("docker");
+        cmd.arg("exec");
+        if let Some(user) = user {
+            cmd.args(["-u", user]);
+        }
+        let out = cmd
+            .args([id, "sh", "-c", SCAN_SCRIPT])
+            .output()
+            .await
+            .ok()?;
+        let rows = ProcessRow::from_scan(&String::from_utf8_lossy(&out.stdout));
+        (out.status.success() && !rows.is_empty()).then_some(rows)
+    }
+
+    /// Check a file inside the container is readable; the error is the
+    /// tool's own message (e.g. `head: can't open '/x': No such file`).
+    pub async fn probe_file(&self, id: &str, path: &str) -> Result<(), String> {
+        let out = Command::new("docker")
+            .args(["exec", id, "head", "-c", "0", path])
+            .output()
+            .await
+            .map_err(|e| format!("docker exec failed: {e}"))?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let msg = String::from_utf8_lossy(&out.stderr);
+        let msg = msg.trim();
+        Err(if msg.is_empty() {
+            format!("{path} unreadable")
+        } else {
+            msg.to_string()
+        })
+    }
+
+    /// Stream `tail -F` of a file inside the container into `tx`.
+    // shortcut: aborting this drops the local `docker exec`; the remote
+    // `tail` exits on its next write (SIGPIPE), not immediately.
+    pub async fn tail_file(
+        &self,
+        id: &str,
+        path: &str,
+        tx: UnboundedSender<String>,
+    ) {
+        let child = Command::new("docker")
+            .args(["exec", id, "tail", "-n", "200", "-F", path])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .spawn();
+        let Ok(mut child) = child else {
+            let _ = tx.send("[failed to run docker exec]".to_string());
+            return;
+        };
+        let Some(stdout) = child.stdout.take() else {
+            return;
+        };
+        let mut lines = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if tx.send(line).is_err() {
+                return;
+            }
+        }
+    }
+
+    /// Processes running in a container (`docker top`, full command lines).
+    pub async fn top(&self, id: &str) -> Result<Vec<ProcessRow>> {
+        let options = TopOptionsBuilder::default().ps_args("aux").build();
+        let top = self.docker.top_processes(id, Some(options)).await?;
+        Ok(ProcessRow::from_top(
+            &top.titles.unwrap_or_default(),
+            &top.processes.unwrap_or_default(),
+        ))
     }
 
     pub async fn start(&self, id: &str) -> Result<()> {

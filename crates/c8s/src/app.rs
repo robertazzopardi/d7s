@@ -21,7 +21,8 @@ use tokio::sync::mpsc::{
 use crate::{
     app_state::{AppState, ResourceKind},
     docker::{
-        ContainerRow, ImageRow, NetworkRow, VolumeRow, client::DockerClient,
+        ContainerRow, ImageRow, NetworkRow, ProcessRow, VolumeRow,
+        client::DockerClient,
     },
 };
 
@@ -52,6 +53,12 @@ pub enum BackgroundEvent {
     PollError(String),
     /// One log line from the active log-tail task.
     LogLine(String),
+    /// Process list refreshed by the active process-view poller.
+    Processes(Vec<ProcessRow>),
+    /// `docker top` failed (e.g. the container is not running).
+    ProcessError(String),
+    /// Message for the status line from a background task.
+    Status(String),
 }
 
 #[allow(clippy::struct_excessive_bools)]
@@ -66,6 +73,11 @@ pub struct App {
     pub(crate) images: TableDataState<ImageRow>,
     pub(crate) volumes: TableDataState<VolumeRow>,
     pub(crate) networks: TableDataState<NetworkRow>,
+    pub(crate) processes: TableDataState<ProcessRow>,
+    /// Aborts the running `docker top` poller, if any, when leaving the view.
+    pub(crate) process_task: Option<tokio::task::JoinHandle<()>>,
+    /// Where `q` goes from the log view when it was not opened from the list.
+    pub(crate) logs_back: Option<AppState>,
     /// Unfiltered rows from the last poll, kept so the `/` filter can be
     /// re-applied (or cleared) without waiting for the next poll tick.
     pub(crate) containers_all: Vec<ContainerRow>,
@@ -128,6 +140,9 @@ impl App {
             images: TableDataState::new(Vec::new()),
             volumes: TableDataState::new(Vec::new()),
             networks: TableDataState::new(Vec::new()),
+            processes: TableDataState::new(Vec::new()),
+            process_task: None,
+            logs_back: None,
             containers_all: Vec::new(),
             images_all: Vec::new(),
             volumes_all: Vec::new(),
@@ -326,6 +341,13 @@ impl App {
                 BackgroundEvent::PollError(e) => {
                     self.set_status(format!("Refresh failed: {e}"));
                 }
+                BackgroundEvent::Processes(rows) => {
+                    apply_table_update(&mut self.processes, rows);
+                }
+                BackgroundEvent::Status(msg) => self.set_status(msg),
+                BackgroundEvent::ProcessError(e) => {
+                    self.set_status(format!("Processes unavailable: {e}"));
+                }
                 BackgroundEvent::LogLine(line) => {
                     const MAX_LOG_LINES: usize = 5000;
                     let parsed = line
@@ -397,9 +419,56 @@ impl App {
 
     /// Enter the log view and start tailing the container's logs.
     pub(crate) fn open_logs(&mut self, id: &str, name: &str) {
+        self.start_logs(id, name, None, None);
+    }
+
+    /// Show the output of the process selected in the process view: its log
+    /// file if it writes to one, else the container logs when it shares
+    /// PID 1's output pipe.
+    pub(crate) fn open_process_output(&mut self) {
+        let AppState::Processes { id, name } = &self.state else {
+            return;
+        };
+        let (id, name) = (id.clone(), name.clone());
+        let back = Some(self.state.clone());
+        let rows = &self.processes.model.items;
+        let Some(row) = self
+            .processes
+            .view
+            .state
+            .selected()
+            .and_then(|i| rows.get(i))
+            .cloned()
+        else {
+            return;
+        };
+        if let Some(path) = row.files.first() {
+            let label = format!("{name}: {} {path}", row.pid);
+            self.start_logs(&id, &label, Some(row.files.clone()), back);
+        } else if row.stdout.starts_with("pipe:")
+            && rows.iter().any(|r| r.pid == "1" && r.stdout == row.stdout)
+        {
+            self.set_status("Shares container output (all processes)");
+            self.start_logs(&id, &name, None, back);
+        } else {
+            self.set_status("No readable output for this process");
+        }
+    }
+
+    /// Enter the log view tailing the container's logs, or the first
+    /// readable of `files` inside it (container logs if none is readable).
+    /// `back` is the state `q` returns to (the list when `None`).
+    fn start_logs(
+        &mut self,
+        id: &str,
+        name: &str,
+        files: Option<Vec<String>>,
+        back: Option<AppState>,
+    ) {
         let Some(docker) = self.docker.clone() else {
             return;
         };
+        self.logs_back = back;
         self.log_lines.clear();
         self.log_scroll = 0;
         self.log_follow = true;
@@ -416,7 +485,24 @@ impl App {
         let id = id.to_string();
         self.log_task = Some(tokio::spawn(async move {
             let (line_tx, mut line_rx) = unbounded_channel::<String>();
+            let status_tx = tx.clone();
             let follower = tokio::spawn(async move {
+                let mut errors = Vec::new();
+                for path in files.iter().flatten() {
+                    match docker.probe_file(&id, path).await {
+                        Ok(()) => {
+                            docker.tail_file(&id, path, line_tx).await;
+                            return;
+                        }
+                        Err(e) => errors.push(e),
+                    }
+                }
+                if !errors.is_empty() {
+                    let _ = status_tx.send(BackgroundEvent::Status(format!(
+                        "{}; showing container logs",
+                        errors.join("; ")
+                    )));
+                }
                 docker.tail_logs(&id, line_tx).await;
             });
             while let Some(line) = line_rx.recv().await {
@@ -439,12 +525,49 @@ impl App {
         }
     }
 
+    /// Enter the process view and poll `docker top` while it is open.
+    pub(crate) fn open_processes(&mut self, id: &str, name: &str) {
+        let Some(docker) = self.docker.clone() else {
+            return;
+        };
+        self.processes = TableDataState::new(Vec::new());
+        self.state = AppState::Processes {
+            id: id.to_string(),
+            name: name.to_string(),
+        };
+        if let Some(handle) = self.process_task.take() {
+            handle.abort();
+        }
+        let tx = self.bg_tx.clone();
+        let id = id.to_string();
+        self.process_task = Some(tokio::spawn(async move {
+            loop {
+                let event = match docker.processes(&id).await {
+                    Ok(rows) => BackgroundEvent::Processes(rows),
+                    Err(e) => BackgroundEvent::ProcessError(e.to_string()),
+                };
+                if tx.send(event).is_err() {
+                    break;
+                }
+                tokio::time::sleep(POLL_INTERVAL).await;
+            }
+        }));
+    }
+
+    /// Leave the process view, stopping the poller.
+    pub(crate) fn close_processes(&mut self) {
+        if let Some(handle) = self.process_task.take() {
+            handle.abort();
+        }
+        self.state = AppState::List;
+    }
+
     /// Leave the log view, stopping the tail task.
     pub(crate) fn close_logs(&mut self) {
         if let Some(handle) = self.log_task.take() {
             handle.abort();
         }
-        self.state = AppState::List;
+        self.state = self.logs_back.take().unwrap_or(AppState::List);
     }
 
     /// Containers matching the `/` filter and, when on, running-only.

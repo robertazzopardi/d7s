@@ -634,6 +634,117 @@ fn format_timestamp(secs: i64) -> String {
     }
 }
 
+/// Shell script run inside a container that lists processes with the
+/// targets of their stdout/stderr and any open `*.log` files, one tab
+/// separated line each: `pid uid stdout stderr files command`. Container
+/// PIDs, unlike `docker top`, so `/proc/<pid>/fd` can be followed.
+pub const SCAN_SCRIPT: &str = r#"for d in /proc/[0-9]*; do
+p=${d#/proc/}; [ "$p" = "$$" ] && continue
+c=$(tr '\0' ' ' < $d/cmdline 2>/dev/null); [ -n "$c" ] || continue
+u=$(sed -n 's/^Uid:[[:space:]]*\([0-9]*\).*/\1/p' $d/status 2>/dev/null)
+o=$(readlink $d/fd/1 2>/dev/null); e=$(readlink $d/fd/2 2>/dev/null)
+f=; for l in $d/fd/*; do t=$(readlink $l 2>/dev/null)
+case $t in /var/log/*|*.log) f="$f,$t";; esac; done
+printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$p" "$u" "$o" "$e" "${f#,}" "$c"
+done"#;
+
+/// One process inside a container.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ProcessRow {
+    pub pid: String,
+    pub user: String,
+    pub command: String,
+    /// Where fd 1 / fd 2 point (`pipe:[…]`, `/dev/null`, a file path), when
+    /// known. Empty for rows from `docker top`.
+    pub stdout: String,
+    pub stderr: String,
+    /// Regular files the process writes its output or logs to.
+    pub files: Vec<String>,
+}
+
+impl ProcessRow {
+    /// Parse the output of [`SCAN_SCRIPT`].
+    #[must_use]
+    pub fn from_scan(out: &str) -> Vec<Self> {
+        let is_file = |p: &str| p.starts_with('/') && !p.starts_with("/dev/");
+        out.lines()
+            .filter_map(|line| {
+                let mut f = line.splitn(6, '\t');
+                let (pid, user, stdout, stderr, extra, command) = (
+                    f.next()?,
+                    f.next()?,
+                    f.next()?,
+                    f.next()?,
+                    f.next()?,
+                    f.next()?,
+                );
+                let mut files: Vec<String> = Vec::new();
+                for p in [stdout, stderr].into_iter().chain(extra.split(',')) {
+                    if is_file(p) && !files.iter().any(|f| f == p) {
+                        files.push(p.to_string());
+                    }
+                }
+                Some(Self {
+                    pid: pid.into(),
+                    user: user.into(),
+                    command: command.trim_end().into(),
+                    stdout: stdout.into(),
+                    stderr: stderr.into(),
+                    files,
+                })
+            })
+            .collect()
+    }
+
+    /// Pick PID / USER / COMMAND out of `ps` output, whatever column order
+    /// or naming (`UID`, `CMD`) the daemon's `ps` used.
+    #[must_use]
+    pub fn from_top(titles: &[String], processes: &[Vec<String>]) -> Vec<Self> {
+        let col = |names: &[&str]| {
+            titles
+                .iter()
+                .position(|t| names.iter().any(|n| t.eq_ignore_ascii_case(n)))
+        };
+        let (pid, user, cmd) = (
+            col(&["PID"]),
+            col(&["USER", "UID"]),
+            col(&["COMMAND", "CMD"]),
+        );
+        let cell = |row: &[String], i: Option<usize>| {
+            i.and_then(|i| row.get(i)).cloned().unwrap_or_default()
+        };
+        processes
+            .iter()
+            .map(|row| Self {
+                pid: cell(row, pid),
+                user: cell(row, user),
+                command: cell(row, cmd),
+                ..Self::default()
+            })
+            .collect()
+    }
+}
+
+const PROCESS_COLUMNS: [&str; 3] = ["PID", "USER", "COMMAND"];
+
+impl TableData for ProcessRow {
+    fn title() -> &'static str {
+        "Processes"
+    }
+
+    fn ref_array(&self) -> Vec<String> {
+        vec![self.pid.clone(), self.user.clone(), self.command.clone()]
+    }
+
+    fn num_columns(&self) -> usize {
+        PROCESS_COLUMNS.len()
+    }
+
+    fn cols() -> Vec<&'static str> {
+        PROCESS_COLUMNS.to_vec()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bollard::models::{
@@ -735,6 +846,45 @@ mod tests {
         row.apply_stats(&stats);
         assert_eq!(row.cpu, "20.0%");
         assert_eq!(row.mem, "3.0MB / 1.0GB");
+    }
+
+    #[test]
+    fn process_rows_follow_title_order() {
+        let titles: Vec<String> =
+            ["UID", "PID", "PPID", "CMD"].map(String::from).to_vec();
+        let procs = vec![
+            ["root", "42", "1", "nginx -g daemon off;"]
+                .map(String::from)
+                .to_vec(),
+        ];
+        assert_eq!(
+            ProcessRow::from_top(&titles, &procs),
+            vec![ProcessRow {
+                pid: "42".into(),
+                user: "root".into(),
+                command: "nginx -g daemon off;".into(),
+                ..ProcessRow::default()
+            }]
+        );
+    }
+
+    #[test]
+    fn scan_collects_output_files() {
+        let out = "1\t0\tpipe:[1]\tpipe:[2]\t\tsh /probe.sh\n\
+                   53\t0\t/var/log/a.log\t/var/log/a.log\t/var/log/a.log\tsleep 1 \n\
+                   54\t0\t/dev/null\t/dev/null\t/var/log/c.log\tsleep 1 \n";
+        let rows = ProcessRow::from_scan(out);
+        assert_eq!(rows.len(), 3);
+        assert!(rows.first().is_some_and(|r| r.files.is_empty()));
+        assert_eq!(
+            rows.get(1).map(|r| r.files.clone()),
+            Some(vec!["/var/log/a.log".to_string()])
+        );
+        assert_eq!(
+            rows.get(2).map(|r| r.files.clone()),
+            Some(vec!["/var/log/c.log".to_string()])
+        );
+        assert_eq!(rows.get(2).map(|r| r.command.as_str()), Some("sleep 1"));
     }
 }
 

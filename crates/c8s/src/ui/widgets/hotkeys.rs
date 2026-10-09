@@ -1,8 +1,9 @@
 use crossterm::event::KeyCode;
 use k9tui::widgets::hotkey::Hotkey;
 
-pub const LIST_HOTKEYS: [Hotkey; 9] = [
+pub const LIST_HOTKEYS: [Hotkey; 10] = [
     Hotkey::new('a', "running only"),
+    Hotkey::new('p', "processes"),
     Hotkey::new('s', "start/stop"),
     Hotkey::new('r', "restart"),
     Hotkey::new('l', "logs"),
@@ -42,6 +43,18 @@ pub fn log_hotkeys() -> Vec<Hotkey> {
         Hotkey::new('G', "follow"),
         Hotkey::new('/', "search"),
         Hotkey::new('d', "dedup"),
+        Hotkey::code(KeyCode::Esc, "back"),
+        Hotkey::new('q', "back"),
+    ]
+}
+
+pub fn process_hotkeys() -> Vec<Hotkey> {
+    vec![
+        Hotkey::new('l', "output"),
+        Hotkey::new('j', "down"),
+        Hotkey::new('k', "up"),
+        Hotkey::new('g', "top"),
+        Hotkey::new('G', "bottom"),
         Hotkey::code(KeyCode::Esc, "back"),
         Hotkey::new('q', "back"),
     ]

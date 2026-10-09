@@ -15,6 +15,8 @@ pub enum AppState {
     /// Daemon health/info panel (c8s's single-daemon analog of a fleet health
     /// dashboard) — version, API version, OS/arch, container counts, image count.
     Info(DaemonHealth),
+    /// Full-screen process table for one container.
+    Processes { id: String, name: String },
     /// Full-screen `docker inspect`-style details for one container.
     Describe { name: String, text: String },
 }
