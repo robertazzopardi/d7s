@@ -128,7 +128,7 @@ impl App {
             (_, KeyCode::Char('q') | KeyCode::Esc) => self.log_filter.clear(),
             (_, KeyCode::Char('/')) => self.log_search_open = true,
             (KeyModifiers::NONE, KeyCode::Char('d')) => {
-                self.log_dedup = self.log_dedup.next()
+                self.log_dedup = self.log_dedup.next();
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => self.quit(),
             (_, KeyCode::Char('k') | KeyCode::Up) => {
