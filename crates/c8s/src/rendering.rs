@@ -17,6 +17,7 @@ use crate::{
     log_dedup::fold,
     ui::widgets::hotkeys::{
         GLOBAL_HOTKEYS, VIEW_SWITCH_HOTKEYS, describe_hotkeys, log_hotkeys,
+        process_hotkeys,
     },
 };
 
@@ -45,7 +46,61 @@ impl App {
                 let text = text.clone();
                 self.render_describe(frame, &name, &text);
             }
+            AppState::Processes { name, .. } => {
+                let name = name.clone();
+                self.render_processes(frame, &name);
+            }
         }
+    }
+
+    fn render_processes(&mut self, frame: &mut Frame, name: &str) {
+        let layout = Layout::vertical([
+            Constraint::Length(TOPBAR_HEIGHT),
+            Constraint::Min(0),
+            Constraint::Length(FOOTER_HEIGHT),
+        ])
+        .split(frame.area());
+
+        let top_area = layout.first().copied().unwrap_or_default();
+        let content_area = layout.get(1).copied().unwrap_or_default();
+        let footer_area = layout.get(2).copied().unwrap_or_default();
+
+        let hotkeys = process_hotkeys();
+        frame.render_widget(
+            TopBarView {
+                summary: &format!("Processes: {name}"),
+                recent_hotkeys: &[],
+                hotkeys: &hotkeys,
+                global_hotkeys: &[],
+                app_name: APP_NAME,
+                build_info: None,
+            },
+            top_area,
+        );
+
+        let n = self.processes.model.items.len();
+        let block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(theme::border())
+            .title(format!(" Processes: {name} [{n}] "))
+            .title_alignment(Alignment::Center);
+        let inner = block.inner(content_area);
+        frame.render_widget(block, content_area);
+
+        if n == 0 {
+            Paragraph::new("No processes")
+                .style(theme::muted())
+                .alignment(Alignment::Center)
+                .render(inner, frame.buffer_mut());
+        } else {
+            frame.render_stateful_widget(
+                DataTable::default(),
+                inner,
+                &mut self.processes,
+            );
+        }
+
+        frame.render_widget(self.status_line.clone(), footer_area);
     }
 
     fn render_connecting(frame: &mut Frame) {
