@@ -43,7 +43,7 @@ Requires [vhs](https://github.com/charmbracelet/vhs) and `sqlite3`. Uses an isol
 
 ### crates.io
 
-Requires Rust stable (1.91.0 or later).
+Requires Rust stable (1.88 or later).
 
 ```sh
 cargo install d7s --locked
@@ -53,7 +53,7 @@ The `d7s` binary will be placed in `$CARGO_HOME/bin` (usually `~/.cargo/bin`), w
 
 ### Building from source
 
-Requires Rust stable (1.91.0 or later).
+Requires Rust stable (1.88 or later).
 
 ```sh
 cargo build --release --locked

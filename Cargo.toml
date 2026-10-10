@@ -4,6 +4,7 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
+rust-version = "1.88"
 
 [profile.release]
 codegen-units = 1
