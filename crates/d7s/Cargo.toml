@@ -1,6 +1,6 @@
 [package]
 name = "d7s"
-version = "0.4.0"
+version = "0.5.0"
 description = "A k9s-style TUI database client for PostgreSQL and SQLite"
 authors = ["Rob <robertazzopardi@users.noreply.github.com>"]
 license = "MIT"
