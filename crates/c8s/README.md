@@ -2,7 +2,7 @@
 
 A k9s-style TUI for Docker containers, built in Rust with [Ratatui](https://ratatui.rs), reusing [k9tui](https://crates.io/crates/k9tui)'s chrome.
 
-![c8s — container list, restart, live logs](https://raw.githubusercontent.com/robertazzopardi/d7s/main/crates/c8s/demo.gif)
+![c8s — container list, restart, live logs](https://raw.githubusercontent.com/robertazzopardi/t7s/main/crates/c8s/demo.gif)
 
 ```sh
 just c8s-demo

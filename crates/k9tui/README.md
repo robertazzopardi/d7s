@@ -1,6 +1,6 @@
 # k9tui
 
-Reusable [k9s](https://k9scli.io/)-style ratatui widget kit — theme, tables, modals, top bar and hotkey chrome for building keyboard-driven, row-based TUI apps. Extracted from [d7s](https://github.com/robertazzopardi/d7s), which remains its reference consumer.
+Reusable [k9s](https://k9scli.io/)-style ratatui widget kit — theme, tables, modals, top bar and hotkey chrome for building keyboard-driven, row-based TUI apps. Extracted from [d7s](https://github.com/robertazzopardi/t7s), which remains its reference consumer.
 
 ## What's in it
 

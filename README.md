@@ -1,4 +1,4 @@
-# d7s
+# t7s
 
 A monorepo of k9s-style terminal UIs, built in Rust with [Ratatui](https://ratatui.rs).
 
