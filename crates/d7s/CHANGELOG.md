@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - k9s-style `:` command bar: `:conn`, `:schemas`, `:tables`, `:columns`, `:sql`, `:log`, `:activity`, `:help`, `:q`, `:123` (jump to row), and `:table <name>` to open a table by name. Unique prefixes work and Tab completes verbs and table names.
 - Watch mode (`w`) re-runs the current SQL results query every 2s until toggled off.
 - PostgreSQL activity view (`A`) showing `pg_stat_activity` (pid, query, state, wait event, start time).
-- Query log (`L`) listing every query d7s ran this session (your SQL, watch ticks, activity and metadata queries) with origin, duration and rows or error, showing the real SQL sent to the backend.
+- Query log (`L`) listing every query d7s ran this session, with origin, duration, rows or error, and the real SQL sent.
 - Connection health check (`p` in the connection list) pings every saved connection concurrently and shows a Status column.
 
 ### Fixed
@@ -24,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 - Repository is now a Cargo workspace; the shared k9s-style widget kit is the `k9tui` crate, which `d7s` depends on. A second app, `c8s` (Docker), lives alongside it.
 - Declared minimum supported Rust version 1.88.
-- Dependency updates, including `tokio-postgres` 0.7.18, `sqlparser` 0.63, `ratatui-textarea` 0.9, `rust_decimal`, `chrono`, `serde`, `serde_json`, `postgres-types`, `unicode-width` and `futures-util`; `tokio-postgres`, `slab`, `tracing-subscriber` and `rand` were bumped to clear RustSec advisories.
+- Dependency updates; `tokio-postgres`, `slab`, `tracing-subscriber` and `rand` were bumped to clear RustSec advisories.
 
 ## [0.4.0] - 2026-09-09
 

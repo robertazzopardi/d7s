@@ -1,9 +1,9 @@
-# `v*` tags are d7s-only releases (c8s uses `c8s-v*` and k9tui `k9tui-v*`, which do not trigger this workflow).
 name: Release
 
 on:
   push:
     tags:
+      # d7s only; c8s-v* and k9tui-v* tags do not match.
       - "v*"
 
 permissions:

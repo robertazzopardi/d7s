@@ -104,12 +104,12 @@ docker-down:
 docker-logs:
     cd crates/d7s && docker compose logs -f
 
-# Publish order (d7s and c8s depend on k9tui):
+
+# Publish order (d7s and c8s depend on k9tui, so k9tui goes first):
 #   just release k9tui 0.1.0   (tag k9tui-v0.1.0, no workflow)
 #   just release d7s 0.5.0     (tag v0.5.0, triggers the d7s binary release workflow)
 #   just release c8s 0.1.0     (tag c8s-v0.1.0, no workflow)
-# Prereq: cargo install cargo-edit, jq
-# Release one crate: bump version, commit, tag, push, publish to crates.io
+# Release one crate whose version is already bumped on main: publish, then tag and push.
 release CRATE VERSION:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -120,52 +120,20 @@ release CRATE VERSION:
         *) echo "Error: CRATE must be one of: k9tui, d7s, c8s"; exit 1 ;;
     esac
 
-    # Ensure working tree is clean
     if ! git diff --quiet || ! git diff --cached --quiet; then
-        echo "Error: working tree is not clean. Commit or stash changes first."
-        exit 1
+        echo "Error: working tree is not clean."; exit 1
     fi
 
-    # d7s and c8s need their k9tui dependency already on crates.io
-    if [ "{{CRATE}}" != "k9tui" ]; then
-        K9=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="k9tui") | .version')
-        if ! curl -sf -A "d7s-release" "https://crates.io/api/v1/crates/k9tui/$K9" >/dev/null; then
-            echo "Error: k9tui $K9 is not on crates.io yet. Run: just release k9tui $K9"
-            exit 1
-        fi
-    fi
+    CURRENT=$(cargo pkgid -p {{CRATE}} | sed 's/.*[#@]//')
+    [ "$CURRENT" = "{{VERSION}}" ] || { echo "Error: {{CRATE}} is $CURRENT in Cargo.toml, not {{VERSION}}."; exit 1; }
 
-    # Require a changelog entry (k9tui has no changelog file)
     CL=crates/{{CRATE}}/CHANGELOG.md
-    if [ -f "$CL" ]; then
-        if ! grep -q "\[{{VERSION}}\]" "$CL"; then
-            echo "No CHANGELOG.md entry found for [{{VERSION}}]. Opening for editing..."
-            ${EDITOR:-vi} "$CL"
-            grep -q "\[{{VERSION}}\]" "$CL" || { echo "Error: $CL still has no entry for [{{VERSION}}]. Aborting."; exit 1; }
-        fi
+    if [ -f "$CL" ] && ! grep -q "\[{{VERSION}}\]" "$CL"; then
+        echo "Error: no [{{VERSION}}] entry in $CL."; exit 1
     fi
 
-    # Bump only this crate's version
-    cargo set-version -p {{CRATE}} {{VERSION}}
-
-    # Commit and tag
-    git add crates/{{CRATE}}/Cargo.toml Cargo.lock
-    if [ -f "$CL" ]; then git add "$CL"; fi
-    git commit -m "chore: release {{CRATE}} {{VERSION}}"
-    git tag "$TAG"
-    git push origin HEAD --follow-tags
-
-    echo "Pushed $TAG: publishing {{CRATE}}..."
+    # Publish first: a failure (e.g. k9tui not yet on crates.io) leaves no tag behind.
     cargo publish -p {{CRATE}}
-
-    # Wait for the crates.io index so dependents (d7s, c8s) can resolve it
-    for _ in $(seq 1 30); do
-        if curl -sf -A "d7s-release" "https://crates.io/api/v1/crates/{{CRATE}}/{{VERSION}}" >/dev/null; then break; fi
-        sleep 5
-    done
-
-    if [ "{{CRATE}}" = "d7s" ]; then
-        echo "Released $TAG: GitHub Actions will build and publish d7s binaries."
-    else
-        echo "Released $TAG (no GitHub workflow runs for this tag)."
-    fi
+    git tag "$TAG"
+    git push origin "$TAG"
+    echo "Released $TAG"
